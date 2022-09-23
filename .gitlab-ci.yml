@@ -1,3 +1,7 @@
+variables:
+  LINUX_AMD64_BINARY: "immunediscover-linux-amd64.tar.gz"
+  PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/immunediscover/${CI_COMMIT_TAG}"
+
 .script:
   script:
     - |
@@ -5,6 +9,7 @@
         using Pkg
         Pkg.build()
         Pkg.test(coverage=true)'
+
 .coverage:
   coverage: /Test coverage (\d+\.\d+%)/
   after_script:
@@ -16,15 +21,37 @@
         c, t = get_summary(process_folder())
         using Printf
         @printf "Test coverage %.2f%%\n" 100c / t'
-Julia 1.8:
+
+build:
   image: julia:1.8
   extends:
     - .script
     - .coverage
+  only:
+    - main
+
+build_binary:
+  image: julia:1.8
+  script:
+    - apt-get update -qq && apt-get install -y clang
+    - |
+      julia --project=@. -e '
+        using Pkg
+        Pkg.instantiate()
+        using PackageCompiler
+        create_app(".","immunediscover",force=true) '
+    - tar cvfz ${LINUX_AMD64_BINARY} immunediscover
+  artifacts:
+    paths:
+      - ${LINUX_AMD64_BINARY}
+  only:
+    - tags
+
 pages:
   image: julia:1.8
   stage: deploy
   script:
+    - apt-get update -qq && apt-get install -y git
     - |
       julia --project=docs -e '
         using Pkg
@@ -41,3 +68,37 @@ pages:
       - public
   only:
     - main
+
+upload:
+  stage: upload
+  image: curlimages/curl:latest
+  needs:
+    - job: build_binary
+      artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - ls -la
+    - |
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "${LINUX_AMD64_BINARY}" "${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}"
+    - echo "${LINUX_AMD64_BINARY}" "${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}"
+
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "COMMIT_TAG ${CI_COMMIT_TAG}, CI_JOB_TOKEN ${CI_JOB_TOKEN}"
+    - |
+      release-cli create --name "Release $CI_COMMIT_TAG" --tag-name $CI_COMMIT_TAG \
+        --assets-link "{\"name\":\"${LINUX_AMD64_BINARY}\",\"url\":\"${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}\"}"
+
+stages:
+  - build
+  - build_binary
+  - test
+  - deploy
+  - upload
+  - release
+

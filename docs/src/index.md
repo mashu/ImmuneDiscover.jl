@@ -10,5 +10,5 @@ Documentation for [immunediscover](https://gitlab.com/mateusz-kaduk/immunediscov
 ```
 
 ```@autodocs
-Modules = [immunediscover]
+Modules = [immunediscover.demultiplex]
 ```
