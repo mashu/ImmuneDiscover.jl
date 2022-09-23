@@ -1,0 +1,13 @@
+name = "immunediscover"
+uuid = "ede02418-ba61-46a9-a923-ddac3116c86d"
+authors = ["Mateusz Kaduk <mateusz.kaduk@gmail.com> and contributors"]
+version = "0.1.0"
+
+[compat]
+julia = "1.8"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
