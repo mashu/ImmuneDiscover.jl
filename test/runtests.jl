@@ -1,35 +1,21 @@
 using immunediscover
 using Test
-using FASTX
-
-"""
-Generate fastq for testing purpose
-"""
-function generate_fastq(prefix::T ,core::T, suffix::T, n::Vector{Int}; path="test.fastq") where T<:Vector{String}
-    @assert length(prefix) == length(core) == length(suffix) == length(n)
-    records = []
-    nread = 1
-    for i in 1:length(n)
-        for j in 1:n[i]
-            seqlen = length(core[i])+length(prefix[i])+length(suffix[i])
-            record = FASTQRecord("read$nread", prefix[i]*core[i]*suffix[i], fill(40, seqlen))
-            push!(records, record)
-            nread += 1  # Advance one read
-        end
-    end
-    FASTQ.Writer(open(path, "w")) do writer
-        for record in records
-            write(writer, record)
-        end
-    end
-end
-
-generate_fastq(["AAA", "AAT"], ["CACAGTG", "CACAGTG"], ["TTT", "TTT"], [10, 5])
+using CSV
+using DataFrames
 
 #
 # Run testsets
 #
 @testset verbose = true "immunediscover" begin
+    @testset "simulate.jl" begin
+        records = immunediscover.simulate.generate_fastq(["AAA", "AAT"], ["CACAGTG", "CACAGTG"], ["TTT", "TTT"], [10, 5])
+        indices = immunediscover.simulate.generate_indices(["AAA", "AAT"], ["TTT", "TTT"], ["A1","A2"])
+        immunediscover.data.write_fastq("test.fastq", records)
+        CSV.write("test_indices.tsv", indices, delim='\t')
+        @test length(records) == 15
+        @test nrow(indices) == 2
+    end
+
     @testset "demultiplex.jl" begin
         n = 0
         immunediscover.demultiplex.process_fastq("test.fastq") do r
@@ -40,11 +26,15 @@ generate_fastq(["AAA", "AAT"], ["CACAGTG", "CACAGTG"], ["TTT", "TTT"], [10, 5])
 
     @testset "cli.jl" begin
         empty!(ARGS)
-        append!(ARGS, ["demultiplex", "test.fastq", "indices.tsv", "test.tsv"])
+        append!(ARGS, ["demultiplex", "test.fastq", "test_indices.tsv", "test.tsv"])
         parsed_args = immunediscover.cli.parse_commandline()
         @test parsed_args["%COMMAND%"] == "demultiplex"
         @test parsed_args["demultiplex"]["output"] == "test.tsv"
         @test parsed_args["demultiplex"]["fastq"] == "test.fastq"
-        @test parsed_args["demultiplex"]["indices"] == "indices.tsv"    
+        @test parsed_args["demultiplex"]["indices"] == "test_indices.tsv"    
+    end
+    @testset "immunediscover.jl" begin
+        @test immunediscover.julia_main() == 0
+        @inferred immunediscover.real_main()
     end
 end
