@@ -10,18 +10,18 @@ module demultiplex
     Function to demultiplex plate with indices using double barcoding
     """
     function demux(fastq_path, indices_path)
-        indices = CSV.File(indices_path) |> DataFrame
-        @assert all(names(indices) .== ["forward_index","reverse_index","case"]) "File must contain following columns forward_index, reverse_index, case"
-        @info "Loaded $(nrow(indices)) indices"
+        indices = CSV.File(indices_path)
+        @assert all(string.(eachindex(first(indices))) .== ["forward_index","reverse_index","case"]) "File must contain following columns forward_index, reverse_index, case"
+        @info "Loaded $(length(indices)) indices"
         records = []
         total = 0
         # Processing callback
         data.process_fastq(fastq_path) do record
             name, genomic_sequence = identifier(record), string(sequence(record))
-            @inbounds for i in 1:nrow(indices)
-                forward = indices[i,:forward_index]
-                reverse = indices[i,:reverse_index]
-                case = indices[i,:case]
+            @inbounds for i in eachindex(indices)
+                forward = indices[i].forward_index
+                reverse = indices[i].reverse_index
+                case = indices[i].case
                 if startswith(genomic_sequence, forward) & endswith(genomic_sequence, reverse)
                     push!(records, (i, case, name, genomic_sequence))
                 end
