@@ -5,7 +5,7 @@ variables:
 .script:
   script:
     - |
-      julia --project=@. -e '
+      julia --threads auto --project=@. -e '
         using Pkg
         Pkg.build()
         Pkg.test(coverage=true)'
@@ -14,7 +14,7 @@ variables:
   coverage: /Test coverage (\d+\.\d+%)/
   after_script:
     - |
-      julia -e '
+      julia --threads auto -e '
         using Pkg
         Pkg.add("Coverage")
         using Coverage
@@ -34,12 +34,13 @@ build_binary:
   image: julia:1.8
   script:
     - apt-get update -qq && apt-get install -y clang
+    - export PROOT_NO_SECCOMP=1
     - |
-      julia --project=@. -e '
+      julia --threads auto --project=@. -e '
         using Pkg
         Pkg.instantiate()
         using PackageCompiler
-        create_app(".","immunediscover",force=true) '
+        create_app(".", "immunediscover") '
     - tar cvfz ${LINUX_AMD64_BINARY} immunediscover
   artifacts:
     paths:
@@ -53,7 +54,7 @@ pages:
   script:
     - apt-get update -qq && apt-get install -y git
     - |
-      julia --project=docs -e '
+      julia --threads auto --project=docs -e '
         using Pkg
         Pkg.develop(PackageSpec(path=pwd()))
         Pkg.instantiate()

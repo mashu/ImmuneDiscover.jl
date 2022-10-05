@@ -1,6 +1,6 @@
 module data
     using FASTX
-    using TranscodingStreams, CodecZlib
+    using CodecZlib
     using ProgressMeter
     using CodecZlib
 
@@ -19,7 +19,7 @@ module data
     Save records with sequences and quality scores to fastq file
     """
     function write_gz_fastq(path, records)
-        FASTQ.Writer(TranscodingStream(GzipCompressor(),open(path, "w"))) do writer
+        FASTQ.Writer(GzipCompressorStream(open(path, "w"))) do writer
             for record in records
                 write(writer, record)
             end
@@ -41,7 +41,7 @@ module data
     Save records with sequences to fasta file
     """
     function write_gz_fasta(path, records)
-        FASTA.Writer(TranscodingStream(GzipCompressor(),open(path, "w"))) do writer
+        FASTA.Writer(GzipCompressorStream(open(path, "w"))) do writer
             for record in records
                 write(writer, record)
             end

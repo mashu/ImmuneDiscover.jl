@@ -58,6 +58,9 @@ module cli
             default = 20
             arg_type = Int
             range_tester = (x->x > 1)
+        "-p", "--position"
+            help = "An optional switch to save start,stop columns instead of trimmed_sequence"
+            action = :store_true
         end
 
         return parse_args(s)

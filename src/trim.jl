@@ -58,21 +58,26 @@ module trim
     """
     Process table in parallel and perform trimming
     """
-    function find_segments(table, prof_start, prof_stop)
+    function find_segments(genomic_sequence, prof_start, prof_stop)
+        p = Progress(length(genomic_sequence))
         len = size(prof_start, 2)
-        p = Progress(nrow(table))
-        Folds.map(eachrow(table)) do row
-            sequence = row.genomic_sequence
+        region = Folds.map(genomic_sequence) do seq
             ProgressMeter.next!(p)
-            start, stop = trim.trim_read(sequence, prof_start, prof_stop)
-            if stop > 0
-                prefix = sequence[start-6:start]
-                center = sequence[start:stop-1]
-                suffix = sequence[stop:stop-1+7]
-                (prefix, center, suffix)
-            else
-                ("", "", "")
+            trim.trim_read(seq, prof_start, prof_stop)
+        end
+        n = length(genomic_sequence)
+        ok = zeros(Bool, n)
+        fragments = []
+        for i in 1:n
+            (start, stop) = region[i]
+            if start+len < stop
+                ok[i] = true
+                fragment = genomic_sequence[i][start:stop-1]
+                push!(fragments, fragment)
             end
         end
+        valid = round(sum(ok)/length(region)*100,digits=2)
+        @info "Trimmed $valid sequences"
+        return ok, fragments, region
     end
 end

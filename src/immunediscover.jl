@@ -31,15 +31,22 @@ module immunediscover
             table = CSV.File(parsed_args["trim"]["input"], delim='\t') |> DataFrame
             db = [r[2] for r in data.load_fasta(parsed_args["trim"]["fasta"])]
             len = parsed_args["trim"]["length"]
+            pos = parsed_args["trim"]["position"]
 
             prof_start, prof_stop = trim.trim_profiles(db, len)
-            segments = trim.find_segments(table, prof_start, prof_stop)
-            table[:,:prefix] .= [s[1] for s in segments]
-            table[:,:center] .= [s[2] for s in segments]
-            table[:,:suffix] .= [s[3] for s in segments]
+            ok, fragments, region = trim.find_segments(table.genomic_sequence, prof_start, prof_stop)
 
+            subtable = table[ok,:]
+            if pos
+                start = [r[1] for r in region]
+                stop = [r[2] for r in region]
+                subtable[:,:start] = start
+                subtable[:,:stop] = stop
+            else
+                subtable[:,:trimmed_sequence] = fragments
+            end
             output = cli.always_gz(parsed_args["trim"]["output"])
-            CSV.write(output, table, compress=true, delim='\t')
+            CSV.write(output, subtable, compress=true, delim='\t')
             @info "Trimmed data saved in compressed $output file"
         end
         return 0

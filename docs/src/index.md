@@ -9,19 +9,17 @@ CurrentModule = immunediscover
 [![Build Status](https://gitlab.com/mateusz-kaduk/immunediscover.jl/badges/main/pipeline.svg)](https://gitlab.com/mateusz-kaduk/immunediscover.jl/pipelines)
 [![Coverage](https://gitlab.com/mateusz-kaduk/immunediscover.jl/badges/main/coverage.svg)](https://gitlab.com/mateusz-kaduk/immunediscover.jl/commits/main)
 
-## Description
-
 Immunediscover is a package for immune repertoire sequencing. It can be downloaded as prebuild binary bundle from [releases](https://gitlab.com/mateusz-kaduk/immunediscover.jl/-/releases).
 
-## Usage
+# Usage
 
 Immunediscover has multiple commands that work as a pipeline and serve different purposes. The starting file the program is single FASTQ file with the reads and indexing barcodes (indices). Futher subcommands required demultiplex data in TSV format.
 
 Typical application to find V genes takes following steps
 1. **Demultiplexing** of FASTQ file into correct cases
-2. **Heptamer** extraction and extension of provided query alleles
+2. **Trim** reads by computing profile at the beginning and end of the pre-aligned sequences and locating start and stop within a read that maximizes `P(sequence|profile)`
 
-### Demultiplexing
+## Demultiplexing
 To demultiplex FASTQ file is is required to provide path to compressed FASTQ file (fastq.gz) and tab separated (TSV) file with following mandatory columns:
 - forward_index
 - reverse_index
@@ -38,6 +36,16 @@ Output is a compressed tab separated (TSV) file with following columns:
 - case
 - name
 - genomic_sequence
+
+## Trim
+To trim demultiplex data in TSV format with `genomic_sequence` column are needed as input as well as FASTA file with V alleles.
+Program iterates reads and attempts to find start and stop position of potential V allele in each read, reports fraction of succesfully trimmed sequences (for start < stop) and appends additional column `trimmed_sequence`. To save space, it is possible to save `start` and `stop` positions instead with a subcommand switch. 
+
+```
+immunediscover/bin/immunediscover trim test.tsv.gz test.fasta test_trimmed.tsv.gz -l 6
+```
+
+**Note** for V genes longer profile `-l 20` worked well with our libraries, example above uses shorter profile for generated test sequences.
 
 # API
 Functions implemented in a package are documented and listed below:
