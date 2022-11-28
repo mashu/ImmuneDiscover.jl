@@ -34,12 +34,12 @@ build_binary:
   image: julia:1.8
   script:
     - apt-get update -qq && apt-get install -y clang
-    - export PROOT_NO_SECCOMP=1
     - |
-      julia --threads auto --project=@. -e '
+      julia --startup-file=no --threads auto --project=@. -e '
         using Pkg
         Pkg.instantiate()
         using PackageCompiler
+
         create_app(".", "immunediscover") '
     - tar cvfz ${LINUX_AMD64_BINARY} immunediscover
   artifacts:

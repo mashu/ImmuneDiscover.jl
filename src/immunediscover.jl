@@ -5,6 +5,7 @@ module immunediscover
     include("data.jl")
     include("profile.jl")
     include("trim.jl")
+    include("exact.jl")
 
     using .cli
     using .demultiplex
@@ -12,6 +13,7 @@ module immunediscover
     using .data
     using .profile
     using .trim
+    using .exact
     using CSV
     using DataFrames
 
@@ -48,6 +50,17 @@ module immunediscover
             output = cli.always_gz(parsed_args["trim"]["output"])
             CSV.write(output, subtable, compress=true, delim='\t')
             @info "Trimmed data saved in compressed $output file"
+        end
+
+        if parsed_args["%COMMAND%"] == "exact"
+            @info "Exact search"
+            table = CSV.File(parsed_args["exact"]["tsv"], delim='\t') |> DataFrame
+            db = data.load_fasta(parsed_args["exact"]["fasta"])
+            counts_df = exact.exact_search(table, db)
+            sort!(counts_df, [:case, :db_name])
+            output = cli.always_gz(parsed_args["exact"]["output"])
+            CSV.write(output, counts_df, compress=true, delim='\t')
+            @info "Exact search data saved in compressed $output file"
         end
         return 0
     end

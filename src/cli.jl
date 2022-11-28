@@ -27,7 +27,10 @@ module cli
                 help = "Demultiplex plate library"
                 action = :command
             "trim"
-                help = "Trim reads with a 5' and 3' profiles"
+                help = "Trim reads with start and stop profiles"
+                action = :command
+            "exact"
+                help = "Exact search database against reads"
                 action = :command
             end
 
@@ -61,6 +64,18 @@ module cli
         "-p", "--position"
             help = "An optional switch to save start,stop columns instead of trimmed_sequence"
             action = :store_true
+        end
+
+        @add_arg_table! s["exact"] begin
+        "tsv"
+            help = "TSV file with demultiplexed data"
+            required = true
+        "fasta"
+            help = "FASTA file with query alleles"
+            required = true
+        "output"
+            help = "TSV file to save ouput"
+            required = true
         end
 
         return parse_args(s)

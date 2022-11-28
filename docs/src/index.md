@@ -47,6 +47,9 @@ immunediscover/bin/immunediscover trim test.tsv.gz test.fasta test_trimmed.tsv.g
 
 **Note** for V genes longer profile `-l 20` worked well with our libraries, example above uses shorter profile for generated test sequences.
 
+## Exact
+Exact can be used to count exact matches of particular input sequences from FASTA file in demultiplexed data.
+
 # API
 Functions implemented in a package are documented and listed below:
 ```@index
