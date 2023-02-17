@@ -4,6 +4,8 @@ module data
     using ProgressMeter
     using CodecZlib
 
+    export load_fasta
+
     """
     Save records with sequences and quality scores to fastq file
     """
