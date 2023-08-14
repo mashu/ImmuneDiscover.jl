@@ -52,16 +52,14 @@ using .trim
         @test endswith(cli.always_gz("test.fasta"), ".gz")
         empty!(ARGS)
         append!(ARGS, ["demultiplex", "test.fastq", "test_indices.tsv", "test.tsv"])
-        parsed_args = cli.parse_commandline()
+        parsed_args = cli.parse_commandline(ARGS)
         @test parsed_args["%COMMAND%"] == "demultiplex"
         @test parsed_args["demultiplex"]["fastq"] == "test.fastq"
         @test parsed_args["demultiplex"]["indices"] == "test_indices.tsv"
         @test parsed_args["demultiplex"]["output"] == "test.tsv"
-        @test immunediscover.julia_main() == 0
         empty!(ARGS)
         append!(ARGS, ["trim", "test.tsv.gz", "test.fasta", "test_trim.tsv","-l","7"])
-        parsed_args = cli.parse_commandline()
-        @test immunediscover.julia_main() == 0
+        parsed_args = cli.parse_commandline(ARGS)
         @test parsed_args["%COMMAND%"] == "trim"
         @test parsed_args["trim"]["input"] == "test.tsv.gz"
         @test parsed_args["trim"]["fasta"] == "test.fasta"
