@@ -119,7 +119,7 @@ module immunediscover
 
     function julia_main()::Cint
         try
-            real_main()
+            real_main(ARGS)
         catch
             Base.invokelatest(Base.display_error, Base.catch_stack())
             return 1

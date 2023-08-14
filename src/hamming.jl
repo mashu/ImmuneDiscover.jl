@@ -4,6 +4,7 @@ module hamming
     using ProgressMeter
     using StringDistances
     using DataFrames
+    using MD5
     export hamming_search
 
     """
@@ -72,7 +73,7 @@ module hamming
             case = string(first(group.case))
             clusters = combine(groupby(group,[:gene,:prefix,:middle,:suffix]),nrow => :cluster_size)
             clusters_filtered = clusters[clusters.cluster_size .> (maximum(clusters.cluster_size) * cluster_ratio),:]
-            clusters_filtered[:,:allele_name] = [get(lookup,seq,immune.unique_name(string(first(group.gene)),seq)*" Novel") for seq in clusters_filtered.middle]
+            clusters_filtered[:,:allele_name] = [get(lookup,seq,unique_name(string(first(group.gene)),seq)*" Novel") for seq in clusters_filtered.middle]
             clusters_filtered[:,:case] .= case
             push!(result, clusters_filtered)
         end
