@@ -23,7 +23,7 @@ variables:
         @printf "Test coverage %.2f%%\n" 100c / t'
 
 build:
-  image: julia:1.8
+  image: julia:1.9
   extends:
     - .script
     - .coverage
@@ -31,7 +31,7 @@ build:
     - main
 
 build_binary:
-  image: julia:1.8
+  image: julia:1.9
   script:
     - apt-get update -qq && apt-get install -y clang
     - |
@@ -49,7 +49,7 @@ build_binary:
     - tags
 
 pages:
-  image: julia:1.8
+  image: julia:1.9
   stage: deploy
   script:
     - apt-get update -qq && apt-get install -y git
