@@ -29,7 +29,8 @@ module immunediscover
             if get(parsed_args,"%COMMAND%","") == "demultiplex"
                 @info "Demultiplexing"
                 table = immunediscover.demultiplex.demux(parsed_args["demultiplex"]["fastq"],
-                                                         parsed_args["demultiplex"]["indices"])
+                                                         parsed_args["demultiplex"]["indices"],
+                                                         min_length=parsed_args["demultiplex"]["length"])
                 output = cli.always_gz(parsed_args["demultiplex"]["output"])
                 CSV.write(output, table, compress=true, delim='\t')
                 @info "Demultiplexed data saved in compressed $output file"

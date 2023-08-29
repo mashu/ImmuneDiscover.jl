@@ -9,12 +9,13 @@ module demultiplex
     """
     Function to demultiplex plate with indices using double barcoding
     """
-    function demux(fastq_path, indices_path)
+    function demux(fastq_path, indices_path; min_length=0)
         indices = CSV.File(indices_path)
         @assert all(string.(eachindex(first(indices))) .== ["forward_index","reverse_index","case"]) "File must contain following columns forward_index, reverse_index, case"
         @info "Loaded $(length(indices)) indices"
         records = []
         total = 0
+        short = 0
         # Processing callback
         data.process_fastq(fastq_path) do record
             name, genomic_sequence = identifier(record), string(sequence(record))
@@ -23,6 +24,10 @@ module demultiplex
                 reverse = indices[i].reverse_index
                 case = indices[i].case
                 if startswith(genomic_sequence, forward) & endswith(genomic_sequence, reverse)
+                    if length(genomic_sequence) < min_length
+                        short += 1
+                        continue
+                    end
                     push!(records, (i, case, name, genomic_sequence))
                 end
             end
@@ -31,6 +36,7 @@ module demultiplex
         end
         percent = round((length(records)/total),digits=4)*100
         @info "Demultiplexed $(length(records)) out of $total ($percent)% sequences from FASTQ"
+        @info "Droped $short sequences shorter than $min_length"
         records_df = DataFrame(records)
         rename!(records_df, [:well, :case, :name, :genomic_sequence])
         # Display overall per well stats

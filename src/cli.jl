@@ -50,6 +50,11 @@ module cli
             "output"
                 help = "TSV file to save demultiplex data"
                 required = true
+            "-l", "--length"
+                help = "Minimum length of the read"
+                arg_type = Int
+                range_tester = (x->x >= 0)
+                default = 200
         end
 
         choices = ["IGKV", "IGLV", "IGHV"]
