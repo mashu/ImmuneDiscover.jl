@@ -25,41 +25,46 @@ module hamming
     """
     Function to search demultiplexed reads for sequences that match query with maximum hamming distance
     """
-    function hamming_search(table, db;max_dist=2)
-        found_list = []
-        @showprogress for subtable in groupby(table,:case)
-            case = string(first(subtable.case))
-            subtable = subtable[occursin.("N",subtable.genomic_sequence) .!= 1,:]
-            rows = Folds.map(collect(eachrow(subtable))) do row
-                case = string(row.case)
-                ref = row.genomic_sequence
-                pos = []
-                ref_length = length(ref)
-                for (name, query) in db
-                    query_length = length(query)
-                    for k in 1:length(ref)-query_length
-                        if (k+query_length-1) < ref_length
-                            dist = evaluate(Hamming(),query, ref[k:k+query_length-1])
-                            if dist <= max_dist
-                                push!(pos, (name, dist, k,k+query_length-1, query))
-                            end
-                        end
-                    end
-                end
-                if length(pos) > 0
-                    best_name, best_dist, start, stop, query = first(sort(pos,by=x->x[2]))    
-                    if (ref_length > stop+7) & ((start-7) > 0)
-                        match_sequence = ref[start:stop]
-                        match_prefix = ref[start-7:start-1]
-                        match_suffix = ref[stop+1:stop+7]
-                        (best_name, best_dist, start, stop, match_prefix, match_sequence, match_suffix, query, case)
-                    end
-                end
+    function hamming_search(table::DataFrame, db::Vector{Tuple{String, String}}; max_dist::Int=2, column::Symbol=:genomic_sequence, check_bounds::Bool=true)
+        found_list = Vector{Tuple{String, Int, Int, Int, SubString{String}, SubString{String}, SubString{String}, SubString{String}, String}}()
+        @showprogress for subtable in groupby(table, :case)
+            case_str = first(subtable.case)
+            subtable = subtable[.!occursin.("N", subtable[!, column]), :]
+            found = Folds.map(collect(eachrow(subtable))) do row
+                process_row(row, db, max_dist, column, case_str, check_bounds)
             end
-            found = [r for r in rows if r != nothing]
-            push!(found_list,found)
+            append!(found_list, [r for r in found if r !== nothing])
         end
         return found_list
+    end
+    
+    function process_row(row::DataFrameRow, db::Vector{Tuple{String, String}}, max_dist::Int, column::Symbol, case_str::String, check_bounds::Bool)
+        ref = row[column]
+        ref_length = length(ref)
+        pos = Vector{Tuple{String, Int, Int, Int, SubString{String}}}()
+        
+        @inbounds for (name, query) in db
+            query_length = length(query)
+            max_idx = ref_length - query_length + 1
+            @inbounds for k in 1:max_idx
+                dist = evaluate(Hamming(), query, SubString(ref, k, k + query_length - 1))
+                if dist <= max_dist
+                    push!(pos, (name, dist, k, k + query_length - 1, SubString(ref, k, k + query_length - 1)))
+                end
+            end
+        end
+
+        if isempty(pos)
+            return nothing
+        end
+    
+        best_name, best_dist, start, stop, query_view = first(sort(pos, by=x->x[2]))
+        if check_bounds && (ref_length > stop+7) && (start-7 > 0)
+            return (best_name, best_dist, start, stop, SubString(ref, start-7, start-1), SubString(ref, start, stop), SubString(ref, stop+1, stop+7), query_view, case_str)
+        elseif !check_bounds
+            return (best_name, best_dist, start, stop, "", SubString(ref, start, stop), "", query_view, case_str)
+        end
+        return nothing
     end
 
     function summarize(found_list, db; cluster_ratio=0.25, min_count=10)

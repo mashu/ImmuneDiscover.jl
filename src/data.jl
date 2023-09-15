@@ -54,10 +54,10 @@ module data
     Function to load regular FASTA file
     """
     function load_fasta(path)
-        records = []
+        records = Vector{Tuple{String,String}}()
         open(FASTA.Reader, path) do reader
             for record in reader
-                push!(records, (FASTA.identifier(record), string(FASTA.sequence(record))))
+                push!(records, (FASTA.description(record), string(FASTA.sequence(record))))
             end
         end
         return records

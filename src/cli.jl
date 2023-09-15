@@ -131,6 +131,13 @@ module cli
             default = 0.25
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-f","--column"
+            help = "Column with genomic sequence"
+            default = "genomic_sequence"
+            arg_type = String
+        "-u", "--umi"
+            help = "UMI is present in the read"
+            action = :store_true
         end
 
         @add_arg_table! s["trim"] begin
@@ -143,11 +150,16 @@ module cli
         "output"
             help = "TSV file to save demultiplex data"
             required = true
-        "-l", "--length"
-            help = "Profile length"
+        "-w", "--weights"
+            help = "Length of the position weight matrix"
             default = 20
             arg_type = Int
             range_tester = (x->x > 1)
+        "-l", "--length"
+            help = "Minimum length of the trimmed read"
+            default = 1
+            arg_type = Int
+            range_tester = (x->x >= 1)
         "-p", "--position"
             help = "An optional switch to save start,stop columns instead of trimmed_sequence"
             action = :store_true

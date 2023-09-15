@@ -18,6 +18,7 @@ Immunediscover has multiple commands that work as a pipeline and serve different
 Typical application to find V genes takes following steps
 1. **Demultiplexing** of FASTQ file into correct cases
 2. **Trim** reads by computing profile at the beginning and end of the pre-aligned sequences and locating start and stop within a read that maximizes `P(sequence|profile)`
+3. **Hamming** search similar sequences across all reads (not allowing for indels or inserts) and call novel alleles
 
 ## Demultiplexing
 To demultiplex FASTQ file is is required to provide path to compressed FASTQ file (fastq.gz) and tab separated (TSV) file with following mandatory columns:
@@ -37,7 +38,7 @@ Output is a compressed tab separated (TSV) file with following columns:
 - name
 - genomic_sequence
 
-## Trim
+## Trim (optional)
 To trim demultiplex data in TSV format with `genomic_sequence` column are needed as input as well as FASTA file with V alleles.
 Program iterates reads and attempts to find start and stop position of potential V allele in each read, reports fraction of succesfully trimmed sequences (for start < stop) and appends additional column `trimmed_sequence`. To save space, it is possible to save `start` and `stop` positions instead with a subcommand switch. 
 
@@ -47,8 +48,35 @@ immunediscover/bin/immunediscover trim test.tsv.gz test.fasta test_trimmed.tsv.g
 
 **Note** for V genes longer profile `-l 20` worked well with our libraries, example above uses shorter profile for generated test sequences.
 
-## Exact
-Exact can be used to count exact matches of particular input sequences from FASTA file in demultiplexed data.
+Output is a compressed tab separated (TSV) file with following columns:
+- case
+- name
+- genomic_sequence
+- trimmed_sequence
+
+## Hamming
+This subcommand slides a window equal to database sequence length across entire read and performs assignment to closest match from the database based on **hamming distance**.
+By default command operates on the `genomic_sequence` column which corresponds to full read, but process can be largerly accelerated by utilizing `trimmed_sequence` column from the previous step. 
+
+Faster search using trimming heuristic
+```
+immunediscover/bin/immunediscover hamming --maxdist 10 -f trimmed_sequence test_trimmed.tsv.gz test.fasta test_hamming.tsv.gz
+```
+
+Slower but greedy search which is more accurate
+```
+immunediscover/bin/immunediscover hamming --maxdist 10 test_trimmed.tsv.gz test.fasta test_hamming.tsv.gz
+```
+
+Output is a compressed tab separated (TSV) file with following columns:
+- gene
+- prefix
+- middle
+- suffix
+- cluster_size
+- allele_name
+- case
+Where `cluster_size` is the number of combined `prefix`,`middle` and `suffix` occurences that have `middle` part best matching database sequence.
 
 # API
 Functions implemented in a package are documented and listed below:

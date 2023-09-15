@@ -40,7 +40,7 @@ module trim
     """
     Search read and return start and stop position that maximize likelihood `P(data|profile)`
     """
-    function trim_read(read, prof_start, prof_stop)
+    function trim_read(read, prof_start, prof_stop; min_length=0)
         len = size(prof_start, 2)
         start = trim.find_maxprob_pos(read, prof_start)
         residual = read[start+len:end]
@@ -55,29 +55,33 @@ module trim
         return start, stop
     end
 
+    function round_down_to_second_digit(x::Float64)
+        return floor(x * 1e2) / 1e2
+    end
+
     """
     Process table in parallel and perform trimming
     """
-    function find_segments(genomic_sequence, prof_start, prof_stop)
+    function find_segments(genomic_sequence, prof_start, prof_stop, minlen)
         p = Progress(length(genomic_sequence))
         len = size(prof_start, 2)
         region = Folds.map(genomic_sequence) do seq
             ProgressMeter.next!(p)
-            trim.trim_read(seq, prof_start, prof_stop)
+            trim.trim_read(seq, prof_start, prof_stop, min_length=minlen)
         end
         n = length(genomic_sequence)
         ok = zeros(Bool, n)
         fragments = []
         for i in 1:n
             (start, stop) = region[i]
-            if start+len < stop
+            if (start+len < stop) & (stop-start >= minlen)
                 ok[i] = true
                 fragment = genomic_sequence[i][start:stop-1]
                 push!(fragments, fragment)
             end
         end
-        valid = round(sum(ok)/length(region)*100,digits=2)
-        @info "Trimmed $valid sequences"
+        valid = round_down_to_second_digit(sum(ok)/length(region)*100)
+        @info "Trimmed $(sum(ok)) out of $(length(region)) ($valid %) sequences"
         return ok, fragments, region
     end
 end

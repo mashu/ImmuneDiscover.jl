@@ -73,12 +73,13 @@ module immunediscover
             if get(parsed_args,"%COMMAND%","") == "trim"
                 @info "Trimming"
                 table = CSV.File(parsed_args["trim"]["input"], delim='\t') |> DataFrame
-                db = [r[2] for r in data.load_fasta(parsed_args["trim"]["fasta"])]
-                len = parsed_args["trim"]["length"]
+                db = [r[2] for r in load_fasta(parsed_args["trim"]["fasta"])]
+                weights = parsed_args["trim"]["weights"]
                 pos = parsed_args["trim"]["position"]
+                mlen = parsed_args["trim"]["length"]
 
-                prof_start, prof_stop = trim.trim_profiles(db, len)
-                ok, fragments, region = trim.find_segments(table.genomic_sequence, prof_start, prof_stop)
+                prof_start, prof_stop = trim.trim_profiles(db, weights)
+                ok, fragments, region = trim.find_segments(table.genomic_sequence, prof_start, prof_stop, mlen)
 
                 subtable = table[ok,:]
                 if pos
@@ -107,9 +108,16 @@ module immunediscover
 
             if get(parsed_args,"%COMMAND%","") == "hamming"
                 @info "Hamming distance window search"
-                table = CSV.File(parsed_args["hamming"]["tsv"], delim='\t') |> DataFrame
+                table = CSV.File(parsed_args["hamming"]["tsv"], delim='\t', types=Dict(:case => String)) |> DataFrame
                 db = load_fasta(parsed_args["hamming"]["fasta"])
-                found = hamming_search(table, db, max_dist=parsed_args["hamming"]["maxdist"])
+                umi = parsed_args["hamming"]["umi"]
+                column = parsed_args["hamming"]["column"] == "trimmed_sequence" ? :trimmed_sequence : :genomic_sequence
+                @info "Using $column column"
+                checkbounds = true
+                if column != :genomic_sequence
+                    checkbounds = false
+                end
+                found = hamming_search(table, db, max_dist=parsed_args["hamming"]["maxdist"], column=column, check_bounds=checkbounds)
                 summery = hamming.summarize(found, db, min_count=parsed_args["hamming"]["mincount"], cluster_ratio=parsed_args["hamming"]["ratio"])
                 output = cli.always_gz(parsed_args["hamming"]["output"])
                 CSV.write(output, summery, compress=true, delim='\t')
