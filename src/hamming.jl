@@ -25,20 +25,29 @@ module hamming
     """
     Function to search demultiplexed reads for sequences that match query with maximum hamming distance
     """
-    function hamming_search(table::DataFrame, db::Vector{Tuple{String, String}}; max_dist::Int=2, column::Symbol=:genomic_sequence, check_bounds::Bool=true)
-        found_list = Vector{Tuple{String, Int, Int, Int, SubString{String}, SubString{String}, SubString{String}, SubString{String}, String}}()
+    function hamming_search(table::DataFrame, db::Vector{Tuple{String, String}}; max_dist::Int=2, column::Symbol=:genomic_sequence, check_bounds::Bool=true, umi=false)
+        found_list = Vector{Tuple{String, Int, Int, Int, SubString{String}, SubString{String}, SubString{String}, SubString{String}, String, SubString{String}}}()
         @showprogress for subtable in groupby(table, :case)
             case_str = first(subtable.case)
             subtable = subtable[.!occursin.("N", subtable[!, column]), :]
             found = Folds.map(collect(eachrow(subtable))) do row
-                process_row(row, db, max_dist, column, case_str, check_bounds)
+                process_row(row, db, max_dist, column, case_str, check_bounds, umi=umi)
             end
             append!(found_list, [r for r in found if r !== nothing])
         end
         return found_list
     end
     
-    function process_row(row::DataFrameRow, db::Vector{Tuple{String, String}}, max_dist::Int, column::Symbol, case_str::String, check_bounds::Bool)
+    function reumi(x)
+        pattern = r"([ACGT]{3}GT[ACGT]{3})([ACGT]{22})([ACGT]{9})$"
+        m = match(pattern, x)
+        if m === nothing
+            return "", "", ""
+        end
+        return m.captures[1], m.captures[2], m.captures[3]
+    end
+
+    function process_row(row::DataFrameRow, db::Vector{Tuple{String, String}}, max_dist::Int, column::Symbol, case_str::String, check_bounds::Bool; umi=false)
         ref = row[column]
         ref_length = length(ref)
         pos = Vector{Tuple{String, Int, Int, Int, SubString{String}}}()
@@ -57,12 +66,15 @@ module hamming
         if isempty(pos)
             return nothing
         end
-    
+        barcode = ""
+        if umi
+            barcode = reumi(ref)[1]
+        end
         best_name, best_dist, start, stop, query_view = first(sort(pos, by=x->x[2]))
         if check_bounds && (ref_length > stop+7) && (start-7 > 0)
-            return (best_name, best_dist, start, stop, SubString(ref, start-7, start-1), SubString(ref, start, stop), SubString(ref, stop+1, stop+7), query_view, case_str)
+            return (best_name, best_dist, start, stop, SubString(ref, start-7, start-1), SubString(ref, start, stop), SubString(ref, stop+1, stop+7), query_view, case_str, barcode)
         elseif !check_bounds
-            return (best_name, best_dist, start, stop, "", SubString(ref, start, stop), "", query_view, case_str)
+            return (best_name, best_dist, start, stop, "", SubString(ref, start, stop), "", query_view, case_str, barcode)
         end
         return nothing
     end
@@ -70,13 +82,18 @@ module hamming
     function summarize(found_list, db; cluster_ratio=0.25, min_count=10)
         lookup = Dict([(y,x) for (x,y) in db])
         found_df = DataFrame(vcat(found_list...))
-        rename!(found_df,[:closest_name, :distance,:start,:stop,:prefix,:middle,:suffix,:db_sequence,:case])
+        rename!(found_df,[:closest_name, :distance,:start,:stop,:prefix,:middle,:suffix,:db_sequence,:case,:barcode])
         sort!(found_df, :closest_name)
         found_df[:,:gene] = [n[1] for n in split.(found_df.closest_name,'*')]
         result = []
         for group in groupby(found_df,[:gene,:case])
             case = string(first(group.case))
-            clusters = combine(groupby(group,[:gene,:prefix,:middle,:suffix]),nrow => :cluster_size)
+            clusters = combine(groupby(group, [:gene, :prefix, :middle, :suffix])) do sdf
+                DataFrame(
+                    cluster_size = nrow(sdf),
+                    unique_umi = length(unique(sdf.barcode))
+                )
+            end            
             clusters_filtered = clusters[clusters.cluster_size .> (maximum(clusters.cluster_size) * cluster_ratio),:]
             clusters_filtered[:,:allele_name] = [get(lookup,seq,unique_name(string(first(group.gene)),seq)*" Novel") for seq in clusters_filtered.middle]
             clusters_filtered[:,:case] .= case

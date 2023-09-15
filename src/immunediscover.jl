@@ -22,6 +22,7 @@ module immunediscover
     using CSV
     using DataFrames
     using JSON
+    export load_fasta
 
     function real_main(args=[])
         parsed_args = parse_commandline(args)
@@ -108,7 +109,14 @@ module immunediscover
 
             if get(parsed_args,"%COMMAND%","") == "hamming"
                 @info "Hamming distance window search"
-                table = CSV.File(parsed_args["hamming"]["tsv"], delim='\t', types=Dict(:case => String)) |> DataFrame
+                limit = parsed_args["hamming"]["limit"]
+                assignments = parsed_args["hamming"]["assignments"]
+                if limit > 0
+                    @info "Limiting number of reads to $limit"
+                    table = CSV.File(parsed_args["hamming"]["tsv"], delim='\t', types=Dict(:case => String), limit=limit) |> DataFrame
+                else
+                    table = CSV.File(parsed_args["hamming"]["tsv"], delim='\t', types=Dict(:case => String)) |> DataFrame
+                end
                 db = load_fasta(parsed_args["hamming"]["fasta"])
                 umi = parsed_args["hamming"]["umi"]
                 column = parsed_args["hamming"]["column"] == "trimmed_sequence" ? :trimmed_sequence : :genomic_sequence
@@ -117,10 +125,16 @@ module immunediscover
                 if column != :genomic_sequence
                     checkbounds = false
                 end
-                found = hamming_search(table, db, max_dist=parsed_args["hamming"]["maxdist"], column=column, check_bounds=checkbounds)
-                summery = hamming.summarize(found, db, min_count=parsed_args["hamming"]["mincount"], cluster_ratio=parsed_args["hamming"]["ratio"])
+                found = hamming_search(table, db, max_dist=parsed_args["hamming"]["maxdist"], column=column, check_bounds=checkbounds, umi=umi)
+                if assignments !== nothing
+                    @info "Saving intermediate assignments"
+                    assignments_df = DataFrame(vcat(found...))
+                    rename!(assignments_df,[:closest_name, :distance,:start,:stop,:prefix,:middle,:suffix,:db_sequence,:case,:barcode])
+                    CSV.write(assignments, assignments_df, delim='\t')
+                end
+                summarized = hamming.summarize(found, db, min_count=parsed_args["hamming"]["mincount"], cluster_ratio=parsed_args["hamming"]["ratio"])
                 output = cli.always_gz(parsed_args["hamming"]["output"])
-                CSV.write(output, summery, compress=true, delim='\t')
+                CSV.write(output, summarized, compress=true, delim='\t')
                 @info "Hamming search data saved in compressed $output file"
             end
         end

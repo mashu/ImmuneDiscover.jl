@@ -116,6 +116,9 @@ module cli
         "output"
             help = "TSV file to save ouput"
             required = true
+        "-a", "--assignments"
+            help = "Optional TSV file to save intermediate assignments"
+            arg_type = String
         "-d", "--maxdist"
             help = "Maximum distance allowed"
             default = 2
@@ -138,6 +141,11 @@ module cli
         "-u", "--umi"
             help = "UMI is present in the read"
             action = :store_true
+        "-l", "--limit"
+            help = "Limit to this number of sequences, zero means no limit"
+            arg_type = Int
+            default = 0
+            range_tester = (x->x >= 0)
         end
 
         @add_arg_table! s["trim"] begin
