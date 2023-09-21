@@ -136,6 +136,11 @@ module immunediscover
                 output = cli.always_gz(parsed_args["hamming"]["output"])
                 CSV.write(output, summarized, compress=true, delim='\t')
                 @info "Hamming search data saved in compressed $output file"
+                if parsed_args["hamming"]["plot"] !== nothing
+                    @info "Saving plot"
+                    hamming.plot(summarized, parsed_args["hamming"]["plot"])
+                    @info "Plot saved in $(parsed_args["hamming"]["plot"]) file"
+                end
             end
         end
     end

@@ -146,6 +146,9 @@ module cli
             arg_type = Int
             default = 0
             range_tester = (x->x >= 0)
+        "-p","--plot"
+            help = "File to save plot with sorted gene amplification counts"
+            arg_type = String
         end
 
         @add_arg_table! s["trim"] begin
