@@ -2,6 +2,8 @@ module cli
     using ArgParse
 
     """
+        always_gz(file_path)
+
     Return path that ends with .gz or with appeneded extension
     """
     function always_gz(file_path)
@@ -14,6 +16,8 @@ module cli
 
     export parse_commandline
     """
+        parse_commandline(args)
+
     Handle command line
     """
     function parse_commandline(args)

@@ -7,6 +7,8 @@ module demultiplex
     using .data
 
     """
+        demux(fastq_path, indices_path; min_length=0)
+
     Function to demultiplex plate with indices using double barcoding
     """
     function demux(fastq_path, indices_path; min_length=0)

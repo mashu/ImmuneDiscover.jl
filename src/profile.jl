@@ -3,6 +3,8 @@ module profile
     const ind2dna = Dict{Int,Char}(1=>'A',2=>'C',3=>'G',4=>'T')
 
     """
+        counts(motifs)
+
     Compute counts given motifs of equal length
     """
     function counts(motifs)
@@ -21,6 +23,8 @@ module profile
     end
 
     """
+        motif_profile(motifs)
+
     Compute profile from motifs
     """
     function motif_profile(motifs)
@@ -29,6 +33,8 @@ module profile
     end
 
     """
+        motif_prob(motif, prof)
+
     Calculate the product of all probabilties from nucleotides in a motif given the profile
     Returns probability of a motif
     """

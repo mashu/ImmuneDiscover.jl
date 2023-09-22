@@ -4,6 +4,8 @@ module simulate
     using DataFrames
 
     """
+        generate_fastq(prefix, core, suffix, n)
+
     Generate fastq sequences
     """
     function generate_fastq(prefix::T ,core::T, suffix::T, n::Vector{Int}) where T<:Vector{String}
@@ -22,6 +24,8 @@ module simulate
     end
 
     """
+        generate_fasta(prefix, core, suffix, n)
+
     Generate fasta sequences
     """
     function generate_fasta(prefix::T ,core::T, suffix::T, n::Vector{Int}) where T<:Vector{String}
@@ -40,6 +44,8 @@ module simulate
     end
 
     """
+        generate_indices(prefix, suffix, case)
+
     Generate indices dataframe
     """
     function generate_indices(prefix::T, suffix::T,case::T) where T<:Vector{String}

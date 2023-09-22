@@ -3,7 +3,10 @@ module exact
     using DataFrames
     using ProgressMeter
     using Folds
+
     """
+        exact_search(table, query)
+
     Exact search per case
     """
     function exact_search(table, query)

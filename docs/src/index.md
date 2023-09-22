@@ -84,5 +84,5 @@ Functions implemented in a package are documented and listed below:
 ```
 
 ```@autodocs
-Modules = [immunediscover.demultiplex, immunediscover.data, immunediscover.simulate, immunediscover.profile, immunediscover.trim, immunediscover.cli]
 ```
+

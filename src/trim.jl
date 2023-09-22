@@ -6,6 +6,8 @@ module trim
     using ProgressMeter
 
     """
+        find_maxprob_pos(read, prof)
+
     Find the most probable position in a read given a profile
     """
     function find_maxprob_pos(read, prof)
@@ -27,6 +29,8 @@ module trim
     end
 
     """
+        trim_profiles(motifs, len)
+
     Create start and stop trim profiles
     """
     function trim_profiles(motifs, len)
@@ -38,6 +42,8 @@ module trim
     end
 
     """
+        trim_read(read, prof_start, prof_stop; min_length=0)
+
     Search read and return start and stop position that maximize likelihood `P(data|profile)`
     """
     function trim_read(read, prof_start, prof_stop; min_length=0)
@@ -55,11 +61,18 @@ module trim
         return start, stop
     end
 
+    """
+        round_down_to_second_digit(x::Float64)
+    
+    Round down to second digit
+    """
     function round_down_to_second_digit(x::Float64)
         return floor(x * 1e2) / 1e2
     end
 
     """
+        find_segments(genomic_sequence, prof_start, prof_stop, minlen)
+
     Process table in parallel and perform trimming
     """
     function find_segments(genomic_sequence, prof_start, prof_stop, minlen)

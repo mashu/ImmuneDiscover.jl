@@ -13,6 +13,8 @@ module hamming
     export hamming_search
 
     """
+        sequence_hash(seq; digits=4)
+
     Helper function for hashing the sequence
     Note this is not guaranteed to be unique but is simply visual indicator and this encoding is inherited from IgDiscover
     """
@@ -21,6 +23,8 @@ module hamming
     end
 
     """
+        unique_name(name, sequence; digits=4)
+
     Wrapper funciton to update allele names
     """
     function unique_name(name, sequence; digits=4)
@@ -28,6 +32,8 @@ module hamming
     end
 
     """
+        hamming_search(table, db; max_dist=2, column=:genomic_sequence, check_bounds=true, umi=false)
+
     Function to search demultiplexed reads for sequences that match query with maximum hamming distance
     """
     function hamming_search(table::DataFrame, db::Vector{Tuple{String, String}}; max_dist::Int=2, column::Symbol=:genomic_sequence, check_bounds::Bool=true, umi=false)
@@ -43,6 +49,11 @@ module hamming
         return found_list
     end
     
+    """
+        reumi(x)
+    
+    Helper function to extract UMI from the sequence
+    """
     function reumi(x)
         pattern = r"([ACGT]{3}GT[ACGT]{3})([ACGT]{22})([ACGT]{9})$"
         m = match(pattern, x)
@@ -52,6 +63,11 @@ module hamming
         return m.captures[1], m.captures[2], m.captures[3]
     end
 
+    """
+        process_row(row, db, max_dist, column, case_str, check_bounds; umi=false)
+
+    Helper function to process single row
+    """
     function process_row(row::DataFrameRow, db::Vector{Tuple{String, String}}, max_dist::Int, column::Symbol, case_str::String, check_bounds::Bool; umi=false)
         ref = row[column]
         ref_length = length(ref)
@@ -84,6 +100,11 @@ module hamming
         return nothing
     end
 
+    """
+        summarize(found_list, db; cluster_ratio=0.25, min_count=10)
+
+    Function to summarize results of hamming search
+    """
     function summarize(found_list, db; cluster_ratio=0.25, min_count=10)
         lookup = Dict([(y,x) for (x,y) in db])
         found_df = DataFrame(vcat(found_list...))
@@ -110,6 +131,11 @@ module hamming
         result_collapsed_filtered
     end
 
+    """
+        plot(df::DataFrame, output::String)
+    
+    Function to plot results of hamming search
+    """
     function plot(df::DataFrame, output::String)
         # Compute log2 counts
         df[!, :log2_count] = log2.(df[:, :cluster_size])

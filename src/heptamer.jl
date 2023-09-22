@@ -9,6 +9,8 @@ module heptamer
     export extract_heptamers, summarize
 
     """
+        sequence_hash(seq; digits=4)
+
     Helper function for hashing the sequence
     Note this is not guaranteed to be unique but is simply visual indicator and this encoding is inherited from IgDiscover
     """
@@ -17,6 +19,8 @@ module heptamer
     end
 
     """
+        unique_name(name, sequence; digits=4)
+
     Wrapper funciton to update allele names
     """
     function unique_name(name, sequence; digits=4)
@@ -24,6 +28,8 @@ module heptamer
     end
 
     """
+        find_heptamer(suffix, heptamer_iter; max_dist=1, heptamer_length=7)
+
     Find first occurence of heptamer that is within the hamming distance but prioritize lower distance matches
     """
     function find_heptamer(suffix, heptamer_iter; max_dist=1, heptamer_length=7)
@@ -40,6 +46,8 @@ module heptamer
     end
 
     """
+        extract_heptamers(table, db, heptamers; max_dist=1, b=1, e=8)
+
     Agument input table with located heptamers and extend trimmed sequence up to that heptamer
     """
     function extract_heptamers(table, db, heptamers; max_dist=1, b=1, e=8)
@@ -84,6 +92,8 @@ module heptamer
     end
 
     """
+        summarize(table, query; ratio=0.25, count=10)
+
     Summarize data by collapsing identical sequences, heptamers and cases
     """
     function summarize(table, query; ratio=0.25, count=10)

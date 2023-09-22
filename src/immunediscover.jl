@@ -24,6 +24,11 @@ module immunediscover
     using JSON
     export load_fasta
 
+    """
+        real_main(args=[])
+    
+    Main function for Julia
+    """
     function real_main(args=[])
         parsed_args = parse_commandline(args)
         if parsed_args != nothing
@@ -145,6 +150,11 @@ module immunediscover
         end
     end
 
+    """
+        julia_main(args=[])::Cint
+    
+    Entry point C call for main function for Julia
+    """
     function julia_main()::Cint
         try
             real_main(ARGS)

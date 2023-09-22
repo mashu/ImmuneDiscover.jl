@@ -7,6 +7,8 @@ module data
     export load_fasta
 
     """
+        write_fastq(path, records)
+
     Save records with sequences and quality scores to fastq file
     """
     function write_fastq(path, records)
@@ -18,6 +20,8 @@ module data
     end
 
     """
+        write_gz_fastq(path, records)
+
     Save records with sequences and quality scores to fastq file
     """
     function write_gz_fastq(path, records)
@@ -29,6 +33,8 @@ module data
     end
 
     """
+        write_fasta(path, records)
+
     Save records with sequences to fasta file
     """
     function write_fasta(path, records)
@@ -40,6 +46,8 @@ module data
     end
 
     """
+        write_gz_fasta(path, records)
+
     Save records with sequences to fasta file
     """
     function write_gz_fasta(path, records)
@@ -51,7 +59,9 @@ module data
     end
 
     """
-    Function to load regular FASTA file
+        load_fasta(path)
+
+    Function to load gz compressed or uncompressed FASTA file
     """
     function load_fasta(path)
         records = Vector{Tuple{String,String}}()
@@ -64,6 +74,8 @@ module data
     end
 
     """
+        load_fastq(path)
+
     Function to process either gz compressed or uncompressed FASTQ file with an `f` callback
     """
     function process_fastq(f, path)
