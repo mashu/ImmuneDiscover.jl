@@ -86,7 +86,7 @@ module data
             @info "Uncompressed file detected"
             reader = FASTQ.Reader(open(path))
         end
-        prog = ProgressUnknown("Processing FASTQ reads")
+        prog = ProgressUnknown(desc="Processing FASTQ reads")
         for record in reader
             f(record)
             ProgressMeter.next!(prog)

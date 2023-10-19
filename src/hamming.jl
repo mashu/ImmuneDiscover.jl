@@ -119,9 +119,9 @@ module hamming
                     cluster_size = nrow(sdf),
                     unique_umi = length(unique(sdf.barcode))
                 )
-            end            
+            end
             clusters_filtered = clusters[clusters.cluster_size .> (maximum(clusters.cluster_size) * cluster_ratio),:]
-            clusters_filtered[:,:allele_name] = [get(lookup,seq,unique_name(string(first(group.gene)),seq)*" Novel") for seq in clusters_filtered.middle]
+	    clusters_filtered[:,:allele_name] = [get(lookup,seq,unique_name(cname,seq)*" Novel") for (seq, cname) in zip(clusters_filtered.middle, clusters_filtered.closest_name)]
             clusters_filtered[:,:case] .= case
             push!(result, clusters_filtered)
         end

@@ -42,6 +42,9 @@ module cli
             "hamming"
                 help = "Search for matches within hamming distance"
                 action = :command
+            "pattern"
+                help = "Search for novel alleles with kmers and trim with PWM"
+                action = :command
             end
 
         @add_arg_table! s["demultiplex"] begin
@@ -190,6 +193,51 @@ module cli
         "output"
             help = "TSV file to save ouput"
             required = true
+        end
+
+        @add_arg_table! s["pattern"] begin
+        "input"
+            help = "TSV file with demultiplex data"
+            required = true
+        "fasta"
+            help = "FASTA file with aligned gene sequences to build trimming profile"
+            required = true
+        "output"
+            help = "TSV file to save demultiplex data"
+            required = true
+        "-w", "--weights"
+            help = "Length of the position weight matrix"
+            default = 20
+            arg_type = Int
+            range_tester = (x->x > 1)
+        "-l", "--length"
+            help = "Minimum length of the trimmed read"
+            default = 1
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "-k", "--kmer"
+            help = "Kmer size which will be used to search for patterns"
+            default = 20
+            arg_type = Int
+            range_tester = (x->x >= 3)
+        "-m", "--maxkmer"
+            help = "Maximum kmer size if kmer size needs to be increased automatically"
+            default = 50
+            arg_type = Int
+            range_tester = (x->x >= 3)
+        "-s", "--sample"
+            help = "Number of kmers to sample from the set of all kmers to search for a gene"
+            default = 4
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "-r","--ratio"
+            help = "Minimum allelic ratio applied within each gene group"
+            default = 0.01
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-b","--blacklist"
+            help = "Blacklist file with sequences to be excluded from pattern search (e.g. pseudo-genes)"
+            arg_type = String
         end
 
         return parse_args(args,s)

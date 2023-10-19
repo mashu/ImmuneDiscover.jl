@@ -84,7 +84,7 @@ module trim
         end
         n = length(genomic_sequence)
         ok = zeros(Bool, n)
-        fragments = []
+        fragments = Vector{String}()
         for i in 1:n
             (start, stop) = region[i]
             if (start+len < stop) & (stop-start >= minlen)

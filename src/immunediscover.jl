@@ -8,6 +8,7 @@ module immunediscover
     include("exact.jl")
     include("heptamer.jl")
     include("hamming.jl")
+    include("patterns.jl")
 
     using .cli
     using .demultiplex
@@ -18,6 +19,7 @@ module immunediscover
     using .exact
     using .heptamer
     using .hamming
+    using .patterns
 
     using CSV
     using DataFrames
@@ -110,6 +112,22 @@ module immunediscover
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 CSV.write(output, counts_df, compress=true, delim='\t')
                 @info "Exact search data saved in compressed $output file"
+            end
+            if get(parsed_args,"%COMMAND%","") == "pattern"
+                @info "Pattern search"
+                table = CSV.File(parsed_args["pattern"]["input"], delim='\t') |> DataFrame
+                db = load_fasta(parsed_args["pattern"]["fasta"])
+                db_df = DataFrame(db, [:id, :seq])
+                db_df[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(db_df)) # Remove D suffixes of genes
+                blacklist = DataFrame()
+                if parsed_args["pattern"]["blacklist"] !== nothing
+                    blacklist = DataFrame(data.load_fasta(parsed_args["pattern"]["blacklist"]),[:id, :seq])
+                    blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist)) # Remove D suffixes of genes
+                end
+                final = patterns.search_patterns(table, blacklist, db_df, fragment_size=parsed_args["pattern"]["kmer"], max_fragment_size=parsed_args["pattern"]["maxkmer"], max_fragments=parsed_args["pattern"]["sample"], weights=parsed_args["pattern"]["weights"], mlen=parsed_args["pattern"]["length"], min_freq=parsed_args["pattern"]["ratio"])
+                output = cli.always_gz(parsed_args["pattern"]["output"])
+                CSV.write(output, final, compress=true, delim='\t')
+                @info "Pattern search data saved in compressed $output file"
             end
 
             if get(parsed_args,"%COMMAND%","") == "hamming"
