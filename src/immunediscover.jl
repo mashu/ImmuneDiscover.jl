@@ -106,8 +106,10 @@ module immunediscover
             if get(parsed_args,"%COMMAND%","") == "exact"
                 @info "Exact search"
                 table = CSV.File(parsed_args["exact"]["tsv"], delim='\t') |> DataFrame
-                db = data.load_fasta(parsed_args["exact"]["fasta"])
-                counts_df = exact.exact_search(table, db)
+                db = load_fasta(parsed_args["exact"]["fasta"])
+                mincount = parsed_args["exact"]["mincount"]
+                minfreq = parsed_args["exact"]["ratio"]
+                counts_df = exact.exact_search(table, db, mincount=mincount, minfreq=minfreq)
                 sort!(counts_df, [:case, :db_name])
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 CSV.write(output, counts_df, compress=true, delim='\t')
@@ -121,7 +123,7 @@ module immunediscover
                 db_df[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(db_df)) # Remove D suffixes of genes
                 blacklist = DataFrame()
                 if parsed_args["pattern"]["blacklist"] !== nothing
-                    blacklist = DataFrame(data.load_fasta(parsed_args["pattern"]["blacklist"]),[:id, :seq])
+                    blacklist = DataFrame(load_fasta(parsed_args["pattern"]["blacklist"]),[:id, :seq])
                     blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist)) # Remove D suffixes of genes
                 end
                 final = patterns.search_patterns(table, blacklist, db_df, fragment_size=parsed_args["pattern"]["kmer"], max_fragment_size=parsed_args["pattern"]["maxkmer"], max_fragments=parsed_args["pattern"]["sample"], weights=parsed_args["pattern"]["weights"], mlen=parsed_args["pattern"]["length"], min_freq=parsed_args["pattern"]["ratio"])

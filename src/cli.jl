@@ -193,6 +193,16 @@ module cli
         "output"
             help = "TSV file to save ouput"
             required = true
+        "-r","--ratio"
+            help = "Minimum allelic ratio applied within each gene group"
+            default = 0.01
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-c", "--mincount"
+            help = "Minimum cluster size"
+            default = 10
+            arg_type = Int
+            range_tester = (x->x >= 1)
         end
 
         @add_arg_table! s["pattern"] begin
