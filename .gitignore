@@ -3,3 +3,10 @@
 *.jl.mem
 /Manifest.toml
 /docs/build/
+*.tsv
+*.csv
+*.fasta
+*.fastq
+*.gz
+*.log
+
