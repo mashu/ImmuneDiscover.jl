@@ -12,7 +12,6 @@ CurrentModule = immunediscover
 Immunediscover is a package for immune repertoire sequencing. It can be downloaded as prebuild binary bundle from [releases](https://gitlab.com/mateusz-kaduk/immunediscover.jl/-/releases).
 
 # Usage
-
 Immunediscover has multiple commands that work as separate stand-alone tools and serve different purposes. The starting file the program is single FASTQ file with the reads and indexing barcodes (indices). Futher subcommands required demultiplex data in TSV format.
 
 Typical application to find V genes takes following steps
@@ -31,29 +30,13 @@ No other columns are accepted.
 The following command separates reads to different cases by extracting forward_index on 5' end and reverse_index on 3' end using the same orientation as provided in `indices.tsv` file:
 
 ```
-immunediscover/bin/immunediscover demultiplex test.fastq.gz indices.tsv test.tsv
+immunediscover demultiplex test.fastq.gz indices.tsv test.tsv
 ```
 
 Output is a compressed tab separated (TSV) file with following columns:
 - case
 - name
 - genomic_sequence
-
-## Trim (optional)
-To trim demultiplex data in TSV format with `genomic_sequence` column are needed as input as well as FASTA file with V alleles.
-Program iterates reads and attempts to find start and stop position of potential V allele in each read, reports fraction of succesfully trimmed sequences (for start < stop) and appends additional column `trimmed_sequence`. To save space, it is possible to save `start` and `stop` positions instead with a subcommand switch. 
-
-```
-immunediscover/bin/immunediscover trim test.tsv.gz test.fasta test_trimmed.tsv.gz -l 6
-```
-
-**Note** for V genes longer profile `-l 20` worked well with our libraries, example above uses shorter profile for generated test sequences.
-
-Output is a compressed tab separated (TSV) file with following columns:
-- case
-- name
-- genomic_sequence
-- trimmed_sequence
 
 ## Pattern
 Can best be describe as an algorithm taking the following steps:
@@ -65,7 +48,7 @@ Can best be describe as an algorithm taking the following steps:
 
 For example
 ```
-immunediscover pattern COL.tsv.gz V_Immune24Oct2023.fasta -l 200 -r 0.2 COL-pattern.tsv.gz
+immunediscover pattern COL.tsv.gz V.fasta -l 200 -r 0.2 COL-pattern.tsv.gz
 ```
 Would perform analysis for entire plate, using trimmed genes of minimal length 200 and applying allelic ratio filter of 0.2.
 Result is a compressed tab separated (TSV) file with candidate alleles and their counts for entire plate. Typically you want to pick some of these alleles and perform analysis on them separately by valindating them with hamming search or exact search module.
@@ -76,12 +59,12 @@ By default command operates on the `genomic_sequence` column which corresponds t
 
 Faster search using trimming heuristic
 ```
-immunediscover/bin/immunediscover hamming --maxdist 10 -f trimmed_sequence test_trimmed.tsv.gz test.fasta test_hamming.tsv.gz
+immunediscover hamming --maxdist 10 -f trimmed_sequence test_trimmed.tsv.gz test.fasta test_hamming.tsv.gz
 ```
 
 Slower but greedy search which is more accurate
 ```
-immunediscover/bin/immunediscover hamming --maxdist 10 test_trimmed.tsv.gz test.fasta test_hamming.tsv.gz
+immunediscover hamming --maxdist 10 test_trimmed.tsv.gz test.fasta test_hamming.tsv.gz
 ```
 
 Output is a compressed tab separated (TSV) file with following columns:
