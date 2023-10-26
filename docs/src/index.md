@@ -13,12 +13,13 @@ Immunediscover is a package for immune repertoire sequencing. It can be download
 
 # Usage
 
-Immunediscover has multiple commands that work as a pipeline and serve different purposes. The starting file the program is single FASTQ file with the reads and indexing barcodes (indices). Futher subcommands required demultiplex data in TSV format.
+Immunediscover has multiple commands that work as separate stand-alone tools and serve different purposes. The starting file the program is single FASTQ file with the reads and indexing barcodes (indices). Futher subcommands required demultiplex data in TSV format.
 
 Typical application to find V genes takes following steps
 1. **Demultiplexing** of FASTQ file into correct cases
-2. **Trim** reads by computing profile at the beginning and end of the pre-aligned sequences and locating start and stop within a read that maximizes `P(sequence|profile)`
+2. **Pattern** search for alleles that may contain inserts or indels and call novel alleles
 3. **Hamming** search similar sequences across all reads (not allowing for indels or inserts) and call novel alleles
+4. **Exact** Fast tool to search demultiplexed data for exact matches to database of known alleles collected from previous steps
 
 ## Demultiplexing
 To demultiplex FASTQ file is is required to provide path to compressed FASTQ file (fastq.gz) and tab separated (TSV) file with following mandatory columns:
@@ -54,6 +55,21 @@ Output is a compressed tab separated (TSV) file with following columns:
 - genomic_sequence
 - trimmed_sequence
 
+## Pattern
+Can best be describe as an algorithm taking the following steps:
+    - From starting database find kmers specific only to each input gene
+    - Sample gene specific kmers
+    - Search sequences containing these kmers
+    - Group sequences by identity and apply filtering base on their count
+    - Find levenshtein distance to known alleles and assign name based on the closest one
+
+For example
+```
+immunediscover pattern COL.tsv.gz V_Immune24Oct2023.fasta -l 200 -r 0.2 COL-pattern.tsv.gz
+```
+Would perform analysis for entire plate, using trimmed genes of minimal length 200 and applying allelic ratio filter of 0.2.
+Result is a compressed tab separated (TSV) file with candidate alleles and their counts for entire plate. Typically you want to pick some of these alleles and perform analysis on them separately by valindating them with hamming search or exact search module.
+
 ## Hamming
 This subcommand slides a window equal to database sequence length across entire read and performs assignment to closest match from the database based on **hamming distance**.
 By default command operates on the `genomic_sequence` column which corresponds to full read, but process can be largerly accelerated by utilizing `trimmed_sequence` column from the previous step. 
@@ -77,12 +93,3 @@ Output is a compressed tab separated (TSV) file with following columns:
 - allele_name
 - case
 Where `cluster_size` is the number of combined `prefix`,`middle` and `suffix` occurences that have `middle` part best matching database sequence.
-
-# API
-Functions implemented in a package are documented and listed below:
-```@index
-```
-
-```@autodocs
-```
-
