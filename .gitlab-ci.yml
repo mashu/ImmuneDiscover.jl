@@ -40,7 +40,7 @@ build_binary:
         Pkg.instantiate()
         using PackageCompiler
 
-        create_app(".", "immunediscover") '
+        create_app(".", "immunediscover", include_transitive_dependencies=false, cpu_target="x86-64") '
     - tar cvfz ${LINUX_AMD64_BINARY} immunediscover
   artifacts:
     paths:
