@@ -1,6 +1,7 @@
 module cli
     using ArgParse
-
+    export parse_commandline
+    
     """
         always_gz(file_path)
 
@@ -13,8 +14,6 @@ module cli
             output = file_path*".gz"
         end
     end
-
-    export parse_commandline
 
     """
         parse_commandline(args)
