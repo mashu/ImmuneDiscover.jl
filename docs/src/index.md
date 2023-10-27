@@ -3,15 +3,15 @@ CurrentModule = immunediscover
 ```
 
 # Immunediscover
-[![Release](https://gitlab.com/mateusz-kaduk/immunediscover.jl/-/badges/release.svg)](https://gitlab.com/mateusz-kaduk/immunediscover.jl/-/releases)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://mateusz-kaduk.gitlab.io/immunediscover.jl/dev)
-[![Build Status](https://gitlab.com/mateusz-kaduk/immunediscover.jl/badges/main/pipeline.svg)](https://gitlab.com/mateusz-kaduk/immunediscover.jl/pipelines)
-[![Coverage](https://gitlab.com/mateusz-kaduk/immunediscover.jl/badges/main/coverage.svg)](https://gitlab.com/mateusz-kaduk/immunediscover.jl/commits/main)
+[![Release](https://gitlab.com/gkhlab/immunediscover.jl/-/badges/release.svg)](https://gitlab.com/gkhlab/immunediscover.jl/-/releases)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://gkhlab.gitlab.io/immunediscover.jl/dev)
+[![Build Status](https://gitlab.com/gkhlab/immunediscover.jl/badges/main/pipeline.svg)](https://gitlab.com/gkhlab/immunediscover.jl/pipelines)
+[![Coverage](https://gitlab.com/gkhlab/immunediscover.jl/badges/main/coverage.svg)](https://gitlab.com/gkhlab/immunediscover.jl/commits/main)
 
-ImmuneDiscover is a software package designed for immune repertoire sequencing analysis. The package can be acquired as a prebuilt binary bundle from the [releases page](https://gitlab.com/mateusz-kaduk/immunediscover.jl/-/releases).
+Immunediscover is a software package designed for immune repertoire sequencing analysis. The package can be acquired as a prebuilt binary bundle from the [releases page](https://gitlab.com/gkhlab/immunediscover.jl/-/releases).
 
 # Usage
-ImmuneDiscover comprises multiple commands functioning as distinct standalone tools, each serving a unique purpose. The initial input for the program is a single FASTQ file containing the reads and indexing barcodes (indices). Subsequent subcommands necessitate the demultiplexing of data into a TSV format.
+Immunediscover comprises multiple commands functioning as distinct standalone tools, each serving a unique purpose. The initial input for the program is a single FASTQ file containing the reads and indexing barcodes (indices). Subsequent subcommands necessitate the demultiplexing of data into a TSV format.
 
 ## Standard Operations
 1. **Demultiplexing**: Segregates the FASTQ file into appropriate cases.
