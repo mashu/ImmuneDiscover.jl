@@ -65,11 +65,11 @@ The output is a compressed TSV file with the following columns:
 - prefix
 - middle
 - suffix
-- cluster_size
+- count
 - allele_name
 - case
 
-Here, `cluster_size` refers to the combined occurrences of `prefix`, `middle`, and `suffix` having the middle part best matching the database sequence.
+Here, `count` refers to the combined occurrences of `prefix`, `middle`, and `suffix` having the middle part best matching the database sequence.
 
 ## Pattern
 This subcommand can be elucidated through the following algorithmic steps:

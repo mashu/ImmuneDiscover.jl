@@ -5,11 +5,6 @@ module hamming
     using StringDistances
     using DataFrames
     using MD5
-    using CairoMakie
-    using AlgebraOfGraphics
-    using Statistics
-    using CategoricalArrays
-
     export hamming_search
 
     """
@@ -116,54 +111,19 @@ module hamming
             case = string(first(group.case))
             clusters = combine(groupby(group, [:gene, :prefix, :middle, :suffix])) do sdf
                 DataFrame(
-                    cluster_size = nrow(sdf),
-                    unique_umi = length(unique(sdf.barcode))
+                    count = nrow(sdf),
+                    unique_umi = length(unique(sdf.barcode)),
+                    closest_name = unique(sdf.closest_name),
                 )
             end
-            clusters_filtered = clusters[clusters.cluster_size .> (maximum(clusters.cluster_size) * cluster_ratio),:]
-	    clusters_filtered[:,:allele_name] = [get(lookup,seq,unique_name(cname,seq)*" Novel") for (seq, cname) in zip(clusters_filtered.middle, clusters_filtered.closest_name)]
+            clusters_filtered = clusters[clusters.count .> (maximum(clusters.count) * cluster_ratio),:]
+            clusters_filtered[:,:allele_name] = [get(lookup,seq,unique_name(cname,seq)*" Novel") for (seq, cname) in zip(clusters_filtered.middle, clusters_filtered.closest_name)]
             clusters_filtered[:,:case] .= case
             push!(result, clusters_filtered)
         end
         result_collapsed = vcat(result...)
-        result_collapsed_filtered = result_collapsed[result_collapsed.cluster_size .>= min_count,:]
+        result_collapsed_filtered = result_collapsed[result_collapsed.count .>= min_count,:]
         sort!(result_collapsed_filtered, :case)
         result_collapsed_filtered
-    end
-
-    """
-        plot(df::DataFrame, output::String)
-    
-    Function to plot results of hamming search
-    """
-    function plot(df::DataFrame, output::String)
-        # Compute log2 counts
-        df[!, :log2_count] = log2.(df[:, :cluster_size])
-
-        # Compute median log2 count for each gene
-        medians_df = combine(groupby(df, :gene), :log2_count => median => :median_log2_count)
-
-        # Sort the medians DataFrame
-        sort!(medians_df, :median_log2_count)
-
-        # Merge the sorted medians back into the original DataFrame
-        df = leftjoin(df, medians_df, on=:gene)
-
-        # Sort the original DataFrame by median_log2_count
-        sort!(df, :median_log2_count)
-
-        # Use the sorted gene names as a categorical variable for proper ordering in the plot
-        ordered_genes = CategoricalVector(df.gene, levels=medians_df.gene)
-        df[!, :ordered_gene] = ordered_genes
-
-        # Create the plot
-        specs = data(df) * mapping(:ordered_gene, :log2_count) * visual(BoxPlot)
-        fig = draw(specs, axis=(;
-        title="Amplicon counts per gene cluster",
-        ylabel="log2(count)",
-        xlabel="gene",xticklabelrotation=π/2),
-        figure=(;
-        resolution=(1600, 600),))
-        save(output, fig)
     end
 end

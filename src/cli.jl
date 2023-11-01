@@ -62,6 +62,9 @@ module cli
                 arg_type = Int
                 range_tester = (x->x >= 0)
                 default = 200
+            "-s", "--split"
+                help = "Split FASTQ files per case"
+                action = :store_true
         end
 
         choices = ["IGKV", "IGLV", "IGHV"]
@@ -154,8 +157,8 @@ module cli
             default = 0
             range_tester = (x->x >= 0)
         "-p","--plot"
-            help = "File to save plot with sorted gene amplification counts"
-            arg_type = String
+            help = "Display Unicode plot"
+            action = :store_true
         end
 
         @add_arg_table! s["trim"] begin
@@ -203,6 +206,9 @@ module cli
             default = 10
             arg_type = Int
             range_tester = (x->x >= 1)
+        "-p","--plot"
+            help = "Display Unicode plot"
+            action = :store_true
         end
 
         @add_arg_table! s["pattern"] begin
@@ -250,6 +256,6 @@ module cli
             arg_type = String
         end
 
-        return parse_args(args,s)
+        return parse_args(args, s)
     end
 end

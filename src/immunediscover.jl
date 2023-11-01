@@ -36,12 +36,17 @@ module immunediscover
         if parsed_args != nothing
             if get(parsed_args,"%COMMAND%","") == "demultiplex"
                 @info "Demultiplexing"
-                table = immunediscover.demultiplex.demux(parsed_args["demultiplex"]["fastq"],
+                table, stats = immunediscover.demultiplex.demux(parsed_args["demultiplex"]["fastq"],
                                                          parsed_args["demultiplex"]["indices"],
-                                                         min_length=parsed_args["demultiplex"]["length"])
+                                                         min_length=parsed_args["demultiplex"]["length"],
+                                                         save_fastq_files=parsed_args["demultiplex"]["split"])
+                logfile = "$(parsed_args["demultiplex"]["output"]).log"
+                CSV.write(logfile, stats, delim='\t')
+                @info stats
                 output = cli.always_gz(parsed_args["demultiplex"]["output"])
                 CSV.write(output, table, compress=true, delim='\t')
                 @info "Demultiplexed data saved in compressed $output file"
+                @info "Demultiplexing statistics saved in $logfile file"
             end
 
             if get(parsed_args,"%COMMAND%","") == "heptamer"
@@ -111,6 +116,9 @@ module immunediscover
                 minfreq = parsed_args["exact"]["ratio"]
                 counts_df = exact.exact_search(table, db, mincount=mincount, minfreq=minfreq)
                 sort!(counts_df, [:case, :db_name])
+                if parsed_args["exact"]["plot"]
+                    plotgenes(counts_df)
+                end
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 CSV.write(output, counts_df, compress=true, delim='\t')
                 @info "Exact search data saved in compressed $output file"
@@ -161,10 +169,8 @@ module immunediscover
                 output = cli.always_gz(parsed_args["hamming"]["output"])
                 CSV.write(output, summarized, compress=true, delim='\t')
                 @info "Hamming search data saved in compressed $output file"
-                if parsed_args["hamming"]["plot"] !== nothing
-                    @info "Saving plot"
-                    hamming.plot(summarized, parsed_args["hamming"]["plot"])
-                    @info "Plot saved in $(parsed_args["hamming"]["plot"]) file"
+                if parsed_args["hamming"]["plot"]
+                    plotgenes(summarized)
                 end
             end
         end
