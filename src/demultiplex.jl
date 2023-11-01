@@ -71,7 +71,6 @@ module demultiplex
         records_df = DataFrame(records)
         rename!(records_df, [:well, :case, :name, :genomic_sequence])
 
-        @info "Statistics"
         precision(x) = round(x, digits=1)
         records_df[:, :length] = map(length, records_df[:, :genomic_sequence])
         stats = combine(groupby(records_df, [:well, :case])) do group

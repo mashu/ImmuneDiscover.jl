@@ -25,7 +25,7 @@ module cli
                             commands_are_required = true,
                             version = "0.1",
                             add_version = true,
-                            epilog = "Mateusz Kaduk <mateusz.kaduk@ki.se>")
+                            epilog = "GKHLab, 2023")
         @add_arg_table! s begin
             "demultiplex"
                 help = "Demultiplex plate library"

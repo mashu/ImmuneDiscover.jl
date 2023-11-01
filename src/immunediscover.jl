@@ -24,6 +24,7 @@ module immunediscover
     using CSV
     using DataFrames
     using JSON
+    using UnicodePlots
     export load_fasta
 
     """
@@ -42,11 +43,14 @@ module immunediscover
                                                          save_fastq_files=parsed_args["demultiplex"]["split"])
                 logfile = "$(parsed_args["demultiplex"]["output"]).log"
                 CSV.write(logfile, stats, delim='\t')
-                @info stats
+                count_df = combine(groupby(table, :case), :case => length => :count)
+                sort!(count_df, :count, rev=true)
+                @info "Demultiplexing statistics"
+                println(barplot(count_df.case, count_df.count))
                 output = cli.always_gz(parsed_args["demultiplex"]["output"])
                 CSV.write(output, table, compress=true, delim='\t')
-                @info "Demultiplexed data saved in compressed $output file"
-                @info "Demultiplexing statistics saved in $logfile file"
+                @info "Demultiplexing data saved in compressed $output file"
+                @info "Demultiplexing detailed statistics saved in $logfile file"
             end
 
             if get(parsed_args,"%COMMAND%","") == "heptamer"
