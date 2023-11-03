@@ -120,8 +120,8 @@ module immunediscover
                 minfreq = parsed_args["exact"]["ratio"]
                 counts_df = exact.exact_search(table, db, mincount=mincount, minfreq=minfreq)
                 sort!(counts_df, [:case, :db_name])
-                if parsed_args["exact"]["plot"]
-                    plotgenes(counts_df)
+                if !parsed_args["exact"]["noplot"]
+                    println(plotgenes(counts_df))
                 end
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 CSV.write(output, counts_df, compress=true, delim='\t')
@@ -173,8 +173,8 @@ module immunediscover
                 output = cli.always_gz(parsed_args["hamming"]["output"])
                 CSV.write(output, summarized, compress=true, delim='\t')
                 @info "Hamming search data saved in compressed $output file"
-                if parsed_args["hamming"]["plot"]
-                    plotgenes(summarized)
+                if !parsed_args["hamming"]["noplot"]
+                    println(plotgenes(summarized))
                 end
             end
         end

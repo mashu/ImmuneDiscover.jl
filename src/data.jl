@@ -113,7 +113,7 @@ module data
         median_tuples = [(k, v, median(v)) for (k, v) in d]
 
         # Sort the array of tuples based on the median value
-        sort!(median_tuples, by = x -> x[3])
+        sort!(median_tuples, by = x -> x[3], rev=true)
 
         # Create an array of (key, value) tuples, ordered by their median
         sorted_by_median = [(t[1], t[2]) for t in median_tuples]
