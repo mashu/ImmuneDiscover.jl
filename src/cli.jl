@@ -25,6 +25,7 @@ module cli
                             commands_are_required = true,
                             version = "0.1",
                             add_version = true,
+                            usage = "usage: immunediscover <command> [-h|--help]",
                             epilog = "GKHLab, 2023")
         @add_arg_table! s begin
             "demultiplex"
@@ -156,8 +157,8 @@ module cli
             arg_type = Int
             default = 0
             range_tester = (x->x >= 0)
-        "-p","--plot"
-            help = "Display Unicode plot"
+        "-n","--noplot"
+            help = "Disable unicode gene plot"
             action = :store_true
         end
 
@@ -206,8 +207,8 @@ module cli
             default = 10
             arg_type = Int
             range_tester = (x->x >= 1)
-        "-p","--plot"
-            help = "Display Unicode plot"
+        "-n","--noplot"
+            help = "Disable unicode gene plot"
             action = :store_true
         end
 
@@ -255,7 +256,16 @@ module cli
             help = "Blacklist file with sequences to be excluded from pattern search (e.g. pseudo-genes)"
             arg_type = String
         end
-
-        return parse_args(args, s)
+        # Show help if no arguments are provided
+        try
+            return parse_args(args, s)
+        catch e
+            if isa(e, ArgParseError)
+                println(e)
+                ArgParse.show_help(s)
+            else
+                rethrow()
+            end
+        end
     end
 end
