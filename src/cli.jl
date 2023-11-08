@@ -234,7 +234,7 @@ module cli
             range_tester = (x->x >= 1)
         "-k", "--kmer"
             help = "Kmer size which will be used to search for patterns"
-            default = 20
+            default = 12
             arg_type = Int
             range_tester = (x->x >= 3)
         "-m", "--maxkmer"
@@ -247,11 +247,16 @@ module cli
             default = 4
             arg_type = Int
             range_tester = (x->x >= 1)
-        "-r","--ratio"
+        "-f","--minfreq"
             help = "Minimum allelic ratio applied within each gene group"
             default = 0.01
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-c","--mincount"
+            help = "Minimum count for an allele"
+            default = 10
+            arg_type = Int
+            range_tester = (x->x >= 1)
         "-b","--blacklist"
             help = "Blacklist file with sequences to be excluded from pattern search (e.g. pseudo-genes)"
             arg_type = String

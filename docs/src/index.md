@@ -81,6 +81,14 @@ This subcommand can be elucidated through the following algorithmic steps:
 
 For instance, the command:
 ```bash
-immunediscover pattern test.tsv.gz V.fasta -b pseudogenes.fasta -l 200 -r 0.2 test-pattern.tsv.gz
+immunediscover pattern test.tsv.gz V.fasta -b pseudogenes.fasta -l 200 -f 0.1 -c 10 test-pattern.tsv.gz
 ```
 will analyze the entire plate using trimmed genes of a minimum length of 200, applying an allelic ratio filter of 0.2. The result is a compressed TSV file containing candidate alleles and their counts for the entire plate. Typically, select some of these alleles for further analysis using the Hamming or Exact search module.
+
+Some of the optional arguments that are important for the discovery process are:
+- WEIGHTS: Indicating the length of the window which is used to trim sequences, the longer the window the more accurate trimming but it should not exceed the length of the sequence as it's expensive to compute, typical good value is between 20 and 30.
+- LENGTH: The minimum length of the gene after trimming, sequences that traim shorter than this limit are dsiacrded.
+- MAXKMER: Maximum size of the pattern that needs to be unique for a gene, the larger the value the more unique pattern at the cost of missing variation in the gene as this patterns are used for exact search.
+- SAMPLE: The maximum number patterns to be sampled from each gene, the larger the value the more patterns are sampled at the cost of longer runtime. Patterns are used to aggregate sequences belonging to the same gene.
+- MINFREQ: The allelic ratio filter which is used to discard sequencing errors and sequencing artifacts, the lower the value the more sequences are discarded at the cost of missing low frequency alleles.
+- MINCOUNT: The minimum number of sequences that should be present in an allele to be considered, the larger the value the more sequences are discarded at the cost of missing low frequency alleles.

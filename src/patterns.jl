@@ -34,66 +34,73 @@ module patterns
 
     function find_unique_fragments(group::DataFrame, outgroup::DataFrame; fragment_size::Int=15, max_fragment_size::Int=60)
         # Search for fragments
-        @info "Group length $(length(group.seq))"
         kmers = [Set(split_kmers(group.seq[i], fragment_size)) for i in 1:length(group.seq)]
         common_kmers = intersect(kmers...)
         # Filter common_kmers if they occur within outgroup seq
         fragments = filter(x->!any([occursin(x, seq) for seq in outgroup.seq]), common_kmers)
 
         # Don't allow too long fragments as these might miss variation
-        if isempty(fragments) && fragment_size <= max_fragment_size
+        if isempty(fragments) && fragment_size < max_fragment_size
+            @info "Trying fragment size $(fragment_size+1)"
             return find_unique_fragments(group::DataFrame, outgroup::DataFrame; fragment_size=fragment_size+1)
         end
         return unique(fragments)
     end
 
-    function search_pattern(df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01) where F <: AbstractFloat
+    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10) where F <: AbstractFloat
+        # Lookup dictionary for database sequences
+        db_dict = Dict(map(x->(x[1],length(x[2])), eachrow(db_df)))
         # Find unique fragments
         fragments = find_unique_fragments(group, outgroup, fragment_size=fragment_size, max_fragment_size=max_fragment_size)
         if length(fragments) == 0
+            @info "No patterns found for $(unique(group.gene))"
             return nothing
         end
         # Sample fragments
         search_fragments = unique(rand(fragments, max_fragments))
 
         # Filter df for rows which have a sequence that is a substring of any of the fragments
-        gene_df = filter(x->any([occursin(fragment, x.genomic_sequence) for fragment in search_fragments]), df)
-    
+        gene_df = filter(x->any([occursin(fragment, x.genomic_sequence) for fragment in search_fragments]), reads_df)
+
         # Trim sequences
         prof_start, prof_stop = trim.trim_profiles(group.seq, weights)
         ok, trimmed_sequences, region = trim.find_segments(gene_df.genomic_sequence, prof_start, prof_stop, mlen)
         trimmed_sequences_df = DataFrame(seq = trimmed_sequences)
         clustered = sort(combine(groupby(trimmed_sequences_df, :seq), nrow => :count), :count, rev=true)
-    
+
         # Compute and filter by frequency
         clustered[!,:frequency] = clustered.count ./ sum(clustered.count)
         clustered = filter(x->x.frequency >= min_freq, clustered)
-        
+        clustered = filter(x->x.count >= min_count, clustered)
+
         # Annotate closest
         closest = map(x->find_closest(x, db_df), clustered.seq)
         clustered[!,:closest] = map(x->x[1], closest)
+        clustered[!,:length] = length.(clustered.seq)
+        clustered[!,:length_db] = map(x->get(db_dict, x[1], nothing) , closest)
         clustered[!,:dist] = map(x->x[2], closest)
+        filter!(x->x.dist <= 10, clustered)
         clustered[!,:allele_name] = map(x->(x.dist == 0) ? x.closest : hamming.unique_name(x.closest,x.seq)*" Novel", eachrow(clustered))
         clustered[!,:patterns] .= join(search_fragments, ",")
+
+        @info clustered
+
         return clustered
     end
 
     # Write a function that runs search_pattern for each gene
-    function search_patterns(df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01) where F <: AbstractFloat
+    function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10) where F <: AbstractFloat
         candidates = Vector{DataFrame}()
         for gene in unique(db_df.gene)
             @info gene
             group = filter(x->x.gene == gene, db_df)
             local outgroup
             if nrow(blacklist) > 0
-                @info "Using blacklist"
-                outgroup = reduce(vcat,[filter(x->x.gene != gene, group), filter(x->x.gene != gene, blacklist)])
+                outgroup = reduce(vcat,[filter(x->x.gene != gene, db_df), filter(x->x.gene != gene, blacklist)])
             else
-                @info "Not using blacklist"
-                outgroup = filter(x->x.gene != gene, group)
-                @info "Outgroup $(nrow(outgroup))"
+                outgroup = filter(x->x.gene != gene, db_df)
             end
-            found_patterns = search_pattern(df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq)
+            found_patterns = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count)
             if found_patterns !== nothing
                 push!(candidates, found_patterns)
             else
@@ -103,6 +110,8 @@ module patterns
         final = reduce(vcat, candidates)
         other_columns = setdiff(names(final), ["seq"])
         final = final[:, vcat(other_columns, "seq")]
+        # Filter for pseudo genes if they are present
+        filter!(x->!any(occursin.(x.seq, blacklist.seq)), final)
         return final
     end
 end
