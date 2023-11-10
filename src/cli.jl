@@ -222,6 +222,11 @@ module cli
         "output"
             help = "TSV file to save demultiplex data"
             required = true
+        "-t", "--top"
+            help = "Save top candidates with highest counts per gene"
+            arg_type = Int
+            default = 5
+            range_tester = (x->x >= 1)
         "-w", "--weights"
             help = "Length of the position weight matrix"
             default = 20
@@ -229,7 +234,7 @@ module cli
             range_tester = (x->x > 1)
         "-l", "--length"
             help = "Minimum length of the trimmed read"
-            default = 1
+            default = 200
             arg_type = Int
             range_tester = (x->x >= 1)
         "-k", "--kmer"
@@ -242,9 +247,14 @@ module cli
             default = 50
             arg_type = Int
             range_tester = (x->x >= 3)
+        "-d", "--maxdist"
+            help = "Maximum distance allowed for alleles"
+            default = 50
+            arg_type = Int
+            range_tester = (x->x >= 0)
         "-s", "--sample"
             help = "Number of kmers to sample from the set of all kmers to search for a gene"
-            default = 4
+            default = 5
             arg_type = Int
             range_tester = (x->x >= 1)
         "-f","--minfreq"

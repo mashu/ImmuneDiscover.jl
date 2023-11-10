@@ -133,13 +133,31 @@ module immunediscover
                 db = load_fasta(parsed_args["pattern"]["fasta"])
                 db_df = DataFrame(db, [:id, :seq])
                 db_df[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(db_df)) # Remove D suffixes of genes
+                if length(Set(db_df.gene)) < 10
+                    @warn "Less than 10 unique genes in database, automatic detection of gene specific patterns may not work well, resulting in incorrect gene assignments and incomplete trimming!!!"
+                end
                 blacklist = DataFrame()
                 if parsed_args["pattern"]["blacklist"] !== nothing
                     blacklist = DataFrame(load_fasta(parsed_args["pattern"]["blacklist"]),[:id, :seq])
                     blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist)) # Remove D suffixes of genes
                 end
-                final = patterns.search_patterns(table, blacklist, db_df, fragment_size=parsed_args["pattern"]["kmer"], max_fragment_size=parsed_args["pattern"]["maxkmer"], max_fragments=parsed_args["pattern"]["sample"], weights=parsed_args["pattern"]["weights"], mlen=parsed_args["pattern"]["length"], min_freq=parsed_args["pattern"]["minfreq"], min_count=parsed_args["pattern"]["mincount"])
+                final = patterns.search_patterns(table, blacklist, db_df, fragment_size=parsed_args["pattern"]["kmer"], max_fragment_size=parsed_args["pattern"]["maxkmer"], max_fragments=parsed_args["pattern"]["sample"], weights=parsed_args["pattern"]["weights"], mlen=parsed_args["pattern"]["length"], min_freq=parsed_args["pattern"]["minfreq"], min_count=parsed_args["pattern"]["mincount"], max_dist=parsed_args["pattern"]["maxdist"])
+                # Output path
                 output = cli.always_gz(parsed_args["pattern"]["output"])
+                # Save top candidates
+                output_basename, output_extension = split(output,'.',limit=2)
+                top_output = "$(output_basename)-top.$output_extension"
+                filter!(x->x.length >= parsed_args["pattern"]["length"], final)
+                filter!(x->x.count >= parsed_args["pattern"]["mincount"], final)
+                top_per_gene = combine(groupby(final, :gene), df -> sort(df, :count, rev=true)[1:min(parsed_args["pattern"]["top"], nrow(df)), :])
+                dropmissing!(top_per_gene)
+                CSV.write(top_output, top_per_gene, compress=true, delim='\t')
+                # Filter by criteria
+                filter!(x->x.dist <= parsed_args["pattern"]["maxdist"], final)
+                filter!(x->x.ratio >= parsed_args["pattern"]["minfreq"], final)
+                # Filter pseudo genes
+                patterns.filter_and_report!(final, blacklist)
+ 
                 CSV.write(output, final, compress=true, delim='\t')
                 @info "Pattern search data saved in compressed $output file"
             end

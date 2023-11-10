@@ -47,7 +47,7 @@ module patterns
         return unique(fragments)
     end
 
-    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10) where F <: AbstractFloat
+    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame, blacklist::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
         # Lookup dictionary for database sequences
         db_dict = Dict(map(x->(x[1],length(x[2])), eachrow(db_df)))
         # Find unique fragments
@@ -68,28 +68,37 @@ module patterns
         trimmed_sequences_df = DataFrame(seq = trimmed_sequences)
         clustered = sort(combine(groupby(trimmed_sequences_df, :seq), nrow => :count), :count, rev=true)
 
-        # Compute and filter by frequency
-        clustered[!,:frequency] = clustered.count ./ sum(clustered.count)
-        clustered = filter(x->x.frequency >= min_freq, clustered)
-        clustered = filter(x->x.count >= min_count, clustered)
-
         # Annotate closest
         closest = map(x->find_closest(x, db_df), clustered.seq)
         clustered[!,:closest] = map(x->x[1], closest)
-        clustered[!,:length] = length.(clustered.seq)
-        clustered[!,:length_db] = map(x->get(db_dict, x[1], nothing) , closest)
         clustered[!,:dist] = map(x->x[2], closest)
-        filter!(x->x.dist <= 10, clustered)
         clustered[!,:allele_name] = map(x->(x.dist == 0) ? x.closest : hamming.unique_name(x.closest,x.seq)*" Novel", eachrow(clustered))
+        clustered[!,:gene] = map(x->first(split(x.allele_name,'*',limit=2)), eachrow(clustered))
+        clustered[!,:length] = length.(clustered.seq)
+        clustered[!,:length_db] = map(x->get(db_dict, x[1], "") , closest)
         clustered[!,:patterns] .= join(search_fragments, ",")
-
-        @info clustered
-
+        # Compute and filter by frequency
+        clustered[!,:ratio] = clustered.count ./ maximum(clustered.count)
         return clustered
     end
 
+    function filter_and_report!(table::DataFrame, blacklist::DataFrame)
+        # Define a local function that checks if any sequence in blacklist occurs in a given element's sequence
+        function should_filter(x)
+            if any(occursin.(x.seq, blacklist.seq))
+                println("Discarding blacklisted: $(x.allele_name) with count $(x.count): $(x.seq)")
+                return true   
+            else
+                return false
+            end
+        end
+    
+        # Use the filter! function with the local should_filter function
+        filter!(x -> !should_filter(x), table)
+    end
+    
     # Write a function that runs search_pattern for each gene
-    function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10) where F <: AbstractFloat
+    function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
         candidates = Vector{DataFrame}()
         for gene in unique(db_df.gene)
             @info gene
@@ -100,9 +109,9 @@ module patterns
             else
                 outgroup = filter(x->x.gene != gene, db_df)
             end
-            found_patterns = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count)
-            if found_patterns !== nothing
-                push!(candidates, found_patterns)
+            discovered = search_pattern(reads_df, group, outgroup, db_df, blacklist, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist)
+            if discovered !== nothing
+                push!(candidates, discovered)
             else
                 @warn "No patterns found for $gene"
             end
@@ -110,8 +119,6 @@ module patterns
         final = reduce(vcat, candidates)
         other_columns = setdiff(names(final), ["seq"])
         final = final[:, vcat(other_columns, "seq")]
-        # Filter for pseudo genes if they are present
-        filter!(x->!any(occursin.(x.seq, blacklist.seq)), final)
         return final
     end
 end
