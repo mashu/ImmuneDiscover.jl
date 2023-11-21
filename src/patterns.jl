@@ -8,6 +8,7 @@ module patterns
     using DataFrames
     using CSV
     using StringDistances
+    using Folds
 
     # Write function splitting string into kmers
     function split_kmers(s::AbstractString, k::Int)
@@ -47,7 +48,7 @@ module patterns
         return unique(fragments)
     end
 
-    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame, blacklist::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
+    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
         # Lookup dictionary for database sequences
         db_dict = Dict(map(x->(x[1],length(x[2])), eachrow(db_df)))
         # Find unique fragments
@@ -61,10 +62,23 @@ module patterns
 
         # Filter df for rows which have a sequence that is a substring of any of the fragments
         gene_df = filter(x->any([occursin(fragment, x.genomic_sequence) for fragment in search_fragments]), reads_df)
-
+        attempt = 1
+        while (nrow(gene_df) <= min_count)
+            if attempt == 3
+                @info "No patterns found for $(unique(group.gene))"
+                return nothing
+            end
+            @info "Attempt $attempt at patterns resampling because no sufficient (>= $min_count) matches for $(unique(group.gene))"
+            attempt += 1
+            search_fragments = unique(rand(fragments, max_fragments))
+            gene_df = filter(x->any([occursin(fragment, x.genomic_sequence) for fragment in search_fragments]), reads_df)
+        end
         # Trim sequences
         prof_start, prof_stop = trim.trim_profiles(group.seq, weights)
         ok, trimmed_sequences, region = trim.find_segments(gene_df.genomic_sequence, prof_start, prof_stop, mlen)
+        if sum(ok)/length(ok) < 0.9
+            @warn "Not enough sequences trimmed for $(unique(group.gene)) possibly due incomplete database?"
+        end
         trimmed_sequences_df = DataFrame(seq = trimmed_sequences)
         clustered = sort(combine(groupby(trimmed_sequences_df, :seq), nrow => :count), :count, rev=true)
 
@@ -99,8 +113,9 @@ module patterns
     
     # Write a function that runs search_pattern for each gene
     function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
-        candidates = Vector{DataFrame}()
-        for gene in unique(db_df.gene)
+        #candidates = Vector{DataFrame}()
+        candidates = Folds.map(unique(db_df.gene)) do gene
+        #for gene in unique(db_df.gene)
             @info gene
             group = filter(x->x.gene == gene, db_df)
             local outgroup
@@ -109,11 +124,13 @@ module patterns
             else
                 outgroup = filter(x->x.gene != gene, db_df)
             end
-            discovered = search_pattern(reads_df, group, outgroup, db_df, blacklist, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist)
+            discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist)
             if discovered !== nothing
-                push!(candidates, discovered)
+                #push!(candidates, discovered)
+                return discovered
             else
                 @warn "No patterns found for $gene"
+                return Vector{DataFrame}()
             end
         end
         final = reduce(vcat, candidates)

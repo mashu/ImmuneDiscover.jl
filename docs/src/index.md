@@ -72,6 +72,8 @@ The output is a compressed TSV file with the following columns:
 Here, `count` refers to the combined occurrences of `prefix`, `middle`, and `suffix` having the middle part best matching the database sequence.
 
 ## Pattern
+![Pattern-Diagram](assets/pattern-diagram.png)
+
 This subcommand can be elucidated through the following algorithmic steps:
 - Identify gene-specific kmers from the starting database.
 - Sample these gene-specific kmers.

@@ -25,6 +25,7 @@ module immunediscover
     using DataFrames
     using JSON
     using UnicodePlots
+
     export load_fasta
 
     """
@@ -133,10 +134,10 @@ module immunediscover
                 db = load_fasta(parsed_args["pattern"]["fasta"])
                 db_df = DataFrame(db, [:id, :seq])
                 db_df[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(db_df)) # Remove D suffixes of genes
-                if length(Set(db_df.gene)) < 10
-                    @warn "Less than 10 unique genes in database, automatic detection of gene specific patterns may not work well, resulting in incorrect gene assignments and incomplete trimming!!!"
+                if length(Set(db_df.gene)) < 20
+                    @warn "Less than 20 unique genes in database may lead to poor results due to lack of sufficient gene coverage"
                 end
-                blacklist = DataFrame()
+                blacklist =  DataFrame([[],[],[]], [:id, :seq,:gene])
                 if parsed_args["pattern"]["blacklist"] !== nothing
                     blacklist = DataFrame(load_fasta(parsed_args["pattern"]["blacklist"]),[:id, :seq])
                     blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist)) # Remove D suffixes of genes
@@ -161,7 +162,16 @@ module immunediscover
                 CSV.write(output, final, compress=true, delim='\t')
                 @info "Pattern search data saved in compressed $output file"
             end
-
+            if get(parsed_args,"%COMMAND%","") == "novel"
+                df = CSV.File(parsed_args["novel"]["tsv"],delim='\t') |> DataFrame
+                # Assert that the input file has a column named allele_name and seq
+                @assert "allele_name" ∈ names(df) "Input file must have allele_name column"
+                @assert "seq" ∈ names(df) "Input file must have seq column"
+                for row in eachrow(df[contains.(df.allele_name, "Novel"),:])
+                    allele_name = rstrip(replace(row.allele_name, "Novel" => ""))
+                    println(">$allele_name\n$(row.seq)")
+                end
+            end
             if get(parsed_args,"%COMMAND%","") == "hamming"
                 @info "Hamming distance window search"
                 limit = parsed_args["hamming"]["limit"]

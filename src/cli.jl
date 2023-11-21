@@ -46,6 +46,9 @@ module cli
             "pattern"
                 help = "Search for novel alleles with kmers and trim with PWM"
                 action = :command
+            "novel"
+                help = "Extract novel alleles into FASTA format"
+                action = :command
             end
 
         @add_arg_table! s["demultiplex"] begin
@@ -270,6 +273,12 @@ module cli
         "-b","--blacklist"
             help = "Blacklist file with sequences to be excluded from pattern search (e.g. pseudo-genes)"
             arg_type = String
+        end
+
+        @add_arg_table! s["novel"] begin
+        "tsv"
+            help = "TSV file with columns allele_name and seq"
+            required = true
         end
         # Show help if no arguments are provided
         try
