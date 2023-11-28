@@ -9,6 +9,7 @@ include("../src/simulate.jl")
 include("../src/data.jl")
 include("../src/profile.jl")
 include("../src/trim.jl")
+include("../src/exact.jl")
 
 using .cli
 using .demultiplex
@@ -16,6 +17,7 @@ using .simulate
 using .data
 using .profile
 using .trim
+using .exact
 
 #
 # Run testsets
@@ -44,10 +46,8 @@ using .trim
         @test n == 30
     end
 
-    #@testset "demultiplex.jl" begin
-    #end
-
-    @testset "cli.jl" begin
+    @testset "demultiplex.jl" begin
+        # CLI
         @test endswith(cli.always_gz("test.fasta.gz"), ".gz")
         @test endswith(cli.always_gz("test.fasta"), ".gz")
         empty!(ARGS)
@@ -57,13 +57,26 @@ using .trim
         @test parsed_args["demultiplex"]["fastq"] == "test.fastq"
         @test parsed_args["demultiplex"]["indices"] == "test_indices.tsv"
         @test parsed_args["demultiplex"]["output"] == "test.tsv"
+    end
+
+    @testset "exact.jl" begin
+        # CLI
         empty!(ARGS)
-        append!(ARGS, ["trim", "test.tsv.gz", "test.fasta", "test_trim.tsv","-l","7"])
+        append!(ARGS, ["exact", "test.tsv.gz", "test.fasta", "test_exact.tsv.gz"])
         parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "trim"
-        @test parsed_args["trim"]["input"] == "test.tsv.gz"
-        @test parsed_args["trim"]["fasta"] == "test.fasta"
-        @test parsed_args["trim"]["output"] == "test_trim.tsv"
+        @test parsed_args["%COMMAND%"] == "exact"
+        @test parsed_args["exact"]["tsv"] == "test.tsv.gz"
+        @test parsed_args["exact"]["fasta"] == "test.fasta"
+        @test parsed_args["exact"]["output"] == "test_exact.tsv.gz"
+        # Module
+        table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
+        db = data.load_fasta("test.fasta")
+        mincount = 1
+        minfreq = 0.01
+        counts_df = exact.exact_search(table, db, mincount=mincount, minfreq=minfreq)
+        sort!(counts_df, [:case, :db_name])
+        @test nrow(counts_df) == 30
+        @test counts_df[1, :count] == 10
     end
 
     motifs = ["CACAGTG", "CACAGTG", "CACATGT"]
@@ -82,6 +95,15 @@ using .trim
     end
 
     @testset "trim.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["trim", "test.tsv.gz", "test.fasta", "test_trim.tsv","-l","7"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "trim"
+        @test parsed_args["trim"]["input"] == "test.tsv.gz"
+        @test parsed_args["trim"]["fasta"] == "test.fasta"
+        @test parsed_args["trim"]["output"] == "test_trim.tsv"
+        # Module
         read = "AAAAAAAAAACACAGTGATGTAGCACAGTGTTTTTTTTTT"
         motifs = ["CACAGTG", "CACAGTG", "CACATGT"]
         prof_start = profile.motif_profile(motifs)
