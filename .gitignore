@@ -9,4 +9,9 @@
 *.fastq
 *.gz
 *.log
-
+*.py
+/public/
+/tmp/
+/data/
+/immunediscover/
+/.gitlab-ci-local/
