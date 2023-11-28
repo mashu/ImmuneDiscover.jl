@@ -8,16 +8,16 @@ CurrentModule = immunediscover
 [![Build Status](https://gitlab.com/gkhlab/immunediscover.jl/badges/main/pipeline.svg)](https://gitlab.com/gkhlab/immunediscover.jl/pipelines)
 [![Coverage](https://gitlab.com/gkhlab/immunediscover.jl/badges/main/coverage.svg)](https://gitlab.com/gkhlab/immunediscover.jl/commits/main)
 
-Immunediscover is a software package designed for immune repertoire sequencing analysis. The package can be acquired as a prebuilt binary bundle from the [releases page](https://gitlab.com/gkhlab/immunediscover.jl/-/releases).
+Immunediscover is a software package specifically developed for analyzing genomic next-generation sequencing (NGS) data of immune receptors. The package can be acquired as a prebuilt binary bundle from the [releases page](https://gitlab.com/gkhlab/immunediscover.jl/-/releases).
 
 # Usage
 Immunediscover comprises multiple commands functioning as distinct standalone tools, each serving a unique purpose. The initial input for the program is a single FASTQ file containing the reads and indexing barcodes (indices). Subsequent subcommands necessitate the demultiplexing of data into a TSV format.
 
-## Standard Operations
+## Search operations
 1. **Demultiplexing**: Segregates the FASTQ file into appropriate cases.
 2. **Exact**: Assigns demultiplexed reads to exact matches within a database of known alleles.
 
-## Advanced Operations
+## Discovery operations
 These optional steps are aimed at discovering novel alleles:
 3. **Pattern**: Conducts a search for alleles using kmers and trimming heuristics (this method is faster but may result in more false positives).
 4. **Hamming**: Searches for similar sequences across all reads by sliding a window of a known allele across the read (this method is slower but more precise).
