@@ -11,6 +11,7 @@ include("../src/profile.jl")
 include("../src/trim.jl")
 include("../src/exact.jl")
 include("../src/hamming.jl")
+include("../src/patterns.jl")
 
 using .cli
 using .demultiplex
@@ -20,6 +21,7 @@ using .profile
 using .trim
 using .exact
 using .hamming
+using .patterns
 
 # Initialize a dictionary to track test outcomes
 test_outcomes = Dict(
@@ -157,6 +159,26 @@ test_outcomes = Dict(
             @test tstart > 0
             @test tstop > 0
             @test length(stop_trim) == 6
+        end
+
+        @testset "pattern.jl" begin
+            # CLI
+            empty!(ARGS)
+            append!(ARGS, ["pattern", "test.tsv.gz", "test.fasta", "test_pattern.tsv.gz"])
+            parsed_args = cli.parse_commandline(ARGS)
+            @test parsed_args["%COMMAND%"] == "pattern"
+            @test parsed_args["pattern"]["input"] == "test.tsv.gz"
+            @test parsed_args["pattern"]["fasta"] == "test.fasta"
+            @test parsed_args["pattern"]["output"] == "test_pattern.tsv.gz"
+            # Module
+            table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
+            db = data.load_fasta("test.fasta")
+            db_df = DataFrame(db, [:id, :seq])
+            db_df[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(db_df))
+            blacklist = DataFrame(id=["test1", "test2"], seq=["AAAAAAAA", "CCCCCCCC"])
+            blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist))
+            output = patterns.search_patterns(table, blacklist, db_df, min_count=1, min_freq=0.01, max_fragments=10, fragment_size=7, max_fragment_size=7)
+            println(output)
         end
     else
         println("Skipping remaining tests due to failed dependencies")

@@ -137,7 +137,7 @@ module immunediscover
                 if length(Set(db_df.gene)) < 20
                     @warn "Less than 20 unique genes in database may lead to poor results due to lack of sufficient gene coverage"
                 end
-                blacklist =  DataFrame([[],[],[]], [:id, :seq,:gene])
+                blacklist = DataFrame([[],[],[]], [:id, :seq,:gene])
                 if parsed_args["pattern"]["blacklist"] !== nothing
                     blacklist = DataFrame(load_fasta(parsed_args["pattern"]["blacklist"]),[:id, :seq])
                     blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist)) # Remove D suffixes of genes

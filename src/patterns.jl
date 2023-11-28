@@ -9,6 +9,7 @@ module patterns
     using CSV
     using StringDistances
     using Folds
+    using Logging
 
     # Write function splitting string into kmers
     function split_kmers(s::AbstractString, k::Int)
@@ -54,7 +55,7 @@ module patterns
         # Find unique fragments
         fragments = find_unique_fragments(group, outgroup, fragment_size=fragment_size, max_fragment_size=max_fragment_size)
         if length(fragments) == 0
-            @info "No patterns found for $(unique(group.gene))"
+            # @info "No patterns found for $(unique(group.gene))"
             return nothing
         end
         # Sample fragments
@@ -110,28 +111,35 @@ module patterns
         # Use the filter! function with the local should_filter function
         filter!(x -> !should_filter(x), table)
     end
-    
+
     # Write a function that runs search_pattern for each gene
     function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
-        #candidates = Vector{DataFrame}()
+        # Initialize an array to hold loggers for each thread
+        thread_loggers = [Logging.SimpleLogger(IOBuffer()) for _ in 1:Threads.nthreads()]
         candidates = Folds.map(unique(db_df.gene)) do gene
-        #for gene in unique(db_df.gene)
-            @info gene
-            group = filter(x->x.gene == gene, db_df)
-            local outgroup
-            if nrow(blacklist) > 0
-                outgroup = reduce(vcat,[filter(x->x.gene != gene, db_df), filter(x->x.gene != gene, blacklist)])
-            else
-                outgroup = filter(x->x.gene != gene, db_df)
+        logger = thread_loggers[Threads.threadid()]
+        with_logger(logger) do
+                @info gene
+                group = filter(x->x.gene == gene, db_df)
+                local outgroup
+                if nrow(blacklist) > 0
+                    outgroup = reduce(vcat,[filter(x->x.gene != gene, db_df), filter(x->x.gene != gene, blacklist)])
+                else
+                    outgroup = filter(x->x.gene != gene, db_df)
+                end
+                discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist)
+                if discovered !== nothing
+                    return discovered
+                else
+                    @warn "No patterns found for $gene"
+                    return DataFrame([[],[],[],[], [],[],[], [],[],[]], [:count, :closest, :dist, :allele_name, :gene, :length, :length_db, :patterns, :ratio, :seq])
+                end
             end
-            discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist)
-            if discovered !== nothing
-                #push!(candidates, discovered)
-                return discovered
-            else
-                @warn "No patterns found for $gene"
-                return Vector{DataFrame}()
-            end
+        end
+        # Combine and display the log outputs at the end
+        for logger in thread_loggers
+            seekstart(logger.stream)
+            print(read(logger.stream, String))
         end
         final = reduce(vcat, candidates)
         other_columns = setdiff(names(final), ["seq"])

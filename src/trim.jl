@@ -3,7 +3,6 @@ module trim
     using .profile
     using Folds
     using DataFrames
-    using ProgressMeter
 
     """
         find_maxprob_pos(read, prof)
@@ -76,10 +75,8 @@ module trim
     Process table in parallel and perform trimming
     """
     function find_segments(genomic_sequence, prof_start, prof_stop, minlen)
-        p = Progress(length(genomic_sequence))
         len = size(prof_start, 2)
         region = Folds.map(genomic_sequence) do seq
-            ProgressMeter.next!(p)
             trim.trim_read(seq, prof_start, prof_stop, min_length=minlen)
         end
         n = length(genomic_sequence)
