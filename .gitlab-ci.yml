@@ -2,6 +2,11 @@ variables:
   LINUX_AMD64_BINARY: "immunediscover-linux-amd64.tar.gz"
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/immunediscover/${CI_COMMIT_TAG}"
 
+cache:
+  key: $CI_PIPELINE_ID
+  paths:
+    - .julia
+
 .script:
   script:
     - |
