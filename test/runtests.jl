@@ -10,6 +10,7 @@ include("../src/data.jl")
 include("../src/profile.jl")
 include("../src/trim.jl")
 include("../src/exact.jl")
+include("../src/hamming.jl")
 
 using .cli
 using .demultiplex
@@ -18,6 +19,7 @@ using .data
 using .profile
 using .trim
 using .exact
+using .hamming
 
 #
 # Run testsets
@@ -77,6 +79,29 @@ using .exact
         sort!(counts_df, [:case, :db_name])
         @test nrow(counts_df) == 30
         @test counts_df[1, :count] == 10
+    end
+
+    @testset "hamming.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["hamming", "test.tsv.gz", "test.fasta", "test_hamming.tsv.gz", "--maxdist", "10", "-f", "genomic_sequence"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "hamming"
+        @test parsed_args["hamming"]["tsv"] == "test.tsv.gz"
+        @test parsed_args["hamming"]["fasta"] == "test.fasta"
+        @test parsed_args["hamming"]["output"] == "test_hamming.tsv.gz"
+        @test parsed_args["hamming"]["maxdist"] == 10
+        @test parsed_args["hamming"]["column"] == "genomic_sequence"
+        # Module
+        table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
+        db = data.load_fasta("test.fasta")
+        mincount = 1
+        minfreq = 0.01
+        counts = hamming.hamming_search(table, db, max_dist=10, column="genomic_sequence", check_bounds=true, umi=false)
+        summary = hamming.summarize(counts, db, min_count=mincount, cluster_ratio=minfreq)
+        @test nrow(counts) == 15
+        @test nrow(summary) == 2
+        @test summary[1, :count] == 10
     end
 
     motifs = ["CACAGTG", "CACAGTG", "CACATGT"]

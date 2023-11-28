@@ -184,24 +184,22 @@ module immunediscover
                 end
                 db = load_fasta(parsed_args["hamming"]["fasta"])
                 umi = parsed_args["hamming"]["umi"]
-                column = parsed_args["hamming"]["column"] == "trimmed_sequence" ? :trimmed_sequence : :genomic_sequence
+                column = parsed_args["hamming"]["column"]
                 @info "Using $column column"
                 checkbounds = true
-                if column != :genomic_sequence
+                if column != "genomic_sequence"
                     checkbounds = false
                 end
-                found = hamming_search(table, db, max_dist=parsed_args["hamming"]["maxdist"], column=column, check_bounds=checkbounds, umi=umi)
+                assignments_df = hamming_search(table, db, max_dist=parsed_args["hamming"]["maxdist"], column=column, check_bounds=checkbounds, umi=umi)
                 if assignments !== nothing
                     @info "Saving intermediate assignments"
-                    assignments_df = DataFrame(vcat(found...))
-                    rename!(assignments_df,[:closest_name, :distance,:start,:stop,:prefix,:middle,:suffix,:db_sequence,:case,:barcode])
                     CSV.write(assignments, assignments_df, delim='\t')
                 end
-                summarized = hamming.summarize(found, db, min_count=parsed_args["hamming"]["mincount"], cluster_ratio=parsed_args["hamming"]["ratio"])
+                summarized = hamming.summarize(assignments_df, db, min_count=parsed_args["hamming"]["mincount"], cluster_ratio=parsed_args["hamming"]["ratio"])
                 output = cli.always_gz(parsed_args["hamming"]["output"])
                 CSV.write(output, summarized, compress=true, delim='\t')
                 @info "Hamming search data saved in compressed $output file"
-                if !parsed_args["hamming"]["noplot"]
+                if !parsed_args["hamming"]["noplot"] & nrow(summarized) > 0
                     println(plotgenes(summarized))
                 end
             end

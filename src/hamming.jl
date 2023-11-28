@@ -31,17 +31,19 @@ module hamming
 
     Function to search demultiplexed reads for sequences that match query with maximum hamming distance
     """
-    function hamming_search(table::DataFrame, db::Vector{Tuple{String, String}}; max_dist::Int=2, column::Symbol=:genomic_sequence, check_bounds::Bool=true, umi=false)
+    function hamming_search(table::DataFrame, db::Vector{Tuple{String, String}}; max_dist::Int=2, column::String="genomic_sequence", check_bounds::Bool=true, umi=false)
         found_list = Vector{Tuple{String, Int, Int, Int, SubString{String}, SubString{String}, SubString{String}, SubString{String}, String, SubString{String}}}()
         @showprogress for subtable in groupby(table, :case)
-            case_str = first(subtable.case)
+            case_str = String(first(subtable.case))
             subtable = subtable[.!occursin.("N", subtable[!, column]), :]
             found = Folds.map(collect(eachrow(subtable))) do row
                 process_row(row, db, max_dist, column, case_str, check_bounds, umi=umi)
             end
             append!(found_list, [r for r in found if r !== nothing])
         end
-        return found_list
+        assignments_df = DataFrame(vcat(found_list...))
+        rename!(assignments_df,[:closest_name, :distance, :start, :stop, :prefix, :middle, :suffix, :db_sequence, :case, :barcode])
+        return assignments_df
     end
     
     """
@@ -63,7 +65,7 @@ module hamming
 
     Helper function to process single row
     """
-    function process_row(row::DataFrameRow, db::Vector{Tuple{String, String}}, max_dist::Int, column::Symbol, case_str::String, check_bounds::Bool; umi=false)
+    function process_row(row::DataFrameRow, db::Vector{Tuple{String, String}}, max_dist::Int, column::String, case_str::String, check_bounds::Bool=true; umi=false)
         ref = row[column]
         ref_length = length(ref)
         pos = Vector{Tuple{String, Int, Int, Int, SubString{String}}}()
@@ -100,11 +102,8 @@ module hamming
 
     Function to summarize results of hamming search
     """
-    function summarize(found_list, db; cluster_ratio=0.25, min_count=10)
+    function summarize(found_df, db; cluster_ratio=0.25, min_count=10)
         lookup = Dict([(y,x) for (x,y) in db])
-        found_df = DataFrame(vcat(found_list...))
-        rename!(found_df,[:closest_name, :distance,:start,:stop,:prefix,:middle,:suffix,:db_sequence,:case,:barcode])
-        sort!(found_df, :closest_name)
         found_df[:,:gene] = [n[1] for n in split.(found_df.closest_name,'*')]
         result = []
         for group in groupby(found_df,[:gene,:case])
