@@ -49,6 +49,9 @@ module cli
             "novel"
                 help = "Extract novel alleles into FASTA format"
                 action = :command
+            #"hash"
+            #    help = "Hash allele names in FASTA file"
+            #    action = :command
             end
 
         @add_arg_table! s["demultiplex"] begin
@@ -89,7 +92,7 @@ module cli
                 help = "JSON file with dictionary containing haptamers"
                 default = "heptamers.json"
             "-c", "--chain"
-                default = "IGKV"
+                default = "IGHV"
                 range_tester = (x->x ∈ choices)
                 arg_type = String
                 help = "chain; must be one of " * join(choices, ", ", " or ")

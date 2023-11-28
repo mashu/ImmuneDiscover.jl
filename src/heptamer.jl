@@ -5,8 +5,9 @@ module heptamer
     using ProgressMeter
     using StringDistances
     using DataFrames
+    using JSON
 
-    export extract_heptamers, summarize
+    export extract_heptamers, summarize, load_heptamers
 
     """
         sequence_hash(seq; digits=4)
@@ -92,6 +93,30 @@ module heptamer
     end
 
     """
+        load_heptamers(file)
+
+    Load heptamers from JSON file or create one if not provided.
+    """
+    function load_heptamers(file)
+        if !isfile(file)
+            @info "No heptamer file provided, creating one"
+            heptamers = Dict("IGKV" => ["CACAGTG","CACACTG","CACTGTG","CACGGTG","CACAATG","CACATTG"],
+                             "IGLV" => ["CACAGTG","CACGGTG","CATGGTG","CACGCTG","CACAGCG","CACAGTA","CATAGTG","CACAATG"],
+                             "IGHV" => ["CACAGTG","CACAATG","CACAGAG","CACGGTG","CACAGCG"])
+            open(file, "w") do f
+                JSON.print(f, heptamers)
+            end
+            @info "Created heptamer JSON $file file"
+        end
+        if isfile(file)
+            heptamers = JSON.parsefile(file)
+            @assert all([k ∈ ["IGKV","IGLV","IGHV"] for k in keys(heptamers)]) "JSON file with heptamers must contain IGKV, IGLV and IGHV keys"
+        end
+        @info "Loaded heptamers for $(join([k for k in keys(heptamers)],','))"
+        return heptamers
+    end
+
+    """
         summarize(table, query; ratio=0.25, count=10)
 
     Summarize data by collapsing identical sequences, heptamers and cases
@@ -103,7 +128,6 @@ module heptamer
         table[:,:trimmed_sequence] = map(x->x.genomic_sequence[UnitRange(parse.(Int,split(x.trimmed_match,':'))...)], eachrow(table))
         table[:,:suffix_sequence] = map(x->x.genomic_sequence[maximum(parse.(Int,split(x.trimmed_match,':'))):end], eachrow(table))
         collapse = []
-        @info "table $(nrow(table))"
         for group in groupby(table, [:db_name,:trimmed_sequence,:case])
             full = nrow(group)-sum(ismissing.(group.full_match))
             short = nrow(group)

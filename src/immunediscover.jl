@@ -23,7 +23,6 @@ module immunediscover
 
     using CSV
     using DataFrames
-    using JSON
     using UnicodePlots
 
     export load_fasta
@@ -56,28 +55,14 @@ module immunediscover
 
             if get(parsed_args,"%COMMAND%","") == "heptamer"
                 @info "Extracting heptamers"
-                if !isfile(parsed_args["heptamer"]["json"])
-                    @info "No heptamer file provided, creating one"
-                    heptamers = Dict("IGKV" => ["CACAGTG","CACACTG","CACTGTG","CACGGTG","CACAATG","CACATTG"],
-                                     "IGLV" => ["CACAGTG","CACGGTG","CATGGTG","CACGCTG","CACAGCG","CACAGTA","CATAGTG","CACAATG"],
-                                     "IGHV" => ["CACAGTG","CACAATG","CACAGAG","CACGGTG","CACAGCG"])
-                    open(parsed_args["heptamer"]["json"],"w") do f
-                        JSON.print(f, JSON.json(heptamers))
-                    end
-                    @info "Created heptamer JSON $(parsed_args["heptamer"]["json"]) file"
-                end
-                if isfile(parsed_args["heptamer"]["json"])
-                    heptamers = JSON.parsefile(parsed_args["heptamer"]["json"])
-                    @assert all([k ∈ ["IGKV","IGLV","IGHV"] for k in keys(heptamers)]) "JSON file with heptamers must contain IGKV, IGLV and IGHV keys"
-                end
-                @info "Loaded heptamers for $(join([k for k in keys(heptamers)],','))"
+                heptamers = heptamer.load_heptamers(parsed_args["heptamer"]["json"])
                 chain = parsed_args["heptamer"]["chain"]
                 @info "Parsing for $(chain)"
                 @info "Using heptamers $(join(heptamers[chain],','))"
                 db = load_fasta(parsed_args["heptamer"]["fasta"])
                 @info "Loaded $(length(db)) query sequences"
                 table = CSV.File(parsed_args["heptamer"]["tsv"],delim='\t') |> DataFrame
-                data = extract_heptamers(table, db, heptamers[chain]; max_dist=parsed_args["heptamer"]["maxdist"], b=parsed_args["heptamer"]["begin"]+1, e=parsed_args["heptamer"]["end"])
+                data = heptamer.extract_heptamers(table, db, heptamers[chain]; max_dist=parsed_args["heptamer"]["maxdist"], b=parsed_args["heptamer"]["begin"]+1, e=parsed_args["heptamer"]["end"])
                 output = cli.always_gz(parsed_args["heptamer"]["output"])
                 CSV.write(output, data, compress=true, delim='\t')
                 @info "Heptamer data saved in compressed $output file"

@@ -12,6 +12,7 @@ include("../src/trim.jl")
 include("../src/exact.jl")
 include("../src/hamming.jl")
 include("../src/patterns.jl")
+include("../src/heptamer.jl")
 
 using .cli
 using .demultiplex
@@ -22,6 +23,7 @@ using .trim
 using .exact
 using .hamming
 using .patterns
+using .heptamer
 
 # Initialize a dictionary to track test outcomes
 test_outcomes = Dict(
@@ -179,6 +181,30 @@ test_outcomes = Dict(
             blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist))
             output = patterns.search_patterns(table, blacklist, db_df, min_count=1, min_freq=0.01, max_fragments=10, fragment_size=7, max_fragment_size=7)
             println(output)
+        end
+
+        @testset "heptamer.jl" begin
+            # CLI
+            empty!(ARGS)
+            append!(ARGS, ["heptamer", "test.tsv.gz", "test.fasta", "test_heptamer.tsv.gz", "test_summary.tsv"])
+            parsed_args = cli.parse_commandline(ARGS)
+            @test parsed_args["%COMMAND%"] == "heptamer"
+            @test parsed_args["heptamer"]["tsv"] == "test.tsv.gz"
+            @test parsed_args["heptamer"]["fasta"] == "test.fasta"
+            @test parsed_args["heptamer"]["output"] == "test_heptamer.tsv.gz"
+            @test parsed_args["heptamer"]["summary"] == "test_summary.tsv"
+            @test parsed_args["heptamer"]["chain"] == "IGHV"
+            heptamers = heptamer.load_heptamers(parsed_args["heptamer"]["json"])
+            chain = parsed_args["heptamer"]["chain"]
+
+            # Module
+            table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
+            db = data.load_fasta("test.fasta")
+            heptamer_df = heptamer.extract_heptamers(table, db, heptamers[chain]; max_dist=parsed_args["heptamer"]["maxdist"], b=parsed_args["heptamer"]["begin"]+1, e=parsed_args["heptamer"]["end"])
+            summary_df = heptamer.summarize(heptamer_df, db, ratio=parsed_args["heptamer"]["ratio"], count=parsed_args["heptamer"]["mincount"])
+            @test nrow(heptamer_df) == 225
+            @test nrow(summary_df) == 30
+            @test summary_df[1, :allele_count] == 10
         end
     else
         println("Skipping remaining tests due to failed dependencies")
