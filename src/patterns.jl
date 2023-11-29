@@ -10,6 +10,7 @@ module patterns
     using StringDistances
     using Folds
     using Logging
+    using ProgressMeter
 
     # Write function splitting string into kmers
     function split_kmers(s::AbstractString, k::Int)
@@ -116,9 +117,11 @@ module patterns
     function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
         # Initialize an array to hold loggers for each thread
         thread_loggers = [Logging.SimpleLogger(IOBuffer()) for _ in 1:Threads.nthreads()]
+        p = ProgressMeter.Progress(length(unique(db_df.gene)))
         candidates = Folds.map(unique(db_df.gene)) do gene
-        logger = thread_loggers[Threads.threadid()]
-        with_logger(logger) do
+            logger = thread_loggers[Threads.threadid()]
+            with_logger(logger) do
+                ProgressMeter.next!(p)
                 @info gene
                 group = filter(x->x.gene == gene, db_df)
                 local outgroup

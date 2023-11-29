@@ -2,7 +2,6 @@
 CurrentModule = immunediscover
 ```
 
-# Immunediscover
 [![Release](https://gitlab.com/gkhlab/immunediscover.jl/-/badges/release.svg)](https://gitlab.com/gkhlab/immunediscover.jl/-/releases)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://gkhlab.gitlab.io/immunediscover.jl/dev)
 [![Build Status](https://gitlab.com/gkhlab/immunediscover.jl/badges/main/pipeline.svg)](https://gitlab.com/gkhlab/immunediscover.jl/pipelines)
@@ -10,19 +9,18 @@ CurrentModule = immunediscover
 
 Immunediscover is a software package specifically developed for analyzing genomic next-generation sequencing (NGS) data of immune receptors. The package can be acquired as a prebuilt binary bundle from the [releases page](https://gitlab.com/gkhlab/immunediscover.jl/-/releases).
 
-# Usage
-Immunediscover comprises multiple commands functioning as distinct standalone tools, each serving a unique purpose. The initial input for the program is a single FASTQ file containing the reads and indexing barcodes (indices). Subsequent subcommands necessitate the demultiplexing of data into a TSV format.
+Immunediscover comprises multiple commands functioning as distinct standalone tools, each serving a unique purpose. The initial input for the program is a single FASTQ file containing the reads and TSV file with indexing barcodes (indices). Subsequent subcommands necessitate the demultiplexing of data into a TSV format.
 
-## Search operations
+# Usage
+Basic usage typicallly consists of the following steps:
 1. **Demultiplexing**: Segregates the FASTQ file into appropriate cases.
 2. **Exact**: Assigns demultiplexed reads to exact matches within a database of known alleles.
 
-## Discovery operations
 These optional steps are aimed at discovering novel alleles:
 3. **Pattern**: Conducts a search for alleles using kmers and trimming heuristics (this method is faster but may result in more false positives).
-4. **Hamming**: Searches for similar sequences across all reads by sliding a window of a known allele across the read (this method is slower but more precise).
+4. **Hamming**: Searches for similar sequences across all reads by sliding a window of a known allele across the read (this method does not discover differences in length but produces fewer false positives).
 
-## Demultiplexing
+# Demultiplexing
 To demultiplex a FASTQ file, provide the path to the compressed FASTQ file (`fastq.gz`) and a tab-separated (TSV) file with the following mandatory columns:
 - forward_index
 - reverse_index
@@ -34,25 +32,62 @@ The command below segregates reads into different cases based on the forward_ind
 ```bash
 immunediscover demultiplex test.fastq.gz indices.tsv test.tsv
 ```
-The output is a compressed TSV file with the following columns:
-- case
-- name
-- genomic_sequence
 
-## Exact
-This subcommand identifies exact matches to a database of known alleles. Provide the path to the compressed FASTQ file (`fastq.gz`) and the TSV file with demultiplexed data. The output is a TSV file with the following columns:
-- case
-- db_name (name of the database sequence)
-- count (number of reads matching the database sequence)
-- gene
-- frequency (count normalized by the total number of reads in the case and for the gene)
+### Demultiplex Program Parameters
+
+The `demultiplex` program uses the following parameters:
+
+### Positional Arguments
+
+1. `fastq`: FASTQ file with reads.
+2. `indices`: TSV file with barcodes and cases.
+3. `output`: TSV file to save demultiplex data.
+
+### Optional Arguments
+
+- `-l, --length LENGTH`: Minimum length of the read. (Default: 200)
+
+- `-s, --split`: Split FASTQ files per case. This option does not have an associated type or default as it is a toggle switch. (Default: false)
+
+### Demultiplex output
+The output is a compressed TSV file with the following columns:
+- case: The case (donor) containing the allele.
+- name: The name of the read.
+- genomic_sequence: The sequence of the read.
+
+# Exact
+This subcommand identifies exact matches to a database of known alleles. Provide the path to the compressed FASTQ file (`fastq.gz`) and the TSV file with demultiplexed data. 
 
 To execute a search for exact matches to a database of known alleles, use the command:
 ```bash
 immunediscover exact test.tsv.gz V.fasta test-exact.tsv.gz
 ```
 
-## Hamming
+### Exact Program Parameters
+
+The `exact` program uses the following parameters:
+
+### Positional Arguments
+
+1. `tsv`: TSV file with demultiplexed data.
+2. `fasta`: FASTA file with query alleles.
+3. `output`: TSV file to save output.
+
+### Optional Arguments
+- `-r, --ratio RATIO`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
+- `-c, --mincount MINCOUNT`: Minimum cluster size. (Default: 10)
+- `-n, --noplot`: Disable unicode gene plot. This option does not have associated types or defaults as it is a toggle switch.
+
+### Exact output
+
+The output is a TSV file with the following columns:
+- case: The case (donor) containing the allele.
+- db_name: The name of the allele from the database.
+- count: The number of reads matching the allele.
+- gene: The gene of the allele.
+- frequency: The ratio of the allele with respect to highest allele in the gene group.
+
+# Hamming
 
 This subcommand executes a sliding window operation, equal to the database sequence length, across the entire read to find the closest match from the database based on hamming distance. By default, the command operates on the `genomic_sequence` column corresponding to the full read. To expedite the process, utilize the `trimmed_sequence` column added by the trim command, although this may compromise accuracy and eliminate the extraction of neighboring heptamers.
 
@@ -60,18 +95,41 @@ For a greedy Hamming search, use the command:
 ```bash
 immunediscover hamming --maxdist 10 test.tsv.gz test.fasta test_hamming.tsv.gz
 ```
+
+### Hamming Program Parameters
+
+The `hamming` program accepts the following parameters:
+
+### Positional Arguments
+
+1. `tsv`: TSV file with demultiplexed data.
+2. `fasta`: FASTA file with query alleles.
+3. `output`: TSV file to save output.
+
+### Optional Arguments
+
+- `-a, --assignments ASSIGNMENTS`: Optional TSV file to save intermediate assignments.
+- `-d, --maxdist MAXDIST`: Maximum distance allowed. (Default: 2)
+- `-c, --mincount MINCOUNT`: Minimum cluster size. (Default: 10)
+- `-r, --ratio RATIO`: Minimum allelic ratio applied on cluster sizes. (Default: 0.25)
+- `-f, --column COLUMN`: Column with genomic sequence. (Default: "genomic_sequence")
+- `-u, --umi`: Indicates that UMI (Unique Molecular Identifier) is present in the read.
+- `-l, --limit LIMIT`: Limit to this number of sequences, zero means no limit. (Default: 0)
+- `-n, --noplot`: Disable unicode gene plot. This option does not have an associated type or default as it is a toggle switch. (Default: false)
+
+### Hamming output
 The output is a compressed TSV file with the following columns:
-- gene
-- prefix
-- middle
-- suffix
-- count
-- allele_name
-- case
+- gene: The gene of the allele.
+- prefix: The prefix sequence of the allele.
+- middle: The sequence of the allele.
+- suffix: The suffix sequence of the allele.
+- count: The number of reads matching the allele.
+- allele_name: The new name of the allele.
+- case: The case (donor) containing the allele.
 
-Here, `count` refers to the combined occurrences of `prefix`, `middle`, and `suffix` having the middle part best matching the database sequence.
+Note that `count` refers to the combined occurrences of `prefix`, `middle`, and `suffix` having the middle part best matching the database sequence.
 
-## Pattern
+# Pattern
 ![Pattern-Diagram](assets/pattern-diagram.png)
 
 This subcommand can be elucidated through the following algorithmic steps:
@@ -85,12 +143,40 @@ For instance, the command:
 ```bash
 immunediscover pattern test.tsv.gz V.fasta -b pseudogenes.fasta -l 200 -f 0.1 -c 10 test-pattern.tsv.gz
 ```
-will analyze the entire plate using trimmed genes of a minimum length of 200, applying an allelic ratio filter of 0.2. The result is a compressed TSV file containing candidate alleles and their counts for the entire plate. Typically, select some of these alleles for further analysis using the Hamming or Exact search module.
+will analyze the entire plate using trimmed genes of a minimum length of `200`, applying an allelic ratio filter of `0.1` and minimum count filter of `10`. The result is a compressed TSV file containing candidate alleles and their counts for the entire plate. Typically, select some of these alleles for further analysis using the Hamming or Exact search module.
 
-Some of the optional arguments that are important for the discovery process are:
-- WEIGHTS: Indicating the length of the window which is used to trim sequences, the longer the window the more accurate trimming but it should not exceed the length of the sequence as it's expensive to compute, typical good value is between 20 and 30.
-- LENGTH: The minimum length of the gene after trimming, sequences that traim shorter than this limit are dsiacrded.
-- MAXKMER: Maximum size of the pattern that needs to be unique for a gene, the larger the value the more unique pattern at the cost of missing variation in the gene as this patterns are used for exact search.
-- SAMPLE: The maximum number patterns to be sampled from each gene, the larger the value the more patterns are sampled at the cost of longer runtime. Patterns are used to aggregate sequences belonging to the same gene.
-- MINFREQ: The allelic ratio filter which is used to discard sequencing errors and sequencing artifacts, the lower the value the more sequences are discarded at the cost of missing low frequency alleles.
-- MINCOUNT: The minimum number of sequences that should be present in an allele to be considered, the larger the value the more sequences are discarded at the cost of missing low frequency alleles.
+### Pattern Program Parameters
+
+The `pattern` program accepts the following parameters:
+
+### Positional Arguments
+
+1. `input`: TSV file with demultiplex data.
+2. `fasta`: FASTA file with aligned gene sequences to build trimming profile.
+3. `output`: TSV file to save demultiplex data.
+
+### Optional Arguments
+
+- `-t, --top TOP`: Save top candidates with highest counts per gene. (Default: 5)
+- `-w, --weights WEIGHTS`: Length of the position weight matrix. (Default: 20)
+- `-l, --length LENGTH`: Minimum length of the trimmed read. (Default: 200)
+- `-k, --kmer KMER`: Kmer size which will be used to search for patterns. (Default: 12)
+- `-m, --maxkmer MAXKMER`: Maximum kmer size if kmer size needs to be increased automatically. (Default: 50)
+- `-d, --maxdist MAXDIST`: Maximum distance allowed for alleles. (Default: 50)
+- `-s, --sample SAMPLE`: Number of kmers to sample from the set of all kmers to search for a gene. (Default: 5)
+- `-f, --minfreq MINFREQ`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
+- `-c, --mincount MINCOUNT`: Minimum count for an allele. (Default: 10)
+- `-b, --blacklist BLACKLIST`: Blacklist file with sequences to be excluded from pattern search (e.g. pseudo-genes).
+
+### Pattern output
+The output is a compressed TSV file with the following columns:
+- count: The number of reads matching the allele.
+- closest: The closest allele from the database.
+- dist: The Levenshtein distance to the closest allele.
+- allele_name: The new name of the allele.
+- gene: The gene of the allele.
+- length: The length of the allele.
+- length_db: The length of the closest allele from the database.
+- patterns: The patterns used to find the allele.
+- ratio: The ratio of the allele with respect to highest allele in the gene group.
+- seq: The sequence of the allele.
