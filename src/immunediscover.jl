@@ -101,7 +101,7 @@ module immunediscover
             if get(parsed_args,"%COMMAND%","") == "exact"
                 @info "Exact search"
                 table = CSV.File(parsed_args["exact"]["tsv"], delim='\t') |> DataFrame
-                db = load_fasta(parsed_args["exact"]["fasta"])
+                db = load_fasta(parsed_args["exact"]["fasta"], validate=false)
                 mincount = parsed_args["exact"]["mincount"]
                 minfreq = parsed_args["exact"]["ratio"]
                 counts_df = exact.exact_search(table, db, mincount=mincount, minfreq=minfreq)

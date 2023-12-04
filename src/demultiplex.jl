@@ -87,6 +87,6 @@ module demultiplex
         end
         sort!(stats, :well)
 
-        return records_df[:, [:case, :name, :genomic_sequence]], stats
+        return records_df[:, [:well, :case, :name, :genomic_sequence]], stats
     end
 end

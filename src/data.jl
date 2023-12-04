@@ -6,7 +6,28 @@ module data
     using DataFrames
     using Statistics
     using UnicodePlots
-    export load_fasta, plotgenes
+    using MD5
+
+    export load_fasta, plotgenes, unique_name, sequence_hash
+
+    """
+        sequence_hash(seq; digits=4)
+
+    Helper function for hashing the sequence
+    Note this is not guaranteed to be unique but is simply visual indicator and this encoding is inherited from IgDiscover
+    """
+    function sequence_hash(seq; digits=4)
+        "S"*lpad(string(parse(Int,bytes2hex(MD5.md5(seq))[(end-(digits-1)):end],base=16) % 10^digits), digits, '0')
+    end
+
+    """
+        unique_name(name, sequence; digits=4)
+
+    Wrapper funciton to update allele names
+    """
+    function unique_name(name, sequence; digits=4)
+        "$(first(rsplit(name,"_")))_$(sequence_hash(sequence,digits=digits))"
+    end
 
     """
         write_fastq(path, records)
@@ -61,15 +82,99 @@ module data
     end
 
     """
-        load_fasta(path)
+        validate_identifier(id::String)
 
-    Function to load gz compressed or uncompressed FASTA file
+    Validate that the identifier follows the specified format:
+    - Contains a star (*) that separates it into two parts.
+    - Each part contains at least one capital letter and one number.
+    - If the second part does not contain 'S', it must be only numbers.
     """
-    function load_fasta(path)
-        records = Vector{Tuple{String,String}}()
+    function validate_identifier(id)
+        # Regular expression pattern
+        # Part 1: [A-Z].*\d.* - At least one capital letter and one number before '*'
+        # Part 2: (\*.*S.*\d.*|.*\*.*\d+$) - After '*', either contains 'S' and numbers or is only numbers
+        pattern = r"[A-Z].*\d.*\*(.*S.*\d.*|.*\d+$)"
+
+        # Check if the identifier matches the pattern
+        return occursin(pattern, id)
+    end
+
+    """
+        validate_sequence(seq::String)
+
+    Check if the DNA sequence contains only 'A', 'T', 'G', and 'C'.
+    """
+    function validate_sequence(seq::String)
+        # Define the allowed characters
+        allowed_chars = Set(['A', 'T', 'G', 'C'])
+
+        # Check each character in the sequence
+        for char in seq
+            if !(char in allowed_chars)
+                return false
+            end
+        end
+        return true
+    end
+
+    """
+        load_fasta(path; validate=true)
+
+    Function to load gz compressed or uncompressed FASTA file. If validate=true, 
+    throws an error upon encountering a duplicated sequence or identifier.
+    """
+    function load_fasta(path; validate=true)
+        records = Vector{Tuple{String, String}}()
+        seen_descriptions = Set{String}()
+        seen_sequences = Set{String}()
+
         open(FASTA.Reader, path) do reader
             for record in reader
-                push!(records, (FASTA.description(record), string(FASTA.sequence(record))))
+                desc = string(FASTA.description(record))
+                seq = string(FASTA.sequence(record))
+
+                # By default everything is fine
+                error = false
+
+                if validate
+                    # Check if sequence is valid
+                    if length(seq) == 0
+                        throw(ErrorException("Empty sequence found: $(desc)"))
+                        error = true
+                    end
+
+                    # Check if identifier is valid
+                    if !validate_identifier(desc)
+                        throw(ErrorException("Invalid identifier found: $(desc)"))
+                        error = true
+                    end
+
+                    if length(desc) == 0
+                        throw(ErrorException("Empty identifier found: $(desc)"))
+                        error = true
+                    end
+
+                    # Check for duplicate description
+                    if desc in seen_descriptions
+                        throw(ErrorException("Duplicate identifier found: $(desc)"))
+                        error = true
+                    end
+
+                    # Check for duplicate sequence
+                    if seq in seen_sequences
+                        throw(ErrorException("Duplicate sequence found: $(seq)"))
+                        error = true
+                    end
+                end
+
+                # Exit on error
+                if error
+                    exit(1)
+                end
+
+                push!(seen_descriptions, desc)
+                push!(seen_sequences, seq)
+                push!(records, (desc, seq))
             end
         end
         return records

@@ -44,7 +44,7 @@ test_outcomes = Dict(
         data.write_gz_fastq("test.fastq.gz", fastq_records)
         data.write_gz_fasta("test.fasta.gz", fasta_records)
         CSV.write("test_indices.tsv", indices, delim='\t')
-        db = data.load_fasta("test.fasta")
+        db = data.load_fasta("test.fasta", validate=false)
         @test length(db) == 15
         @test length(fastq_records) == 15
         @test length(fasta_records) == 15
@@ -91,7 +91,7 @@ test_outcomes = Dict(
             @test parsed_args["exact"]["output"] == "test_exact.tsv.gz"
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            db = data.load_fasta("test.fasta")
+            db = data.load_fasta("test.fasta", validate=false)
             mincount = 1
             minfreq = 0.01
             counts_df = exact.exact_search(table, db, mincount=mincount, minfreq=minfreq)
@@ -113,7 +113,7 @@ test_outcomes = Dict(
             @test parsed_args["hamming"]["column"] == "genomic_sequence"
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            db = data.load_fasta("test.fasta")
+            db = data.load_fasta("test.fasta", validate=false)
             mincount = 1
             minfreq = 0.01
             counts = hamming.hamming_search(table, db, max_dist=10, column="genomic_sequence", check_bounds=true, umi=false)
@@ -174,7 +174,7 @@ test_outcomes = Dict(
             @test parsed_args["pattern"]["output"] == "test_pattern.tsv.gz"
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            db = data.load_fasta("test.fasta")
+            db = data.load_fasta("test.fasta", validate=false)
             db_df = DataFrame(db, [:id, :seq])
             db_df[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(db_df))
             blacklist = DataFrame(id=["test1", "test2"], seq=["AAAAAAAA", "CCCCCCCC"])
@@ -199,7 +199,7 @@ test_outcomes = Dict(
 
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            db = data.load_fasta("test.fasta")
+            db = data.load_fasta("test.fasta", validate=false)
             heptamer_df = heptamer.extract_heptamers(table, db, heptamers[chain]; max_dist=parsed_args["heptamer"]["maxdist"], b=parsed_args["heptamer"]["begin"]+1, e=parsed_args["heptamer"]["end"])
             summary_df = heptamer.summarize(heptamer_df, db, ratio=parsed_args["heptamer"]["ratio"], count=parsed_args["heptamer"]["mincount"])
             @test nrow(heptamer_df) == 225

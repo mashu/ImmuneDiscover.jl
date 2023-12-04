@@ -1,10 +1,8 @@
 module patterns
     include("trim.jl")
     include("data.jl")
-    include("hamming.jl")
     using .trim
     using .data
-    using .hamming
     using DataFrames
     using CSV
     using StringDistances
@@ -88,7 +86,7 @@ module patterns
         closest = map(x->find_closest(x, db_df), clustered.seq)
         clustered[!,:closest] = map(x->x[1], closest)
         clustered[!,:dist] = map(x->x[2], closest)
-        clustered[!,:allele_name] = map(x->(x.dist == 0) ? x.closest : hamming.unique_name(x.closest,x.seq)*" Novel", eachrow(clustered))
+        clustered[!,:allele_name] = map(x->(x.dist == 0) ? x.closest : unique_name(x.closest,x.seq)*" Novel", eachrow(clustered))
         clustered[!,:gene] = map(x->first(split(x.allele_name,'*',limit=2)), eachrow(clustered))
         clustered[!,:length] = length.(clustered.seq)
         clustered[!,:length_db] = map(x->get(db_dict, x[1], "") , closest)

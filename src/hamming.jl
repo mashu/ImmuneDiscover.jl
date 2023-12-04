@@ -4,27 +4,10 @@ module hamming
     using ProgressMeter
     using StringDistances
     using DataFrames
-    using MD5
+    include("data.jl")
+    using .data
+
     export hamming_search
-
-    """
-        sequence_hash(seq; digits=4)
-
-    Helper function for hashing the sequence
-    Note this is not guaranteed to be unique but is simply visual indicator and this encoding is inherited from IgDiscover
-    """
-    function sequence_hash(seq; digits=4)
-        "S"*lpad(string(parse(Int,bytes2hex(MD5.md5(seq))[(end-(digits-1)):end],base=16) % 10^digits), digits, '0')
-    end
-
-    """
-        unique_name(name, sequence; digits=4)
-
-    Wrapper funciton to update allele names
-    """
-    function unique_name(name, sequence; digits=4)
-        "$(first(rsplit(name,"_S")))_$(sequence_hash(sequence,digits=digits))"
-    end
 
     """
         hamming_search(table, db; max_dist=2, column=:genomic_sequence, check_bounds=true, umi=false)

@@ -1,32 +1,14 @@
 module heptamer
     using BioAlignments
     using Folds
-    using MD5
     using ProgressMeter
     using StringDistances
     using DataFrames
     using JSON
+    include("data.jl")
+    using .data
 
     export extract_heptamers, summarize, load_heptamers
-
-    """
-        sequence_hash(seq; digits=4)
-
-    Helper function for hashing the sequence
-    Note this is not guaranteed to be unique but is simply visual indicator and this encoding is inherited from IgDiscover
-    """
-    function sequence_hash(seq; digits=4)
-        "S"*lpad(string(parse(Int,bytes2hex(MD5.md5(seq))[(end-(digits-1)):end],base=16) % 10^digits), digits, '0')
-    end
-
-    """
-        unique_name(name, sequence; digits=4)
-
-    Wrapper funciton to update allele names
-    """
-    function unique_name(name, sequence; digits=4)
-        "$(first(rsplit(name,"_S")))_$(sequence_hash(sequence,digits=digits))"
-    end
 
     """
         find_heptamer(suffix, heptamer_iter; max_dist=1, heptamer_length=7)
@@ -52,18 +34,18 @@ module heptamer
     Agument input table with located heptamers and extend trimmed sequence up to that heptamer
     """
     function extract_heptamers(table, db, heptamers; max_dist=1, b=1, e=8)
-        @assert all(names(table) .== ["case","name","genomic_sequence"]) "File must contain following columns case,name,genomic_sequence"
+        @assert all(names(table) .== ["well","case","name","genomic_sequence"]) "File must contain following columns case,name,genomic_sequence"
         p = Progress(length(db))
         completed = Folds.map(db) do pair
             query_name, query_seq = pair
-            ProgressMeter.next!(p; showvalues = [(:query_name,query_name)])
+            ProgressMeter.next!(p; showvalues = [(:query_name, query_name)])
             query = query_seq[b:end-e]
             subtable = table[occursin.(query, table.genomic_sequence),:]
             short = []
             @inbounds for row in eachrow(subtable)
                 genomic_sequence = row[:genomic_sequence]
                 interval = findfirst(query, genomic_sequence)
-                if interval != nothing
+                if interval !== nothing
                     suffix = genomic_sequence[maximum(interval)+1:end]
                     loc = find_heptamer(suffix, heptamers, max_dist=max_dist)
                     if loc > 0
@@ -75,7 +57,7 @@ module heptamer
                     end
                     full_match = ""
                     full_interval = findfirst(query_seq, genomic_sequence)
-                    if full_interval != nothing
+                    if full_interval !== nothing
                         full_match = string(full_interval)
                     end
                     trimmed_match = string(interval)
@@ -89,7 +71,7 @@ module heptamer
                 sub_short_df
             end
         end
-        return vcat([d for d in completed if d != nothing]...)
+        return vcat([d for d in completed if d !== nothing]...)
     end
 
     """
@@ -122,7 +104,7 @@ module heptamer
     Summarize data by collapsing identical sequences, heptamers and cases
     """
     function summarize(table, query; ratio=0.25, count=10)
-        @assert all(names(table) .== ["case","name","genomic_sequence","db_name","full_match","trimmed_match","db_length","full_length","full_sequence","heptamer"]) "File must contain following columns case,name,genomic_sequence,db_name,full_match,db_length,full_length,full_sequence,heptamer"
+        @assert all(names(table) .== ["well","case","name","genomic_sequence","db_name","full_match","trimmed_match","db_length","full_length","full_sequence","heptamer"]) "File must contain following columns well,case,name,genomic_sequence,db_name,full_match,db_length,full_length,full_sequence,heptamer"
         lookup_rev = Dict([(y,x) for (x,y) in query])
         lookup = Dict([(x,y) for (x,y) in query])
         table[:,:trimmed_sequence] = map(x->x.genomic_sequence[UnitRange(parse.(Int,split(x.trimmed_match,':'))...)], eachrow(table))
