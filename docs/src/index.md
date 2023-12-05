@@ -33,6 +33,19 @@ The command below segregates reads into different cases based on the forward_ind
 immunediscover demultiplex test.fastq.gz indices.tsv test.tsv
 ```
 
+To run this command on multiple FASTQ files, consider naming libraries the index file the same way as the FASTQ file, e.g. `test.fastq.gz` and `test.tsv` for the first library, `test2.fastq.gz` and `test2.tsv` for the second library, etc. Then, use the following command to run the demultiplexing on all libraries:
+```bash
+for i in *.fastq.gz; do immunediscover demultiplex $i ${i%.fastq.gz}.tsv ${i%.fastq.gz}-demultiplex.tsv; done
+```
+Note that fastq files are assumed to be gzipped (which is good practice to save space). If they are not, use the following command:
+```bash
+for i in *.fastq; do immunediscover demultiplex $i ${i%.fastq}.tsv ${i%.fastq}-demultiplex.tsv; done
+```
+or altenatively, using findutils:
+```bash
+find . -name "*.fastq.gz" -exec bash -c 'immunediscover demultiplex $0 ${0%.fastq.gz}.tsv ${0%.fastq.gz}-demultiplex.tsv' {} \;
+```
+
 ### Demultiplex Program Parameters
 
 The `demultiplex` program uses the following parameters:
@@ -51,6 +64,7 @@ The `demultiplex` program uses the following parameters:
 
 ### Demultiplex output
 The output is a compressed TSV file with the following columns:
+- well: The well on the plate.
 - case: The case (donor) containing the allele.
 - name: The name of the read.
 - genomic_sequence: The sequence of the read.
@@ -81,6 +95,7 @@ The `exact` program uses the following parameters:
 ### Exact output
 
 The output is a TSV file with the following columns:
+- well: The well on the plate.
 - case: The case (donor) containing the allele.
 - db_name: The name of the allele from the database.
 - count: The number of reads matching the allele.
@@ -126,6 +141,7 @@ The output is a compressed TSV file with the following columns:
 - count: The number of reads matching the allele.
 - allele_name: The new name of the allele.
 - case: The case (donor) containing the allele.
+- well: The well on the plate.
 
 Note that `count` refers to the combined occurrences of `prefix`, `middle`, and `suffix` having the middle part best matching the database sequence.
 
