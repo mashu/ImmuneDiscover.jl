@@ -128,7 +128,7 @@ The `hamming` program accepts the following parameters:
 - `-c, --mincount MINCOUNT`: Minimum cluster size. (Default: 10)
 - `-r, --ratio RATIO`: Minimum allelic ratio applied on cluster sizes. (Default: 0.25)
 - `-f, --column COLUMN`: Column with genomic sequence. (Default: "genomic_sequence")
-- `-u, --umi`: Indicates that UMI (Unique Molecular Identifier) is present in the read.
+- `-u, --umi`: Indicates that UMI (Unique Molecular Identifier) is present in the read. (Default: false)
 - `-l, --limit LIMIT`: Limit to this number of sequences, zero means no limit. (Default: 0)
 - `-n, --noplot`: Disable unicode gene plot. This option does not have an associated type or default as it is a toggle switch. (Default: false)
 
@@ -175,6 +175,7 @@ The `pattern` program accepts the following parameters:
 
 - `-t, --top TOP`: Save top candidates with highest counts per gene. (Default: 5)
 - `-w, --weights WEIGHTS`: Length of the position weight matrix. (Default: 20)
+- `-n, --noprofile`: Use distance to database gene lengths instead of profiles to trim reads. (Default: false)
 - `-l, --length LENGTH`: Minimum length of the trimmed read. (Default: 200)
 - `-k, --kmer KMER`: Kmer size which will be used to search for patterns. (Default: 12)
 - `-m, --maxkmer MAXKMER`: Maximum kmer size if kmer size needs to be increased automatically. (Default: 50)

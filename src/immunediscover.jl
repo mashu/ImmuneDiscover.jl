@@ -115,6 +115,7 @@ module immunediscover
             end
             if get(parsed_args,"%COMMAND%","") == "pattern"
                 @info "Pattern search"
+                noprofile = parsed_args["pattern"]["noprofile"] == true
                 table = CSV.File(parsed_args["pattern"]["input"], delim='\t') |> DataFrame
                 db = load_fasta(parsed_args["pattern"]["fasta"])
                 db_df = DataFrame(db, [:id, :seq])
@@ -127,7 +128,7 @@ module immunediscover
                     blacklist = DataFrame(load_fasta(parsed_args["pattern"]["blacklist"]),[:id, :seq])
                     blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist)) # Remove D suffixes of genes
                 end
-                final = patterns.search_patterns(table, blacklist, db_df, fragment_size=parsed_args["pattern"]["kmer"], max_fragment_size=parsed_args["pattern"]["maxkmer"], max_fragments=parsed_args["pattern"]["sample"], weights=parsed_args["pattern"]["weights"], mlen=parsed_args["pattern"]["length"], min_freq=parsed_args["pattern"]["minfreq"], min_count=parsed_args["pattern"]["mincount"], max_dist=parsed_args["pattern"]["maxdist"])
+                final = patterns.search_patterns(table, blacklist, db_df, fragment_size=parsed_args["pattern"]["kmer"], max_fragment_size=parsed_args["pattern"]["maxkmer"], max_fragments=parsed_args["pattern"]["sample"], weights=parsed_args["pattern"]["weights"], mlen=parsed_args["pattern"]["length"], min_freq=parsed_args["pattern"]["minfreq"], min_count=parsed_args["pattern"]["mincount"], max_dist=parsed_args["pattern"]["maxdist"], noprofile=noprofile)
                 # Output path
                 output = cli.always_gz(parsed_args["pattern"]["output"])
                 # Save top candidates

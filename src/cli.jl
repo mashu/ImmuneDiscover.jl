@@ -238,6 +238,9 @@ module cli
             default = 25
             arg_type = Int
             range_tester = (x->x > 1)
+        "-n", "--noprofile"
+            help = "Use distance to database gene lengths instead of profiles to trim reads"
+            action = :store_true
         "-l", "--length"
             help = "Minimum length of the trimmed read"
             default = 200

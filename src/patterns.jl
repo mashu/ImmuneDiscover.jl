@@ -48,7 +48,7 @@ module patterns
         return unique(fragments)
     end
 
-    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
+    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false) where F <: AbstractFloat
         # Lookup dictionary for database sequences
         db_dict = Dict(map(x->(x[1],length(x[2])), eachrow(db_df)))
         # Find unique fragments
@@ -73,12 +73,19 @@ module patterns
             search_fragments = unique(rand(fragments, max_fragments))
             gene_df = filter(x->any([occursin(fragment, x.genomic_sequence) for fragment in search_fragments]), reads_df)
         end
-        # Trim sequences
-        prof_start, prof_stop = trim.trim_profiles(group.seq, weights)
-        ok, trimmed_sequences, region = trim.find_segments(gene_df.genomic_sequence, prof_start, prof_stop, mlen)
-        if sum(ok)/length(ok) < 0.9
-            @warn "Not enough sequences trimmed for $(unique(group.gene)) possibly due incomplete database?"
+        trimmed_sequences = []
+        if !noprofile
+            # Trim sequences
+            prof_start, prof_stop = trim.trim_profiles(group.seq, weights)
+            ok, trimmed_sequences, region = trim.find_segments(gene_df.genomic_sequence, prof_start, prof_stop, mlen)
+            if sum(ok)/length(ok) < 0.9
+                @warn "Not enough sequences trimmed for $(unique(group.gene)) possibly due incomplete database?"
+            end
+        else
+            throw(ArgumentError("Distance based trimming not implemented yet"))
+            exit(1)
         end
+        # Group by identity
         trimmed_sequences_df = DataFrame(seq = trimmed_sequences)
         clustered = sort(combine(groupby(trimmed_sequences_df, :seq), nrow => :count), :count, rev=true)
 
@@ -117,7 +124,7 @@ module patterns
     end
 
     # Write a function that runs search_pattern for each gene
-    function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
+    function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false) where F <: AbstractFloat
         # Initialize an array to hold loggers for each thread
         thread_loggers = [Logging.SimpleLogger(IOBuffer()) for _ in 1:Threads.nthreads()]
         p = ProgressMeter.Progress(length(unique(db_df.gene)), dt=0.5, showspeed=true)
@@ -132,7 +139,7 @@ module patterns
                 else
                     outgroup = filter(x->x.gene != gene, db_df)
                 end
-                discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist)
+                discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist, noprofile=noprofile)
                 ProgressMeter.next!(p)
                 if discovered !== nothing
                     return discovered
