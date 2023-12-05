@@ -15,10 +15,9 @@ module hamming
     Function to search demultiplexed reads for sequences that match query with maximum hamming distance
     """
     function hamming_search(table::DataFrame, db::Vector{Tuple{String, String}}; max_dist::Int=2, column::String="genomic_sequence", check_bounds::Bool=true, umi=false)
-        found_list = Vector{Tuple{String, Int, Int, Int, SubString{String}, SubString{String}, SubString{String}, SubString{String}, String, SubString{String}}}()
+        found_list = Vector{Tuple}()
         @showprogress for subtable in groupby(table, [:well, :case])
             case_str = String(first(subtable.case))
-            println(first(subtable.well))
             well_str = "$(first(subtable.well)))"
 
             subtable = subtable[.!occursin.("N", subtable[!, column]), :]
