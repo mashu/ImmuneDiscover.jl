@@ -9,6 +9,7 @@ module patterns
     using Folds
     using Logging
     using ProgressMeter
+    using StatsBase
 
     # Write function splitting string into kmers
     function split_kmers(s::AbstractString, k::Int)
@@ -16,7 +17,9 @@ module patterns
         for i in 1:length(s)-k+1
             push!(kmers, s[i:i+k-1])
         end
-        return kmers
+        # Filter out kmers that appear more than once in a sequence
+        unique_kmers = filter(x->countmap(kmers)[x] == 1, kmers)
+        return unique_kmers
     end
 
     function find_closest(seq::AbstractString, db_df::DataFrame)
@@ -48,13 +51,57 @@ module patterns
         return unique(fragments)
     end
 
+    """
+        trim_by_distance(group::DataFrame, gene_df::DataFrame, search_fragments::Vector{String})
+
+    Trim sequences by distance to 5' and 3' end and position of the search_fragments.
+    The distance to 5' and 3' is determine from gene lengths in the group dataframe.
+    """
+    function trim_by_distance(group::DataFrame, gene_df::DataFrame, search_fragments::Vector{String})
+        # Find positions of search_fragments in group dataframe
+        positions = Dict()
+        trimmed_sequences = []
+        for kmer in search_fragments
+            positions[kmer] = ()
+        end
+        for i in 1:nrow(group)
+            for kmer in search_fragments
+                pos = findfirst(kmer, group[i,:seq])
+                if pos === nothing
+                    continue
+                end
+                # Compute number of characters before and after the search_fragment
+                prefix = minimum(pos)-1
+                suffix = length(group[i,:seq]) - prefix - length(kmer)
+                positions[kmer] = (prefix, suffix)
+            end
+        end
+        # Find positions of search_fragments in gene_df dataframe
+        for i in 1:nrow(gene_df)
+            for kmer in search_fragments
+                pos = findfirst(kmer, gene_df[i,:genomic_sequence])
+                read_length = length(gene_df[i,:genomic_sequence])
+                if pos === nothing
+                    continue
+                end
+                prefix, suffix = positions[kmer]
+                start = minimum(pos)
+                if (start - prefix < 1) || (start + length(kmer) + suffix > read_length)
+                    continue
+                end
+                gene = gene_df[i,:genomic_sequence][start-prefix:start+suffix+length(kmer)-1]
+                push!(trimmed_sequences, gene)
+            end
+        end
+        return trimmed_sequences
+    end
+
     function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false) where F <: AbstractFloat
         # Lookup dictionary for database sequences
         db_dict = Dict(map(x->(x[1],length(x[2])), eachrow(db_df)))
         # Find unique fragments
         fragments = find_unique_fragments(group, outgroup, fragment_size=fragment_size, max_fragment_size=max_fragment_size)
         if length(fragments) == 0
-            # @info "No patterns found for $(unique(group.gene))"
             return nothing
         end
         # Sample fragments
@@ -82,8 +129,7 @@ module patterns
                 @warn "Not enough sequences trimmed for $(unique(group.gene)) possibly due incomplete database?"
             end
         else
-            throw(ArgumentError("Distance based trimming not implemented yet"))
-            exit(1)
+            trimmed_sequences = trim_by_distance(group, gene_df, search_fragments)
         end
         # Group by identity
         trimmed_sequences_df = DataFrame(seq = trimmed_sequences)
