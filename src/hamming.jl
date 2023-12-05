@@ -16,16 +16,19 @@ module hamming
     """
     function hamming_search(table::DataFrame, db::Vector{Tuple{String, String}}; max_dist::Int=2, column::String="genomic_sequence", check_bounds::Bool=true, umi=false)
         found_list = Vector{Tuple{String, Int, Int, Int, SubString{String}, SubString{String}, SubString{String}, SubString{String}, String, SubString{String}}}()
-        @showprogress for subtable in groupby(table, :case)
+        @showprogress for subtable in groupby(table, [:well, :case])
             case_str = String(first(subtable.case))
+            println(first(subtable.well))
+            well_str = "$(first(subtable.well)))"
+
             subtable = subtable[.!occursin.("N", subtable[!, column]), :]
             found = Folds.map(collect(eachrow(subtable))) do row
-                process_row(row, db, max_dist, column, case_str, check_bounds, umi=umi)
+                process_row(row, db, max_dist, column, well_str, case_str, check_bounds, umi=umi)
             end
             append!(found_list, [r for r in found if r !== nothing])
         end
         assignments_df = DataFrame(vcat(found_list...))
-        rename!(assignments_df,[:closest_name, :distance, :start, :stop, :prefix, :middle, :suffix, :db_sequence, :case, :barcode])
+        rename!(assignments_df, [:closest_name, :distance, :start, :stop, :prefix, :middle, :suffix, :db_sequence, :well, :case, :barcode])
         return assignments_df
     end
     
@@ -48,7 +51,7 @@ module hamming
 
     Helper function to process single row
     """
-    function process_row(row::DataFrameRow, db::Vector{Tuple{String, String}}, max_dist::Int, column::String, case_str::String, check_bounds::Bool=true; umi=false)
+    function process_row(row::DataFrameRow, db::Vector{Tuple{String, String}}, max_dist::Int, column::String, well_str::String, case_str::String, check_bounds::Bool=true; umi=false)
         ref = row[column]
         ref_length = length(ref)
         pos = Vector{Tuple{String, Int, Int, Int, SubString{String}}}()
@@ -73,9 +76,9 @@ module hamming
         end
         best_name, best_dist, start, stop, query_view = first(sort(pos, by=x->x[2]))
         if check_bounds && (ref_length > stop+7) && (start-7 > 0)
-            return (best_name, best_dist, start, stop, SubString(ref, start-7, start-1), SubString(ref, start, stop), SubString(ref, stop+1, stop+7), query_view, case_str, barcode)
+            return (best_name, best_dist, start, stop, SubString(ref, start-7, start-1), SubString(ref, start, stop), SubString(ref, stop+1, stop+7), query_view, well_str, case_str, barcode)
         elseif !check_bounds
-            return (best_name, best_dist, start, stop, "", SubString(ref, start, stop), "", query_view, case_str, barcode)
+            return (best_name, best_dist, start, stop, "", SubString(ref, start, stop), "", query_view, well_str, case_str, barcode)
         end
         return nothing
     end
@@ -89,8 +92,9 @@ module hamming
         lookup = Dict([(y,x) for (x,y) in db])
         found_df[:,:gene] = [n[1] for n in split.(found_df.closest_name,'*')]
         result = []
-        for group in groupby(found_df,[:gene,:case])
+        for group in groupby(found_df,[:gene,:case, :well])
             case = string(first(group.case))
+            well = string(first(group.well))
             clusters = combine(groupby(group, [:gene, :prefix, :middle, :suffix])) do sdf
                 DataFrame(
                     count = nrow(sdf),
@@ -101,6 +105,7 @@ module hamming
             clusters_filtered = clusters[clusters.count .> (maximum(clusters.count) * cluster_ratio),:]
             clusters_filtered[:,:allele_name] = [get(lookup,seq,unique_name(cname,seq)*" Novel") for (seq, cname) in zip(clusters_filtered.middle, clusters_filtered.closest_name)]
             clusters_filtered[:,:case] .= case
+            clusters_filtered[:,:well] .= well
             push!(result, clusters_filtered)
         end
         result_collapsed = vcat(result...)

@@ -235,7 +235,7 @@ module cli
             range_tester = (x->x >= 1)
         "-w", "--weights"
             help = "Length of the position weight matrix"
-            default = 20
+            default = 25
             arg_type = Int
             range_tester = (x->x > 1)
         "-l", "--length"

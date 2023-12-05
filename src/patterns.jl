@@ -99,9 +99,14 @@ module patterns
     function filter_and_report!(table::DataFrame, blacklist::DataFrame)
         # Define a local function that checks if any sequence in blacklist occurs in a given element's sequence
         function should_filter(x)
+            # Check if seq contains any characters that are ambigous
+            if any([c ∉ ['A','T','G','C'] for c in x.seq])
+                println("Discarding sequence with ambigous nucleotides: $(x.allele_name) with count $(x.count): $(x.seq)")
+                return true
+            end
             if any(occursin.(x.seq, blacklist.seq))
                 println("Discarding blacklisted: $(x.allele_name) with count $(x.count): $(x.seq)")
-                return true   
+                return true
             else
                 return false
             end
@@ -115,11 +120,10 @@ module patterns
     function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10) where F <: AbstractFloat
         # Initialize an array to hold loggers for each thread
         thread_loggers = [Logging.SimpleLogger(IOBuffer()) for _ in 1:Threads.nthreads()]
-        p = ProgressMeter.Progress(length(unique(db_df.gene)))
+        p = ProgressMeter.Progress(length(unique(db_df.gene)), dt=0.5, showspeed=true)
         candidates = Folds.map(unique(db_df.gene)) do gene
             logger = thread_loggers[Threads.threadid()]
             with_logger(logger) do
-                ProgressMeter.next!(p)
                 @info gene
                 group = filter(x->x.gene == gene, db_df)
                 local outgroup
@@ -129,6 +133,7 @@ module patterns
                     outgroup = filter(x->x.gene != gene, db_df)
                 end
                 discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist)
+                ProgressMeter.next!(p)
                 if discovered !== nothing
                     return discovered
                 else
@@ -137,12 +142,14 @@ module patterns
                 end
             end
         end
+        ProgressMeter.finish!(p)
         # Combine and display the log outputs at the end
         for logger in thread_loggers
             seekstart(logger.stream)
             print(read(logger.stream, String))
         end
         final = reduce(vcat, candidates)
+        filter_and_report!(final, blacklist)
         other_columns = setdiff(names(final), ["seq"])
         final = final[:, vcat(other_columns, "seq")]
         return final

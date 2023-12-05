@@ -94,9 +94,11 @@ module data
         # Part 1: [A-Z].*\d.* - At least one capital letter and one number before '*'
         # Part 2: (\*.*S.*\d.*|.*\*.*\d+$) - After '*', either contains 'S' and numbers or is only numbers
         pattern = r"[A-Z].*\d.*\*(.*S.*\d.*|.*\d+$)"
-
+        letters = collect(id)
+        underscore = sum(map(x->'_' == x, letters))
+        star = sum(map(x->'*' == x, letters))
         # Check if the identifier matches the pattern
-        return occursin(pattern, id)
+        return occursin(pattern, id) && (underscore <= 1) && (star <= 1)
     end
 
     """
@@ -123,7 +125,7 @@ module data
     Function to load gz compressed or uncompressed FASTA file. If validate=true, 
     throws an error upon encountering a duplicated sequence or identifier.
     """
-    function load_fasta(path; validate=true)
+    function load_fasta(path; validate=false)
         records = Vector{Tuple{String, String}}()
         seen_descriptions = Set{String}()
         seen_sequences = Set{String}()
