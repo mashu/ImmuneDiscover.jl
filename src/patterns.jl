@@ -9,7 +9,6 @@ module patterns
     using Folds
     using Logging
     using ProgressMeter
-    using StatsBase
 
     export split_kmers, find_closest, find_unique_fragments, trim_by_distance, search_pattern, search_patterns
 
@@ -20,7 +19,7 @@ module patterns
             push!(kmers, s[i:i+k-1])
         end
         # Filter out kmers that appear more than once in a sequence
-        unique_kmers = filter(x->countmap(kmers)[x] == 1, kmers)
+        unique_kmers = filter(y->count(x->x == y, kmers) == 1, kmers)
         return unique_kmers
     end
 
