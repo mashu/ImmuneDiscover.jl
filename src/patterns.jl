@@ -11,6 +11,8 @@ module patterns
     using ProgressMeter
     using StatsBase
 
+    export split_kmers, find_closest, find_unique_fragments, trim_by_distance, search_pattern, search_patterns
+
     # Write function splitting string into kmers
     function split_kmers(s::AbstractString, k::Int)
         kmers = Vector{String}()
@@ -39,6 +41,9 @@ module patterns
     function find_unique_fragments(group::DataFrame, outgroup::DataFrame; fragment_size::Int=15, max_fragment_size::Int=60)
         # Search for fragments
         kmers = [Set(split_kmers(group.seq[i], fragment_size)) for i in 1:length(group.seq)]
+        if length(kmers) == 0
+            return []
+        end
         common_kmers = intersect(kmers...)
         # Filter common_kmers if they occur within outgroup seq
         fragments = filter(x->!any([occursin(x, seq) for seq in outgroup.seq]), common_kmers)
@@ -171,6 +176,10 @@ module patterns
 
     # Write a function that runs search_pattern for each gene
     function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false) where F <: AbstractFloat
+        # Assert that group, outgroup and db_df table have required colums
+        @assert all([x in names(blacklist) for x in ["id", "gene", "seq"]])
+        @assert all([x in names(db_df) for x in ["id", "gene", "seq"]])
+
         # Initialize an array to hold loggers for each thread
         thread_loggers = [Logging.SimpleLogger(IOBuffer()) for _ in 1:Threads.nthreads()]
         p = ProgressMeter.Progress(length(unique(db_df.gene)), dt=0.5, showspeed=true)

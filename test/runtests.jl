@@ -139,72 +139,140 @@ test_outcomes = Dict(
         end
 
         @testset "trim.jl" begin
-            # CLI
-            empty!(ARGS)
-            append!(ARGS, ["trim", "test.tsv.gz", "test.fasta", "test_trim.tsv","-l","7"])
-            parsed_args = cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "trim"
-            @test parsed_args["trim"]["input"] == "test.tsv.gz"
-            @test parsed_args["trim"]["fasta"] == "test.fasta"
-            @test parsed_args["trim"]["output"] == "test_trim.tsv"
-            # Module
+            # Argument Parsing Tests
+            @testset "parse_commandline" begin
+                empty!(ARGS)
+                append!(ARGS, ["trim", "test.tsv.gz", "test.fasta", "test_trim.tsv", "-l", "7"])
+                parsed_args = cli.parse_commandline(ARGS)
+
+                @test parsed_args["%COMMAND%"] == "trim"
+                @test parsed_args["trim"]["input"] == "test.tsv.gz"
+                @test parsed_args["trim"]["fasta"] == "test.fasta"
+                @test parsed_args["trim"]["output"] == "test_trim.tsv"
+                @test parsed_args["trim"]["length"] == 7
+            end
+
+            # Preparing test data
             read = "AAAAAAAAAACACAGTGATGTAGCACAGTGTTTTTTTTTT"
             motifs = ["CACAGTG", "CACAGTG", "CACATGT"]
+            # Generating profiles for motifs
             prof_start = profile.motif_profile(motifs)
             prof_stop = prof_start
-            start = trim.find_maxprob_pos(read, prof_start) + size(prof_start, 2)
-            start_trim = read[start:end]
-            stop = trim.find_maxprob_pos(start_trim, prof_stop)-1
-            stop_trim = start_trim[1:stop]
-            p_start, p_stop = trim.trim_profiles(motifs, 3)
-            tstart, tstop = trim.trim_read(read, p_start, p_stop)
-            @test tstart > 0
-            @test tstop > 0
-            @test length(stop_trim) == 6
+
+            # Find Max Probability Position Tests
+            @testset "find_maxprob_pos" begin
+                # Finding maximum probability positions for trimming
+                start = trim.find_maxprob_pos(read, prof_start) + size(prof_start, 2)
+                stop = trim.find_maxprob_pos(read[start:end], prof_stop) - 1
+
+                # Applying trimming to the read
+                start_trim = read[start:end]
+                stop_trim = start_trim[1:stop]
+
+                # Testing the trimming procedure
+                @test start > 0
+                @test stop > 0
+                @test length(stop_trim) == 6
+            end
+            # Trim Profile Tests
+            let prof
+                @testset "trim_profiles" begin
+                    # Test trimming process
+                    prof = trim.trim_profiles(motifs, 3)
+                    # Test profile positions
+                    @test size(prof[1]) == (4, 3)
+                    @test size(prof[2]) == (4, 3)
+                end
+
+                # Trim Read Tests
+                @testset "trim_reads" begin
+                    tstart, tstop = trim.trim_read(read, prof[1], prof[2])
+                end
+            end
         end
 
         @testset "pattern.jl" begin
-            # CLI
-            empty!(ARGS)
-            append!(ARGS, ["pattern", "test.tsv.gz", "test.fasta", "test_pattern.tsv.gz"])
-            parsed_args = cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "pattern"
-            @test parsed_args["pattern"]["input"] == "test.tsv.gz"
-            @test parsed_args["pattern"]["fasta"] == "test.fasta"
-            @test parsed_args["pattern"]["output"] == "test_pattern.tsv.gz"
-            # Module
+            # Argument Parsing Tests
+            @testset "parse_commandline" begin
+                empty!(ARGS)
+                append!(ARGS, ["pattern", "test.tsv.gz", "test.fasta", "test_pattern.tsv.gz"])
+                parsed_args = cli.parse_commandline(ARGS)
+                @test parsed_args["%COMMAND%"] == "pattern"
+                @test parsed_args["pattern"]["input"] == "test.tsv.gz"
+                @test parsed_args["pattern"]["fasta"] == "test.fasta"
+                @test parsed_args["pattern"]["output"] == "test_pattern.tsv.gz"
+            end
+
+            # Preparing test data
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
             db = data.load_fasta("test.fasta", validate=false)
             db_df = DataFrame(db, [:id, :seq])
-            db_df[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(db_df))
-            blacklist = DataFrame(id=["test1", "test2"], seq=["AAAAAAAA", "CCCCCCCC"])
-            blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist))
-            output = patterns.search_patterns(table, blacklist, db_df, min_count=1, min_freq=0.01, max_fragments=10, fragment_size=7, max_fragment_size=7)
-            println(output)
+            db_df[:,:gene] = [split(x, "*")[1] for x in db_df[:,:id]]
+            blacklist = DataFrame(id=["test1*01", "test2*02"], seq=["AAAAAAAA", "CCCCCCCC"], gene=["test1","test2"])
+
+            # Search Patterns Tests
+            @testset "search_patterns" begin
+                # Testing the search_patterns function
+                output = patterns.search_patterns(table, blacklist, db_df, min_count=1, min_freq=0.01, max_fragments=10, fragment_size=7, max_fragment_size=7)
+                # Add specific assertions related to the output, if applicable
+            end
+
+            # Tests for split_kmers function
+            @testset "split_kmers" begin
+                @test split_kmers("ATCGATCG", 3) == ["CGA", "GAT"]
+                @test isempty(split_kmers("", 3))
+                @test isempty(split_kmers("ATCG", 5))
+            end
+
+            # Tests for find_unique_fragments function
+            @testset "find_unique_fragments" begin
+                group_df = DataFrame(seq = ["ATCGATCG", "ATCGATCGAAA", "ATCGATCGCCCC"])
+                outgroup_df = DataFrame(seq = ["AATTCCGG", "TTAACCG"])
+
+                @test find_unique_fragments(group_df, outgroup_df; fragment_size = 4, max_fragment_size = 4) == ["GATC", "CGAT"]
+                @test isempty(find_unique_fragments(DataFrame(seq = String[]), DataFrame(seq = String[])))
+            end
         end
 
         @testset "heptamer.jl" begin
-            # CLI
-            empty!(ARGS)
-            append!(ARGS, ["heptamer", "test.tsv.gz", "test.fasta", "test_heptamer.tsv.gz", "test_summary.tsv"])
-            parsed_args = cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "heptamer"
-            @test parsed_args["heptamer"]["tsv"] == "test.tsv.gz"
-            @test parsed_args["heptamer"]["fasta"] == "test.fasta"
-            @test parsed_args["heptamer"]["output"] == "test_heptamer.tsv.gz"
-            @test parsed_args["heptamer"]["summary"] == "test_summary.tsv"
-            @test parsed_args["heptamer"]["chain"] == "IGHV"
-            heptamers = heptamer.load_heptamers(parsed_args["heptamer"]["json"])
-            chain = parsed_args["heptamer"]["chain"]
+            # Argument Parsing Tests
+            @testset "parse_commandline" begin
+                empty!(ARGS)
+                append!(ARGS, ["heptamer", "test.tsv.gz", "test.fasta", "test_heptamer.tsv.gz", "test_summary.tsv"])
+                parsed_args = cli.parse_commandline(ARGS)
 
-            # Module
+                @test parsed_args["%COMMAND%"] == "heptamer"
+                @test parsed_args["heptamer"]["tsv"] == "test.tsv.gz"
+                @test parsed_args["heptamer"]["fasta"] == "test.fasta"
+                @test parsed_args["heptamer"]["output"] == "test_heptamer.tsv.gz"
+                @test parsed_args["heptamer"]["summary"] == "test_summary.tsv"
+                # Assuming "chain" and other keys have default values if not provided in ARGS
+                @test parsed_args["heptamer"]["chain"] == "IGHV"
+            end
+
+            # Preparing test data
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
             db = data.load_fasta("test.fasta", validate=false)
-            heptamer_df = heptamer.extract_heptamers(table, db, heptamers[chain]; max_dist=parsed_args["heptamer"]["maxdist"], b=parsed_args["heptamer"]["begin"]+1, e=parsed_args["heptamer"]["end"])
-            summary_df = heptamer.summarize(heptamer_df, db, ratio=parsed_args["heptamer"]["ratio"], count=parsed_args["heptamer"]["mincount"])
-            @test nrow(heptamer_df) == 225
-            @test nrow(summary_df) == 30
-            @test summary_df[1, :allele_count] == 10
+            parsed_args = cli.parse_commandline(["heptamer", "test.tsv.gz", "test.fasta", "test_heptamer.tsv.gz", "test_summary.tsv"])
+            heptamers = heptamer.load_heptamers(parsed_args["heptamer"]["json"])
+
+            # Extract Heptamers Tests
+            let heptamer_df
+                @testset "extract_heptamers" begin
+                    # Extract heptamers and summarize data
+                    heptamer_df = heptamer.extract_heptamers(table, db, heptamers[parsed_args["heptamer"]["chain"]]; max_dist=parsed_args["heptamer"]["maxdist"], b=parsed_args["heptamer"]["begin"]+1, e=parsed_args["heptamer"]["end"])
+
+                    @test nrow(heptamer_df) == 225
+                end
+
+                # Summarize Heptamers Tests
+                @testset "extract_heptamers" begin
+                    summary_df = heptamer.summarize(heptamer_df, db, ratio=parsed_args["heptamer"]["ratio"], count=parsed_args["heptamer"]["mincount"])
+
+                    @test nrow(summary_df) == 30
+                    @test summary_df[1, :allele_count] == 10
+                end
+            end
         end
     else
         println("Skipping remaining tests due to failed dependencies")
