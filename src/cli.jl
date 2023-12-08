@@ -193,6 +193,7 @@ module cli
             action = :store_true
         end
 
+        genes = ["V", "D", "J"]
         @add_arg_table! s["exact"] begin
         "tsv"
             help = "TSV file with demultiplexed data"
@@ -200,10 +201,10 @@ module cli
         "fasta"
             help = "FASTA file with query alleles"
             required = true
-        "output"
+        "output"    
             help = "TSV file to save ouput"
             required = true
-        "-r","--ratio"
+        "-f","--minfreq"
             help = "Minimum allelic ratio applied within each gene group"
             default = 0.01
             arg_type = Float64
@@ -213,8 +214,26 @@ module cli
             default = 10
             arg_type = Int
             range_tester = (x->x >= 1)
+        "--full-minfreq"
+            help = "Minimum allelic ratio applied within each gene group for full record"
+            default = 0.01
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--full-mincount"
+            help = "Minimum cluster size for full record"
+            default = 2
+            arg_type = Int
+            range_tester = (x->x >= 1)
         "-n","--noplot"
             help = "Disable unicode gene plot"
+            action = :store_true
+        "-g", "--gene"
+            default = "V"
+            range_tester = (x->x ∈ genes)
+            arg_type = String
+            help = "gene; must be one of " * join(genes, ", ", " or ")
+        "-u", "--uncollapsed"
+            help = "Saves uncollapsed full records."
             action = :store_true
         end
 

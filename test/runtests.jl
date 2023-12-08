@@ -89,15 +89,24 @@ test_outcomes = Dict(
             @test parsed_args["exact"]["tsv"] == "test.tsv.gz"
             @test parsed_args["exact"]["fasta"] == "test.fasta"
             @test parsed_args["exact"]["output"] == "test_exact.tsv.gz"
+            @test parsed_args["exact"]["gene"] == "V"
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
             db = data.load_fasta("test.fasta", validate=false)
             mincount = 1
             minfreq = 0.01
-            counts_df = exact.exact_search(table, db, mincount=mincount, minfreq=minfreq)
+            gene = "V"
+            counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq)
             sort!(counts_df, [:case, :db_name])
             @test nrow(counts_df) == 30
             @test counts_df[1, :count] == 10
+            # Test flanking extraction
+            read = "GGCTGCAATTGGGAGAGTGCATGTCTTAAGAACGTCACAGTGTCACTTTTGACACAGTGTAAGGTGCGGCCAGCTAAGCACATCCCCTCTATATTGCCCAAATCGGT"
+            sequence = "TCACTTTTGA"
+            location = findfirst(sequence, read)
+            @test exact.extract_flanking(read, (minimum(location),maximum(location)), "V", 5) == (prefix = "CAGTG", sequence = "TCACTTTTGA", heptamer = "CACAGTG", spacer = "TAAGGTGCGGCCAGCTAAGCACA", nonamer = "TCCCCTCTA")
+            @test exact.extract_flanking(read, (minimum(location),maximum(location)), "J", 5) == (nonamer = "GTCACAGTG", spacer = "GGGAGAGTGCATGTCTTAAGAAC", heptamer = "CTGCAAT", suffix = "CACAG", sequence = "TCACTTTTGA")
+            @test exact.extract_flanking(read, (minimum(location),maximum(location)), "D", 5) == (pre_nonamer = "GTCACAGTG", pre_spacer = "TGTCTTAAGAAC", pre_heptamer = "GAGTGCA", sequence = "TCACTTTTGA", post_heptamer = "CACAGTG", post_spacer = "TAAGGTGCGGCC", post_nonamer = "AGCTAAGCA")
         end
 
         @testset "hamming.jl" begin

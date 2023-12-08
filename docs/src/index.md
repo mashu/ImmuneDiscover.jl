@@ -87,20 +87,35 @@ The `exact` program uses the following parameters:
 2. `fasta`: FASTA file with query alleles.
 3. `output`: TSV file to save output.
 
+The records stored in the output can be categorized as follows:
+- Collapsed Records: These are matches to the database that exclude the flanking regions.
+- Full Records: These include matches to the database along with the flanking regions.
+
+Generally, the counts for full records tend to be smaller from those of collapsed records. This difference arises because flanking regions are often more unique and dilute the total counts as compared to records collapsed by the allelle sequence only.
+
 ### Optional Arguments
-- `-r, --ratio RATIO`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
+- `-f, --minfreq FREQ`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
 - `-c, --mincount MINCOUNT`: Minimum cluster size. (Default: 10)
+- `--full-minfreq FREQ`: Minimum allelic ratio applied within each gene group for **full record**. (Default: 0.01)
+- `--full-mincount MINCOUNT`: Minimum cluster size for **full record**. (Default: 1)
 - `-n, --noplot`: Disable unicode gene plot. This option does not have associated types or defaults as it is a toggle switch.
+- `-g, --gene`: Gene to use for plotting. (Default: "V")
+- `-u, --uncollapsed`: Save uncollapsed full records. (Default: false)
 
 ### Exact output
+The output is a TSV file containing the following columns:
+- `well`: Identifies the well on the plate.
+- `case`: Specifies the case (donor) that contains the allele.
+- `db_name`: Denotes the name of the allele as listed in the database.
+- `sequence`: Represents the sequence of the allele.
+- `full_count`: Indicates the number of full records in which the allele matched the read.
+- `count`: Reflects the number of records in which the allele matched the read.
+- `gene`: Specifies the gene associated with the allele.
+- `full_frequency`: Describes the frequency of full records in which the allele matched the read.
+- `frequency`: Captures the frequency of records in which the allele matched the read.
+- `log2_count`: Represents the logarithm base 2 of the count.
 
-The output is a TSV file with the following columns:
-- well: The well on the plate.
-- case: The case (donor) containing the allele.
-- db_name: The name of the allele from the database.
-- count: The number of reads matching the allele.
-- gene: The gene of the allele.
-- frequency: The ratio of the allele with respect to highest allele in the gene group.
+Additional columns, such as `prefix`, `suffix`, `heptamer`, `spacer`, and `nonamer`, are included based on the `--gene` option, which is set to `V` by default.
 
 # Hamming
 

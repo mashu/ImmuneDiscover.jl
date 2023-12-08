@@ -103,8 +103,15 @@ module immunediscover
                 table = CSV.File(parsed_args["exact"]["tsv"], delim='\t') |> DataFrame
                 db = load_fasta(parsed_args["exact"]["fasta"], validate=false)
                 mincount = parsed_args["exact"]["mincount"]
-                minfreq = parsed_args["exact"]["ratio"]
-                counts_df = exact.exact_search(table, db, mincount=mincount, minfreq=minfreq)
+                minfreq = parsed_args["exact"]["minfreq"]
+                full_mincount = parsed_args["exact"]["full-mincount"]
+                full_minfreq = parsed_args["exact"]["full-minfreq"]
+                uncollapsed = parsed_args["exact"]["uncollapsed"]
+                if uncollapsed
+                    @info "Uncollapsed mode enabled; full records will be returned."
+                end
+                gene = parsed_args["exact"]["gene"]
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq, full_mincount=full_mincount, full_minfreq=full_minfreq, collapse=!uncollapsed)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     println(plotgenes(counts_df))
