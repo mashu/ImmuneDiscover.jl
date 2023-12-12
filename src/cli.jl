@@ -46,6 +46,9 @@ module cli
             "pattern"
                 help = "Search for novel alleles with kmers and trim with PWM"
                 action = :command
+            "regex"
+                help = "Search for novel D alleles with regex"
+                action = :command
             "novel"
                 help = "Extract novel alleles into FASTA format"
                 action = :command
@@ -298,6 +301,58 @@ module cli
         "-b","--blacklist"
             help = "Blacklist file with sequences to be excluded from pattern search (e.g. pseudo-genes)"
             arg_type = String
+        end
+
+        @add_arg_table! s["regex"] begin
+            "tsv"
+                help = "TSV file with demultiplexed reads"
+                required = true
+            "fasta"
+                help = "FASTA file with query alleles"
+                required = true
+            "output"
+                help = "TSV file to save data with identified alleles"
+                required = true
+            "--insert-minlen"
+                help = "Minimum length of an insert"
+                default = 15
+                arg_type = Int
+                range_tester = (x->x >= 15)
+            "--insert-maxlen"
+                help = "Maximum length of an insert"
+                default = 40
+                arg_type = Int
+                range_tester = (x->x >= 15)
+            "--flank-mincount"
+                help = "Minimum number of reads per flanks"
+                default = 25
+                arg_type = Int
+                range_tester = (x->x >= 1)
+            "--flank-frequency"
+                help = "Lowest frequency of reads per flank"
+                default = 0.5
+                arg_type = Float64
+                range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+            "-c", "--mincount"
+                help = "Minimum count of a match"
+                default = 5
+                arg_type = Int
+                range_tester = (x->x >= 1)
+            "-f","--frequency"
+                help = "Lowest frequency of a match"
+                default = 0.2
+                arg_type = Float64
+                range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+            "-p", "--nprefix"
+                help = "Number of nucleotides to extract from the 5' end of the query sequence"
+                default = 7
+                arg_type = Int
+                range_tester = (x->x >= 1)
+            "-s", "--nsuffix"
+                help = "Number of nucleotides to extract from the 3' end of the query sequence"
+                default = 7
+                arg_type = Int
+                range_tester = (x->x >= 1)
         end
 
         @add_arg_table! s["novel"] begin
