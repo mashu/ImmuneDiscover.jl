@@ -228,14 +228,14 @@ immunediscover regex test.tsv.gz test.fasta test_regex.tsv.gz
 3. `output`: TSV file to save output.
 
 ### Optional Arguments
-`--insert-minlen`: Minimum length of an insert
-`--insert-maxlen`: Maximum length of an insert
-`--flank-mincount`: Minimum number of reads per flanks
-`--flank-frequency`: Minimum frequency of flanks
-`-c, --mincount`: Minimum count of a match
-`-f,--frequency`: Lowest frequency of a match
-`-p, --nprefix`: Number of nucleotides to extract from the 5' end of the query sequence
-`-s, --nsuffix`: Number of nucleotides to extract from the 3' end of the query sequence
+- `--insert-minlen`: Minimum length of an insert (Default: 15)
+- `--insert-maxlen`: Maximum length of an insert (Default: 40)
+- `--flank-mincount`: Minimum number of reads per flanks (Default: 25)
+- `--flank-frequency`: Minimum frequency of flanks (Default: 0.5)
+- `-c, --mincount`: Minimum count of a match (Default: 3)
+- `-f,--frequency`: Lowest frequency of a match (Default: 0.1)
+- `-p, --nprefix`: Number of nucleotides to extract from the 5' end of the query sequence (Default: 7)
+- `-s, --nsuffix`: Number of nucleotides to extract from the 3' end of the query sequence (Default: 7)
 
 ### Regex output
 The output is a compressed TSV file with the following columns:
