@@ -207,6 +207,15 @@ module immunediscover
                 CSV.write(output, result_df, compress=true, delim='\t')
                 @info "Extracted Ds saved in compressed $output file"
             end
+            if get(parsed_args,"%COMMAND%","") == "hash"
+                @info "Hamming distance window search"
+                fastain = parsed_args["hash"]["fastain"]
+                db = load_fasta(fastain)
+                for (name, seq) in db
+                    newname = unique_name(name, seq)
+                    println(">$newname\n$seq")
+                end
+            end
             if get(parsed_args,"%COMMAND%","") == "hamming"
                 @info "Hamming distance window search"
                 limit = parsed_args["hamming"]["limit"]

@@ -47,14 +47,14 @@ module cli
                 help = "Search for novel alleles with kmers and trim with PWM"
                 action = :command
             "regex"
-                help = "Search for novel D alleles with regex"
+                help = "Search for short novel alleles with regex"
                 action = :command
             "novel"
                 help = "Extract novel alleles into FASTA format"
                 action = :command
-            #"hash"
-            #    help = "Hash allele names in FASTA file"
-            #    action = :command
+            "hash"
+                help = "Add hash based _S suffix to all allele names in the FASTA file"
+                action = :command
             end
 
         @add_arg_table! s["demultiplex"] begin
@@ -360,6 +360,13 @@ module cli
             help = "TSV file with columns allele_name and seq"
             required = true
         end
+
+        @add_arg_table! s["hash"] begin
+        "fastain"
+            help = "FASTA file with allele names"
+            required = true
+        end
+
         # Show help if no arguments are provided
         try
             return parse_args(args, s)
