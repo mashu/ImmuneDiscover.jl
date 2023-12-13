@@ -9,6 +9,7 @@ module immunediscover
     include("heptamer.jl")
     include("hamming.jl")
     include("patterns.jl")
+    include("regex.jl")
 
     using .cli
     using .demultiplex
@@ -20,6 +21,7 @@ module immunediscover
     using .heptamer
     using .hamming
     using .patterns
+    using .regex
 
     using CSV
     using DataFrames
@@ -164,6 +166,46 @@ module immunediscover
                     allele_name = rstrip(replace(row.allele_name, "Novel" => ""))
                     println(">$allele_name\n$(row.seq)")
                 end
+            end
+            if get(parsed_args,"%COMMAND%","") == "regex"
+                @info "Regex method to extract alleles"
+                db = load_fasta(parsed_args["regex"]["fasta"])
+                @info "Loaded $(length(db)) query sequences"
+                table = CSV.File(parsed_args["regex"]["tsv"], delim='\t') |> DataFrame
+                table = table[.!occursin.("N",table.genomic_sequence),:]
+                result = search_frequent_flanks(table, db, min_frequency=parsed_args["regex"]["flank-frequency"], min_count=parsed_args["regex"]["flank-mincount"], nprefix=parsed_args["regex"]["nprefix"], nsuffix=parsed_args["regex"]["nsuffix"])
+                for (dname, prefix, suffix) in filter(x->x!==nothing,result)
+                    @info "Allele $dname wells prefix: $(sum(prefix)), suffix: $(sum(suffix))"
+                end
+                prefix_sorted = sort(collect(combine_accumulators(map(x->x.prefix,result))),by=y->y[2],rev=true)
+                suffix_sorted = sort(collect(combine_accumulators(map(x->x.suffix,result))),by=y->y[2],rev=true)
+                @info "Discarding regex flanks that are part of the known sequence"
+                # Collect heptamers that are not part of D gene itself (this is a problem because some Ds are substring of other Ds)
+                plist = filter(x->!any(occursin.(first(x),map(y->y[2], db))), prefix_sorted)
+                slist = filter(x->!any(occursin.(first(x),map(y->y[2], db))), suffix_sorted)
+                @assert length(plist) > 0 "No prefix flanks found - interrupting"
+                @assert length(slist) > 0 "No suffix flanks found - interrupting"
+                @info "Found prefixes $plist"
+                @info "Found suffixes $slist"
+                @info "Regex searching reads"
+                data = search_regex(table, plist, slist, minlen=parsed_args["regex"]["insert-minlen"], maxlen=parsed_args["regex"]["insert-maxlen"])
+                table[:,:hit] = map(x->x.hit,data)
+                table[:,:hit_prefix] = map(x->x.prefix,data)
+                table[:,:hit_suffix] = map(x->x.suffix,data)
+                # Discard uninformative sequences that didn't match
+                agumented_table = filter(x->(x.hit_suffix !== nothing) && (x.hit_prefix !== nothing), table)
+                @info "Out of $(nrow(table)) sequences, $(nrow(agumented_table)) matched regex ($(round((nrow(agumented_table)/nrow(table))*100,digits=2))%)"
+                # Annotate and collapse
+                result = annotate(agumented_table, db, nprefix=7, nsuffix=7)
+                collapsed = combine(groupby(result, [:well, :case, :best_name, :distance, :prefix, :best_aln, :suffix]), nrow => :count)
+                sort!(collapsed, [:well, :case,:best_name, :count], rev=[false, false, false, true])
+                transform!(collapsed, :best_name => ByRow(x -> first(split(x, '*'))) => :gene)
+                transform!(groupby(collapsed, [:well, :case, :gene]), :count => (x->x./maximum(x))=> :frequency)
+                result_df = filter(r->(r.frequency >= parsed_args["regex"]["frequency"]) & (r.count > parsed_args["regex"]["mincount"]), collapsed)
+                update_names!(result_df)
+                output = cli.always_gz(parsed_args["regex"]["output"])
+                CSV.write(output, result_df, compress=true, delim='\t')
+                @info "Extracted Ds saved in compressed $output file"
             end
             if get(parsed_args,"%COMMAND%","") == "hamming"
                 @info "Hamming distance window search"

@@ -22,9 +22,9 @@ These optional steps are aimed at discovering novel alleles:
 
 # Demultiplexing
 To demultiplex a FASTQ file, provide the path to the compressed FASTQ file (`fastq.gz`) and a tab-separated (TSV) file with the following mandatory columns:
-- forward_index
-- reverse_index
-- case
+- `forward_index`
+- `reverse_index`
+- `case`
 No other columns are accepted.
 
 The command below segregates reads into different cases based on the forward_index at the 5' end and reverse_index at the 3' end, aligning with the orientation provided in the `indices.tsv` file:
@@ -64,10 +64,10 @@ The `demultiplex` program uses the following parameters:
 
 ### Demultiplex output
 The output is a compressed TSV file with the following columns:
-- well: The well on the plate.
-- case: The case (donor) containing the allele.
-- name: The name of the read.
-- genomic_sequence: The sequence of the read.
+- `well`: The well on the plate.
+- `case`: The case (donor) containing the allele.
+- `name`: The name of the read.
+- `genomic_sequence`: The sequence of the read.
 
 # Exact
 This subcommand identifies exact matches to a database of known alleles. Provide the path to the compressed FASTQ file (`fastq.gz`) and the TSV file with demultiplexed data. 
@@ -149,14 +149,14 @@ The `hamming` program accepts the following parameters:
 
 ### Hamming output
 The output is a compressed TSV file with the following columns:
-- gene: The gene of the allele.
-- prefix: The prefix sequence of the allele.
-- middle: The sequence of the allele.
-- suffix: The suffix sequence of the allele.
-- count: The number of reads matching the allele.
-- allele_name: The new name of the allele.
-- case: The case (donor) containing the allele.
-- well: The well on the plate.
+- `gene`: The gene of the allele.
+- `prefix`: The prefix sequence of the allele.
+- `middle`: The sequence of the allele.
+- `suffix`: The suffix sequence of the allele.
+- `count`: The number of reads matching the allele.
+- `allele_name`: The new name of the allele.
+- `case`: The case (donor) containing the allele.
+- `well`: The well on the plate.
 
 Note that `count` refers to the combined occurrences of `prefix`, `middle`, and `suffix` having the middle part best matching the database sequence.
 
@@ -202,13 +202,50 @@ The `pattern` program accepts the following parameters:
 
 ### Pattern output
 The output is a compressed TSV file with the following columns:
-- count: The number of reads matching the allele.
-- closest: The closest allele from the database.
-- dist: The Levenshtein distance to the closest allele.
-- allele_name: The new name of the allele.
-- gene: The gene of the allele.
-- length: The length of the allele.
-- length_db: The length of the closest allele from the database.
-- patterns: The patterns used to find the allele.
-- ratio: The ratio of the allele with respect to highest allele in the gene group.
-- seq: The sequence of the allele.
+- `count`: The number of reads matching the allele.
+- `closest`: The closest allele from the database.
+- `dist`: The Levenshtein distance to the closest allele.
+- `allele_name`: The new name of the allele.
+- `gene`: The gene of the allele.
+- `length`: The length of the allele.
+- `length_db`: The length of the closest allele from the database.
+- `patterns`: The patterns used to find the allele.
+- `ratio`: The ratio of the allele with respect to highest allele in the gene group.
+- `seq`: The sequence of the allele.
+
+# Regex
+The Regex search command operates on a FASTA format database to find exact matches in DNA sequences, extracting the prefixes and suffixes of matching alleles. It then generates an array of all prefix and suffix combinations, searching within the sequences to identify inserts between flanking sequences. The result is a TSV file compressed to include potential alleles, along with their occurrence counts for each well and case. This method is particularly effective in identifying short, unknown alleles such as D genes. Subsequently, the identified insert sequences are aligned using the Smith-Waterman algorithm against a known alleles database. This step assigns names to the closest matches and performs both consolidation and filtering. The final output provides a comprehensive list of alleles corresponding to the genotype of each well and case.
+
+To analyze the plate using regex search, use the command:
+```bash
+immunediscover regex test.tsv.gz test.fasta test_regex.tsv.gz
+```
+
+### Positional Arguments
+
+1. `tsv`: TSV file with demultiplexed data.
+2. `fasta`: FASTA file with query alleles.
+3. `output`: TSV file to save output.
+
+### Optional Arguments
+`--insert-minlen`: Minimum length of an insert
+`--insert-maxlen`: Maximum length of an insert
+`--flank-mincount`: Minimum number of reads per flanks
+`--flank-frequency`: Minimum frequency of flanks
+`-c, --mincount`: Minimum count of a match
+`-f,--frequency`: Lowest frequency of a match
+`-p, --nprefix`: Number of nucleotides to extract from the 5' end of the query sequence
+`-s, --nsuffix`: Number of nucleotides to extract from the 3' end of the query sequence
+
+### Regex output
+The output is a compressed TSV file with the following columns:
+- `well`: The well on the plate.
+- `case`: The case (donor) containing the allele.
+- `best_name`: The name of the allele.
+- `distance`: The distance to the closest allele from the database.
+- `prefix`: The prefix sequence of the allele.
+- `best_aln`: The alignment of the allele to the database.
+- `suffix`: The suffix sequence of the allele.
+- `count`: The number of reads matching the allele.
+- `gene`: The gene of the allele.
+- `frequency`: The frequency of the allele.

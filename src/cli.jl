@@ -335,12 +335,12 @@ module cli
                 range_tester = (x-> (x >= 0.0) & (x <= 1.0))
             "-c", "--mincount"
                 help = "Minimum count of a match"
-                default = 5
+                default = 3
                 arg_type = Int
                 range_tester = (x->x >= 1)
             "-f","--frequency"
                 help = "Lowest frequency of a match"
-                default = 0.2
+                default = 0.1
                 arg_type = Float64
                 range_tester = (x-> (x >= 0.0) & (x <= 1.0))
             "-p", "--nprefix"
