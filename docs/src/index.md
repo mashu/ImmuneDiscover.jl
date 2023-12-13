@@ -20,6 +20,11 @@ These optional steps are aimed at discovering novel alleles:
 3. **Pattern**: Conducts a search for alleles using kmers and trimming heuristics (this method is faster but may result in more false positives).
 4. **Hamming**: Searches for similar sequences across all reads by sliding a window of a known allele across the read (this method does not discover differences in length but produces fewer false positives).
 
+Some of the subcommands use multithreading to speed up the process. The number of threads can be controlled using the `JULIA_NUM_THREADS` environment variable. For instance, to use 4 threads, run the following command before executing immunediscover:
+```bash
+export JULIA_NUM_THREADS=4
+```
+
 # Demultiplexing
 To demultiplex a FASTQ file, provide the path to the compressed FASTQ file (`fastq.gz`) and a tab-separated (TSV) file with the following mandatory columns:
 - `forward_index`
