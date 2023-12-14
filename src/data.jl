@@ -6,9 +6,10 @@ module data
     using DataFrames
     using Statistics
     using UnicodePlots
+    using CSV
     using MD5
 
-    export load_fasta, plotgenes, unique_name, sequence_hash
+    export load_fasta, plotgenes, unique_name, sequence_hash, load_demultiplex
 
     """
         sequence_hash(seq; digits=4)
@@ -79,6 +80,17 @@ module data
                 write(writer, record)
             end
         end
+    end
+
+    """
+        load_demultiplex(path)
+
+    Load demultiplex file
+    """
+    function load_demultiplex(path; limit=nothing)
+        table = CSV.File(path, delim='\t', types=Dict(:case => String), limit=limit) |> DataFrame
+        @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
+        return table
     end
 
     """

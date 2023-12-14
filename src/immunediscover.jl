@@ -63,7 +63,7 @@ module immunediscover
                 @info "Using heptamers $(join(heptamers[chain],','))"
                 db = load_fasta(parsed_args["heptamer"]["fasta"])
                 @info "Loaded $(length(db)) query sequences"
-                table = CSV.File(parsed_args["heptamer"]["tsv"],delim='\t') |> DataFrame
+                table = load_demultiplex(parsed_args["heptamer"]["tsv"])
                 data = heptamer.extract_heptamers(table, db, heptamers[chain]; max_dist=parsed_args["heptamer"]["maxdist"], b=parsed_args["heptamer"]["begin"]+1, e=parsed_args["heptamer"]["end"])
                 output = cli.always_gz(parsed_args["heptamer"]["output"])
                 CSV.write(output, data, compress=true, delim='\t')
@@ -77,7 +77,7 @@ module immunediscover
 
             if get(parsed_args,"%COMMAND%","") == "trim"
                 @info "Trimming"
-                table = CSV.File(parsed_args["trim"]["input"], delim='\t') |> DataFrame
+                table = load_demultiplex(parsed_args["trim"]["input"])
                 db = [r[2] for r in load_fasta(parsed_args["trim"]["fasta"])]
                 weights = parsed_args["trim"]["weights"]
                 pos = parsed_args["trim"]["position"]
@@ -102,7 +102,7 @@ module immunediscover
 
             if get(parsed_args,"%COMMAND%","") == "exact"
                 @info "Exact search"
-                table = CSV.File(parsed_args["exact"]["tsv"], delim='\t') |> DataFrame
+                table = load_demultiplex(parsed_args["exact"]["tsv"])
                 db = load_fasta(parsed_args["exact"]["fasta"], validate=false)
                 mincount = parsed_args["exact"]["mincount"]
                 minfreq = parsed_args["exact"]["minfreq"]
@@ -125,7 +125,7 @@ module immunediscover
             if get(parsed_args,"%COMMAND%","") == "pattern"
                 @info "Pattern search"
                 noprofile = parsed_args["pattern"]["noprofile"] == true
-                table = CSV.File(parsed_args["pattern"]["input"], delim='\t') |> DataFrame
+                table = load_demultiplex(parsed_args["pattern"]["input"])
                 db = load_fasta(parsed_args["pattern"]["fasta"])
                 db_df = DataFrame(db, [:id, :seq])
                 db_df[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(db_df)) # Remove D suffixes of genes
@@ -167,11 +167,12 @@ module immunediscover
                     println(">$allele_name\n$(row.seq)")
                 end
             end
+
             if get(parsed_args,"%COMMAND%","") == "regex"
                 @info "Regex method to extract alleles"
                 db = load_fasta(parsed_args["regex"]["fasta"])
                 @info "Loaded $(length(db)) query sequences"
-                table = CSV.File(parsed_args["regex"]["tsv"], delim='\t') |> DataFrame
+                table = load_demultiplex(parsed_args["regex"]["tsv"])
                 table = table[.!occursin.("N",table.genomic_sequence),:]
                 result = search_frequent_flanks(table, db, min_frequency=parsed_args["regex"]["flank-frequency"], min_count=parsed_args["regex"]["flank-mincount"], nprefix=parsed_args["regex"]["nprefix"], nsuffix=parsed_args["regex"]["nsuffix"])
                 for (dname, prefix, suffix) in filter(x->x!==nothing,result)
@@ -222,9 +223,9 @@ module immunediscover
                 assignments = parsed_args["hamming"]["assignments"]
                 if limit > 0
                     @info "Limiting number of reads to $limit"
-                    table = CSV.File(parsed_args["hamming"]["tsv"], delim='\t', types=Dict(:case => String), limit=limit) |> DataFrame
+                    table = load_demultiplex(parsed_args["hamming"]["tsv"], limit=limit)
                 else
-                    table = CSV.File(parsed_args["hamming"]["tsv"], delim='\t', types=Dict(:case => String)) |> DataFrame
+                    table = load_demultiplex(parsed_args["hamming"]["tsv"])
                 end
                 db = load_fasta(parsed_args["hamming"]["fasta"])
                 umi = parsed_args["hamming"]["umi"]
