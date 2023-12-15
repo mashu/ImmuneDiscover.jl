@@ -1,5 +1,5 @@
 variables:
-  LINUX_AMD64_BINARY: "immunediscover-linux-amd64.tar.gz"
+  LINUX_AMD64_BINARY: "immunediscover-ubuntu-x86-64.tar.gz"
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/immunediscover/${CI_COMMIT_TAG}"
 
 cache:
@@ -36,12 +36,13 @@ build:
     - main
 
 build_binary:
-  image: julia:1.9
+  image: ubuntu:20.04
   timeout: 3h 30m
   script:
-    - apt-get update -qq && apt-get install -y clang
+    - apt-get update -qq && apt-get install -y clang curl
+    - curl -fsSL https://install.julialang.org | sh -s -- -y
     - |
-      julia --startup-file=no --threads auto --project=@. -e '
+      ~/.juliaup/bin/julia --startup-file=no --threads auto --project=@. -e '
         using Pkg
         Pkg.instantiate()
         using PackageCompiler
