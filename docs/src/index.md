@@ -10,6 +10,22 @@ CurrentModule = immunediscover
 Immunediscover is a software package specifically developed for analyzing genomic next-generation sequencing (NGS) data of immune receptors. The package can be acquired as a prebuilt binary bundle from the [releases page](https://gitlab.com/gkhlab/immunediscover.jl/-/releases).
 
 Immunediscover comprises multiple commands functioning as distinct standalone tools, each serving a unique purpose. The initial input for the program is a single FASTQ file containing the reads and TSV file with indexing barcodes (indices). Subsequent subcommands necessitate the demultiplexing of data into a TSV format.
+# Installation
+Downloading the Software: Immunediscover, a software package, is provided as a pre-compiled (prebuilt) binary. This means that you don't have to compile or build the software from its source code. You can download it directly from the releases page on their GitLab repository. Here is the link to that page:  [releases page](https://gitlab.com/gkhlab/immunediscover.jl/-/releases). Choose the version that matches your operating system.
+
+1. Extracting the Downloaded File: After downloading, you will have a file that needs to be extracted (unzipped) to a folder on your computer. You can choose any directory you prefer. For example, if you choose to extract it to `/home/user/immunediscover`, you will find the program files in this directory.
+2. Setting Up the Environment Variable:
+    - The goal here is to make the immunediscover command accessible from any directory in your terminal. This is achieved by adding the path to the program's `bin` directory to an environment variable called `PATH`.
+    - If you extracted the files to `/home/user/immunediscover`, the path to add will be `/home/user/immunediscover/bin/`.
+    - You can temporarily update your `PATH` by running the following command in the terminal:
+    ```bash
+    export PATH=$PATH:/home/user/immunediscover/bin/
+    ```
+    - This command tells your system to add the `immunediscover/bin` directory to the list of places it checks for executable files.
+3. Making the Change Permanent:
+    - The export command you ran will only last for your current terminal session. If you open a new terminal window, it won't remember this change.
+    - To make it permanent, you need to add this command to your `~/.bashrc` file, which is a script that runs every time you open a new terminal session.
+    - You can edit this file with a text editor and add the export command to it. After saving and closing the file, the change will take effect every time you start a new terminal session.
 
 # Usage
 Basic usage typicallly consists of the following steps:
