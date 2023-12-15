@@ -90,6 +90,7 @@ module data
     function load_demultiplex(path; limit=nothing)
         table = CSV.File(path, delim='\t', types=Dict(:case => String), limit=limit) |> DataFrame
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
+        @info "Reading $(path)."
         return table
     end
 

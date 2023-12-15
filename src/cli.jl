@@ -1,7 +1,13 @@
 module cli
     using ArgParse
     export parse_commandline
-    
+
+    function get_latest_git_tag()
+        return strip(read(`git describe --tags --abbrev=0`, String))
+    end
+
+    const SOFTWARE_VERSION = get_latest_git_tag()
+
     """
         always_gz(file_path)
 
@@ -23,10 +29,10 @@ module cli
     function parse_commandline(args)
         s = ArgParseSettings("Tool for processing immune NGS data",
                             commands_are_required = true,
-                            version = "0.1",
+                            version = "$SOFTWARE_VERSION",
                             add_version = true,
                             usage = "usage: immunediscover <command> [-h|--help]",
-                            epilog = "GKHLab, 2023")
+                            epilog = "GKHLab, $SOFTWARE_VERSION")
         @add_arg_table! s begin
             "demultiplex"
                 help = "Demultiplex plate library"
