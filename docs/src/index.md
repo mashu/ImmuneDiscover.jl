@@ -18,7 +18,7 @@ Downloading the Software: Immunediscover, a software package, is provided as a p
     - The goal here is to make the immunediscover command accessible from any directory in your terminal. This is achieved by adding the path to the program's `bin` directory to an environment variable called `PATH`.
     - If you extracted the files to `/home/user/immunediscover`, the path to add will be `/home/user/immunediscover/bin/`.
     - You can temporarily update your `PATH` by running the following command in the terminal:
-    ```bash
+    ```
     export PATH=$PATH:/home/user/immunediscover/bin/
     ```
     - This command tells your system to add the `immunediscover/bin` directory to the list of places it checks for executable files.
@@ -95,8 +95,9 @@ This subcommand identifies exact matches to a database of known alleles. Provide
 
 To execute a search for exact matches to a database of known alleles, use the command:
 ```bash
-immunediscover exact test.tsv.gz V.fasta test-exact.tsv.gz
+immunediscover exact -g V -c 10 -f 0.1 test.tsv.gz V.fasta test-exact.tsv.gz
 ```
+Above command searches for exact matches to the database of V alleles, requiring a minimum of `10` reads per allele and a minimum frequency of `10%`. The result is a compressed TSV file containing exact matches for alleles and their counts for each well and case.
 
 ### Exact Program Parameters
 
