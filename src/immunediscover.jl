@@ -26,6 +26,7 @@ module immunediscover
     using CSV
     using DataFrames
     using UnicodePlots
+    using Glob
 
     export load_fasta
 
@@ -209,12 +210,39 @@ module immunediscover
                 @info "Extracted Ds saved in compressed $output file"
             end
             if get(parsed_args,"%COMMAND%","") == "hash"
-                @info "Hamming distance window search"
+                @info "Hasing alleles"
                 fastain = parsed_args["hash"]["fastain"]
                 db = load_fasta(fastain)
                 for (name, seq) in db
                     newname = unique_name(name, seq)
                     println(">$newname\n$seq")
+                end
+            end
+            if get(parsed_args,"%COMMAND%","") == "collect"
+                @info "Collecting TSV files"
+                pattern = parsed_args["collect"]["pattern"]
+                output = parsed_args["collect"]["output"]
+                files = glob(pattern)
+                @info "Found $(length(files)) files matching pattern $pattern"
+                collected = []
+                if length(files) > 0
+                    @info "Collecting files"
+                    first_file_columns = nothing
+                    for file in files
+                        df = CSV.File(file, delim='\t') |> DataFrame
+                        df[!,:file] .= file
+                        if first_file_columns === nothing
+                            first_file_columns = names(df)
+                        else
+                            @assert first_file_columns == names(df) "Column names in $file do not match first file"
+                        end
+                        push!(collected, df)
+                    end
+                    @info "Saving collected data in $output"
+                    collectd_df = vcat(collected...)
+                    CSV.write(output, collectd_df, delim='\t')
+                else
+                    @warn "No files found matching pattern $pattern"
                 end
             end
             if get(parsed_args,"%COMMAND%","") == "hamming"

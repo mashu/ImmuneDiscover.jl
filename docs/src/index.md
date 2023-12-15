@@ -261,3 +261,19 @@ The output is a compressed TSV file with the following columns:
 - `count`: The number of reads matching the allele.
 - `gene`: The gene of the allele.
 - `frequency`: The frequency of the allele.
+
+# Collect
+The Collect command is used to collect the results of multiple runs of the Exact, Hamming, Pattern, and Regex commands. The command accepts a list of TSV files and outputs a single TSV file with the combined results.
+
+To collect the results of multiple runs, use the command:
+```bash
+immunediscover collect test-exact*.tsv.gz exact-collected.tsv
+```
+
+### Positional Arguments
+
+1. `pattern`: Pattern of TSV files to collect (i.e. `test-exact*.tsv.gz`, `test-regex*.tsv.gz`, `test-pattern*.tsv.gz`...).
+2. `output`: Output TSV file to save collected data.
+
+### Collect output
+The output is a compressed TSV file with the same columns as the input files and an additional column `file` indicating the source of the record.

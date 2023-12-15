@@ -55,6 +55,9 @@ module cli
             "hash"
                 help = "Add hash based _S suffix to all allele names in the FASTA file"
                 action = :command
+            "collect"
+                help = "Helper function to collect all TSV files into one"
+                action = :command
             end
 
         @add_arg_table! s["demultiplex"] begin
@@ -358,6 +361,15 @@ module cli
         @add_arg_table! s["novel"] begin
         "tsv"
             help = "TSV file with columns allele_name and seq"
+            required = true
+        end
+
+        @add_arg_table! s["collect"] begin
+        "pattern"
+            help = "Pattern of TSV files to collect"
+            required = true
+        "output"
+            help = "TSV file to save data"
             required = true
         end
 
