@@ -169,17 +169,24 @@ Note that `count` refers to the combined occurrences of `prefix`, `middle`, and 
 ![Pattern-Diagram](assets/pattern-diagram.png)
 
 This subcommand can be elucidated through the following algorithmic steps:
-- Identify gene-specific kmers from the starting database.
-- Sample these gene-specific kmers.
-- Search for sequences containing these kmers.
-- Group sequences by identity and apply count-based filtering.
-- Calculate the Levenshtein distance to known alleles and assign names based on the closest match.
+1. Identify gene-specific kmers from the starting database that are unique to each gene but not part of any pseudo-gene.
+2. Sample gene-specific kmers.
+3. Search for sequences containing sampled kmers.
+4. Trim matching reads to the gene sequence using the profile at the 5' and 3' ends.
+5. Group sequences by identity and apply count-based filtering.
+6. Calculate the Levenshtein distance to known alleles and assign names based on the closest match.
 
 For instance, the command:
 ```bash
-immunediscover pattern test.tsv.gz V.fasta -b pseudogenes.fasta -l 200 -f 0.1 -c 10 test-pattern.tsv.gz
+immunediscover pattern test.tsv.gz V.fasta -b pseudogenes.fasta -l 200 -f 0.1 -c 25 -w 30 -d 10 test-pattern.tsv.gz
 ```
-will analyze the entire plate using trimmed genes of a minimum length of `200`, applying an allelic ratio filter of `0.1` and minimum count filter of `10`. The result is a compressed TSV file containing candidate alleles and their counts for the entire plate. Typically, select some of these alleles for further analysis using the Hamming or Exact search module.
+will analyze the entire plate using with the following specifications:
+- `-l 200`: Sets the minimum gene sequence length for consideration to 200 nucleotides.
+- `-f 0.1`: Filters alleles, keeping those with a frequency of at least 10%.
+- `-c 25`: Includes only alleles observed a minimum of 25 times.
+- `-w 30`: Length of the profile on both 5' and 3' ends of a gene used for trimming reads to the gene sequence, set at 30.
+- `-d 10`: Maximum distance for an allele to be considered novel, set at 10. Helps to exclude vastly different sequences like pseudogenes and spurious matches.
+The result is a compressed TSV file containing candidate alleles and their counts for the entire plate. Typically, select some of these alleles for further analysis using Exact search.
 
 ### Pattern Program Parameters
 
