@@ -58,7 +58,7 @@ module exact
     """
     function exact_search(table, query, gene; mincount=10, minfreq=0.01, full_mincount=2, full_minfreq=0.01, collapse=true)
         @info "Using mincount: $mincount and minfreq: $minfreq for genes: $gene"
-        @assert all(names(table) .== ["well","case","name","genomic_sequence"]) "File must contain following columns case, name, genomic_sequence"
+        @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
         result = Folds.map(eachrow(table)) do row
             next!(p)

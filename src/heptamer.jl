@@ -34,8 +34,8 @@ module heptamer
     Agument input table with located heptamers and extend trimmed sequence up to that heptamer
     """
     function extract_heptamers(table, db, heptamers; max_dist=1, b=1, e=8)
-        @assert all(names(table) .== ["well","case","name","genomic_sequence"]) "File must contain following columns case,name,genomic_sequence"
-        p = Progress(length(db))
+	@assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
+	p = Progress(length(db))
         completed = Folds.map(db) do pair
             query_name, query_seq = pair
             ProgressMeter.next!(p; showvalues = [(:query_name, query_name)])
@@ -104,7 +104,7 @@ module heptamer
     Summarize data by collapsing identical sequences, heptamers and cases
     """
     function summarize(table, query; ratio=0.25, count=10)
-        @assert all(names(table) .== ["well","case","name","genomic_sequence","db_name","full_match","trimmed_match","db_length","full_length","full_sequence","heptamer"]) "File must contain following columns well,case,name,genomic_sequence,db_name,full_match,db_length,full_length,full_sequence,heptamer"
+        @assert all([name in names(table) for name in ["well","case","name","genomic_sequence","db_name","full_match","trimmed_match","db_length","full_length","full_sequence","heptamer"]]) "File must contain following columns well,case,name,genomic_sequence,db_name,full_match,db_length,full_length,full_sequence,heptamer"
         lookup_rev = Dict([(y,x) for (x,y) in query])
         lookup = Dict([(x,y) for (x,y) in query])
         table[:,:trimmed_sequence] = map(x->x.genomic_sequence[UnitRange(parse.(Int,split(x.trimmed_match,':'))...)], eachrow(table))
