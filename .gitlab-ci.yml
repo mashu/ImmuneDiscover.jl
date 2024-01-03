@@ -9,6 +9,7 @@ cache:
 
 .script:
   script:
+    - apt-get update -qq && apt-get install -y git
     - |
       julia --threads auto --project=@. -e '
         using Pkg

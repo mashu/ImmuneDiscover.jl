@@ -3,7 +3,7 @@ module cli
     export parse_commandline
 
     function get_latest_git_tag()
-        return strip(read(`git describe --tags --abbrev=0`, String))
+	return strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0 `, String))
     end
 
     const SOFTWARE_VERSION = get_latest_git_tag()
