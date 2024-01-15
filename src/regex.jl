@@ -43,11 +43,21 @@ module regex
     end
 
     """
-    Extract flanks on both sides
+    Extract flanks on both sides, as much as available
     """
     function flanks(query, target; nprefix=7, nsuffix=7)
         range = findfirst(query, target)
-        return target[minimum(range)-nprefix:minimum(range)-1],target[maximum(range)+1:maximum(range)+nsuffix]
+        if range === nothing
+            return "", ""
+        end
+
+        start_pos = max(1, minimum(range) - nprefix)
+        end_pos = min(length(target), maximum(range) + nsuffix)
+
+        prefix = start_pos == 1 ? target[start_pos:minimum(range) - 1] : target[start_pos:minimum(range) - 1]
+        suffix = end_pos == length(target) ? target[maximum(range) + 1:end_pos] : target[maximum(range) + 1:end_pos]
+
+        return prefix, suffix
     end
 
     """
@@ -96,13 +106,13 @@ module regex
             suffix_set = Accumulator{String,Int}()
             if length(dseq) < min_length
                 @warn "$dname shorter than 16, skipping"
-                return
+                return nothing
             end
             subdf = table[occursin.(string(dseq), table.genomic_sequence),:]
             hits = transform(subdf, :genomic_sequence => ByRow(s-> flanks(string(dseq),s, nprefix=nprefix, nsuffix=nsuffix)) => [:prefix,:suffix])
             combined = combine(groupby(hits,[:prefix,:suffix, :well, :case]),nrow => :count)
             if nrow(combined) == 0
-                return
+                return nothing
             end
             # Prefixes
             frequent = combined[(combined.count ./ maximum(combined.count)) .>= min_frequency,:]

@@ -326,15 +326,15 @@ module cli
                 help = "Minimum length of an insert"
                 default = 15
                 arg_type = Int
-                range_tester = (x->x >= 15)
+                range_tester = (x->x >= 1)
             "--insert-maxlen"
                 help = "Maximum length of an insert"
                 default = 40
                 arg_type = Int
-                range_tester = (x->x >= 15)
+                range_tester = (x->x >= 1)
             "--flank-mincount"
                 help = "Minimum number of reads per flanks"
-                default = 25
+                default = 50
                 arg_type = Int
                 range_tester = (x->x >= 1)
             "--flank-frequency"

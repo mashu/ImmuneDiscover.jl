@@ -175,8 +175,8 @@ module immunediscover
                 @info "Loaded $(length(db)) query sequences"
                 table = load_demultiplex(parsed_args["regex"]["tsv"])
                 table = table[.!occursin.("N",table.genomic_sequence),:]
-                result = search_frequent_flanks(table, db, min_frequency=parsed_args["regex"]["flank-frequency"], min_count=parsed_args["regex"]["flank-mincount"], nprefix=parsed_args["regex"]["nprefix"], nsuffix=parsed_args["regex"]["nsuffix"])
-                for (dname, prefix, suffix) in filter(x->x!==nothing,result)
+                result = search_frequent_flanks(table, db, min_frequency=parsed_args["regex"]["flank-frequency"], min_length=parsed_args["regex"]["insert-minlen"], min_count=parsed_args["regex"]["flank-mincount"], nprefix=parsed_args["regex"]["nprefix"], nsuffix=parsed_args["regex"]["nsuffix"])
+                for (dname, prefix, suffix) in result
                     @info "Allele $dname wells prefix: $(sum(prefix)), suffix: $(sum(suffix))"
                 end
                 prefix_sorted = sort(collect(combine_accumulators(map(x->x.prefix,result))),by=y->y[2],rev=true)
@@ -198,7 +198,7 @@ module immunediscover
                 agumented_table = filter(x->(x.hit_suffix !== nothing) && (x.hit_prefix !== nothing), table)
                 @info "Out of $(nrow(table)) sequences, $(nrow(agumented_table)) matched regex ($(round((nrow(agumented_table)/nrow(table))*100,digits=2))%)"
                 # Annotate and collapse
-                result = annotate(agumented_table, db, nprefix=7, nsuffix=7)
+                result = annotate(agumented_table, db, nprefix=parsed_args["regex"]["nprefix"], nsuffix=parsed_args["regex"]["nsuffix"])
                 collapsed = combine(groupby(result, [:well, :case, :best_name, :distance, :prefix, :best_aln, :suffix]), nrow => :count)
                 sort!(collapsed, [:well, :case,:best_name, :count], rev=[false, false, false, true])
                 transform!(collapsed, :best_name => ByRow(x -> first(split(x, '*'))) => :gene)
