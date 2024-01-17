@@ -64,6 +64,9 @@ module cli
             "collect"
                 help = "Helper function to collect all TSV files into one"
                 action = :command
+            "bwa"
+                help = "Filter input TSV file by mapping to the genome"
+                action = :command
             end
 
         @add_arg_table! s["demultiplex"] begin
@@ -383,6 +386,31 @@ module cli
         "fastain"
             help = "FASTA file with allele names"
             required = true
+        end
+
+        @add_arg_table! s["bwa"] begin
+        "tsv"
+            help = "TSV file with columns allele_name and seq"
+            required = true
+        "genome"
+            help = "FASTA file with indexed genome"
+            required = true
+        "output"
+            help = "TSV file to save filtered input"
+            required = true
+        "-c", "--chromosome"
+            help = "Chromosome string to filter by"
+            default = "chromosome 14"
+            arg_type = String
+        "-n", "--colname"
+            help = "Name of the column with allele names"
+            default = "allele_name"
+            arg_type = String
+        "-s", "--colseq"
+            help = "List column names with sequences"
+            default = ["prefix", "best_aln", "suffix"]
+            nargs = '*'  # Accepts zero or more values
+            arg_type = String
         end
 
         # Show help if no arguments are provided

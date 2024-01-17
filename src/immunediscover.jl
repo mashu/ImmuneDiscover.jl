@@ -10,6 +10,7 @@ module immunediscover
     include("hamming.jl")
     include("patterns.jl")
     include("regex.jl")
+    include("bwa.jl")
 
     using .cli
     using .demultiplex
@@ -22,6 +23,7 @@ module immunediscover
     using .hamming
     using .patterns
     using .regex
+    using .bwa
 
     using CSV
     using DataFrames
@@ -29,6 +31,19 @@ module immunediscover
     using Glob
 
     export load_fasta
+
+    """
+        concatenate_columns(row, col_names)
+    
+    Helper function to concatenate content from columns
+    """
+    function concatenate_columns(row, col_names)
+        concatenated_string = ""
+        for col_name in col_names
+            concatenated_string *= getproperty(row, Symbol(col_name))
+        end
+        concatenated_string
+    end
 
     """
         real_main(args=[])
@@ -244,6 +259,26 @@ module immunediscover
                 else
                     @warn "No files found matching pattern $pattern"
                 end
+            end
+            if get(parsed_args,"%COMMAND%","") == "bwa"
+                @info "BWA search to filter candidates if they match correct chromosome"
+                df = CSV.File(parsed_args["bwa"]["tsv"],delim='\t') |> DataFrame
+                chromosome_name = parsed_args["bwa"]["chromosome"]
+                tsv = CSV.File(parsed_args["bwa"]["tsv"],delim='\t') |> DataFrame
+                outtsv = parsed_args["bwa"]["output"]
+                genome = parsed_args["bwa"]["genome"]
+                colname = parsed_args["bwa"]["colname"]
+                colseq = parsed_args["bwa"]["colseq"]
+                @info "Using columns: $colname, $colseq"
+                @info "Using genome: $genome"
+                @info "Filter by chromosome: $chromosome_name"
+                sequences = map(eachrow(df)) do row
+                    concatenated_sequence = concatenate_columns(row, colseq)
+                    (row.best_name, concatenated_sequence)
+                end
+                indices = bwa_sequences(genome, sequences, chromosome_name)
+                tsv[indices,:] |> CSV.write(outtsv, delim='\t')
+                @info "Filtered result saved in $outtsv"
             end
             if get(parsed_args,"%COMMAND%","") == "hamming"
                 @info "Hamming distance window search"
