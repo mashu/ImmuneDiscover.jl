@@ -298,6 +298,12 @@ The output is a compressed TSV file with the same columns as the input files and
 # Bwa
 The Bwa command is used to align reads to a reference genome using the BWA-MEM algorithm. The command accepts a TSV file with `allele_name` and `sequence` columns and outputs filtered TSV file for sequences that match requested `chromosome`.
 
+One of genome versions for **Homo sapiens** can be downloaded from
+```bash
+curl https://api.ncbi.nlm.nih.gov/datasets/v2alpha/genome/accession/GCF_000001405.25/download?include_annotation_type=GENOME_FASTA --output GCF_000001405.25.zip
+unzip GCF_000001405.25.zip
+```
+
 To align reads to a reference genome, use the command:
 ```bash
 bwa index gnome.fasta  # This step is required only once per reference genome
