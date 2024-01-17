@@ -274,7 +274,7 @@ module immunediscover
                 @info "Filter by chromosome: $chromosome_name"
                 sequences = map(eachrow(df)) do row
                     concatenated_sequence = concatenate_columns(row, colseq)
-                    (row.best_name, concatenated_sequence)
+                    (row[colname], concatenated_sequence)
                 end
                 indices = bwa_sequences(genome, sequences, chromosome_name)
                 tsv[indices,:] |> CSV.write(outtsv, delim='\t')

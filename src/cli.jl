@@ -404,7 +404,7 @@ module cli
             arg_type = String
         "-n", "--colname"
             help = "Name of the column with allele names"
-            default = "allele_name"
+            default = "best_name"
             arg_type = String
         "-s", "--colseq"
             help = "List column names with sequences"

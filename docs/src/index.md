@@ -296,7 +296,7 @@ immunediscover collect test-exact*.tsv.gz exact-collected.tsv
 The output is a compressed TSV file with the same columns as the input files and an additional column `file` indicating the source of the record.
 
 # Bwa
-The Bwa command is used to align reads to a reference genome using the BWA-MEM algorithm. The command accepts a TSV file with `allele_name` and `sequence` columns and outputs filtered TSV file for sequences that match requested `chromosome`.
+The Bwa command is used to align reads to a reference genome using the BWA-MEM algorithm. The command accepts a TSV file with `best_name` column and columns containing parts of the query sequence that can be concatenated together. The output is filtered TSV file for sequences that match requested `chromosome`.
 
 One of genome versions for **Homo sapiens** can be downloaded from
 ```bash
@@ -317,5 +317,5 @@ immunediscover bwa test-regex.tsv.gz gnome.fasta test_bwa.tsv.gz -c "chromosome 
 
 ### Optional Arguments
 - `-c, --chromosome`: Chromosome to align to that has this string in genomic record description (Default: "chromosome 14")
-- `-n, --colname`: Column name to use for allele name (Default: "allele_name")
+- `-n, --colname`: Column name to use for allele name (Default: "best_name")
 - `-s, --colseq`: Column names to use for sequence (Default: "prefix best_aln suffix")
