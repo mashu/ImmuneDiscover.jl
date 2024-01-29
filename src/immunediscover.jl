@@ -138,6 +138,29 @@ module immunediscover
                 CSV.write(output, counts_df, compress=true, delim='\t')
                 @info "Exact search data saved in compressed $output file"
             end
+            if get(parsed_args,"%COMMAND%","") == "exclude"
+                @info "Exclude"
+                db = load_fasta(parsed_args["exclude"]["fasta"])
+                colname = parsed_args["exclude"]["colname"]
+                @info "Using $colname column"
+                colseq = parsed_args["exclude"]["colseq"]
+                @info "Using $colseq column"
+                data = CSV.File(parsed_args["exclude"]["input"],delim='\t') |> DataFrame
+                discard = Set{Tuple{String,String,String}}()
+                for row in eachrow(data)
+                    for (name, seq) in db
+                        if occursin(row[colseq], seq) || occursin(seq, row[colseq])
+                            push!(discard, (name, row[colname], row[colseq]))
+                        end
+                    end
+                end
+                for (name, allele_name, seq) in discard
+                    @info "Discarding fasta $allele_name with name $name"
+                    filter!(x->x[colseq] != seq, data)
+                end
+                output = cli.always_gz(parsed_args["exclude"]["output"])
+                CSV.write(output, data, compress=true, delim='\t')
+            end
             if get(parsed_args,"%COMMAND%","") == "pattern"
                 @info "Pattern search"
                 noprofile = parsed_args["pattern"]["noprofile"] == true
@@ -190,12 +213,7 @@ module immunediscover
                 @info "Loaded $(length(db)) query sequences"
                 table = load_demultiplex(parsed_args["regex"]["tsv"])
                 table = table[.!occursin.("N",table.genomic_sequence),:]
-                result = search_frequent_flanks(table, db, min_frequency=parsed_args["regex"]["flank-frequency"], min_length=parsed_args["regex"]["insert-minlen"], min_count=parsed_args["regex"]["flank-mincount"], nprefix=parsed_args["regex"]["nprefix"], nsuffix=parsed_args["regex"]["nsuffix"])
-                for (dname, prefix, suffix) in result
-                    @info "Allele $dname wells prefix: $(sum(prefix)), suffix: $(sum(suffix))"
-                end
-                prefix_sorted = sort(collect(combine_accumulators(map(x->x.prefix,result))),by=y->y[2],rev=true)
-                suffix_sorted = sort(collect(combine_accumulators(map(x->x.suffix,result))),by=y->y[2],rev=true)
+                prefix_sorted, suffix_sorted = search_frequent_flanks(table, db, min_frequency=parsed_args["regex"]["flank-frequency"], min_length=parsed_args["regex"]["insert-minlen"], min_count=parsed_args["regex"]["flank-mincount"], min_well=parsed_args["regex"]["flank-minwell"], nprefix=parsed_args["regex"]["nprefix"], nsuffix=parsed_args["regex"]["nsuffix"])
                 @info "Discarding regex flanks that are part of the known sequence"
                 # Collect heptamers that are not part of D gene itself (this is a problem because some Ds are substring of other Ds)
                 plist = filter(x->!any(occursin.(first(x),map(y->y[2], db))), prefix_sorted)
@@ -213,12 +231,16 @@ module immunediscover
                 agumented_table = filter(x->(x.hit_suffix !== nothing) && (x.hit_prefix !== nothing), table)
                 @info "Out of $(nrow(table)) sequences, $(nrow(agumented_table)) matched regex ($(round((nrow(agumented_table)/nrow(table))*100,digits=2))%)"
                 # Annotate and collapse
+                if nrow(agumented_table) == 0
+                    @warn "No sequences matched regex - interrupting"
+                    return
+                end
                 result = annotate(agumented_table, db, nprefix=parsed_args["regex"]["nprefix"], nsuffix=parsed_args["regex"]["nsuffix"])
                 collapsed = combine(groupby(result, [:well, :case, :best_name, :distance, :prefix, :best_aln, :suffix]), nrow => :count)
                 sort!(collapsed, [:well, :case,:best_name, :count], rev=[false, false, false, true])
                 transform!(collapsed, :best_name => ByRow(x -> first(split(x, '*'))) => :gene)
                 transform!(groupby(collapsed, [:well, :case, :gene]), :count => (x->x./maximum(x))=> :frequency)
-                result_df = filter(r->(r.frequency >= parsed_args["regex"]["frequency"]) & (r.count > parsed_args["regex"]["mincount"]), collapsed)
+                result_df = filter(r->(r.frequency >= parsed_args["regex"]["frequency"]) & (r.count > parsed_args["regex"]["mincount"]) & (r.distance <= parsed_args["regex"]["maxdist"]), collapsed)
                 update_names!(result_df)
                 output = cli.always_gz(parsed_args["regex"]["output"])
                 CSV.write(output, result_df, compress=true, delim='\t')
@@ -276,7 +298,8 @@ module immunediscover
                     concatenated_sequence = concatenate_columns(row, colseq)
                     (row[colname], concatenated_sequence)
                 end
-                indices = bwa_sequences(genome, sequences, chromosome_name)
+                indices, position = bwa_sequences(genome, sequences, chromosome_name)
+                tsv[!,:position] = position
                 tsv[indices,:] |> CSV.write(outtsv, delim='\t')
                 @info "Filtered result saved in $outtsv"
             end

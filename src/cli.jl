@@ -1,6 +1,7 @@
 module cli
     using ArgParse
     export parse_commandline
+    import ArgParse.parse_item
 
     function get_latest_git_tag()
 	return strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0 `, String))
@@ -63,6 +64,9 @@ module cli
                 action = :command
             "collect"
                 help = "Helper function to collect all TSV files into one"
+                action = :command
+            "exclude"
+                help = "Exclude sequences from the TSV file"
                 action = :command
             "bwa"
                 help = "Filter input TSV file by mapping to the genome"
@@ -345,8 +349,18 @@ module cli
                 default = 0.5
                 arg_type = Float64
                 range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+            "--flank-minwell"
+                help = "Minimum number of wells with reads per flank"
+                default = 1
+                arg_type = Int
+                range_tester = (x->x >= 1)
             "-c", "--mincount"
                 help = "Minimum count of a match"
+                default = 3
+                arg_type = Int
+                range_tester = (x->x >= 1)
+            "-d", "--maxdist"
+                help = "Maximum distance of an insert to known allele"
                 default = 3
                 arg_type = Int
                 range_tester = (x->x >= 1)
@@ -388,16 +402,38 @@ module cli
             required = true
         end
 
-        @add_arg_table! s["bwa"] begin
-        "tsv"
+        @add_arg_table! s["exclude"] begin
+        "input"
             help = "TSV file with columns allele_name and seq"
-            required = true
-        "genome"
-            help = "FASTA file with indexed genome"
             required = true
         "output"
             help = "TSV file to save filtered input"
             required = true
+        "fasta"
+            help = "FASTA file with allele names and sequences to exclude"
+            required = true
+        "-n", "--colname"
+            help = "Name of the column with allele names"
+            default = "allele_name"
+            arg_type = String
+        "-s", "--colseq"
+            help = "Name of the column with sequence"
+            default = "seq"
+            arg_type = String
+        end
+
+        @add_arg_table! s["bwa"] begin
+        "tsv"
+            help = "TSV file with columns allele_name and seq"
+            required = true
+        "output"
+            help = "TSV file to save filtered input"
+            required = true
+        "genome"
+            help = "FASTA file with indexed genome"
+            required = true
+            nargs='+'
+            arg_type = String
         "-c", "--chromosome"
             help = "Chromosome string to filter by"
             default = "chromosome 14"
