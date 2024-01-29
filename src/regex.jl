@@ -97,38 +97,50 @@ module regex
     """
     Collect frequent flanks
     """
-    function search_frequent_flanks(table, db; min_length=16, min_frequency=0.5, min_count=100, nprefix=7, nsuffix=7)
+    function search_frequent_flanks(table, db; min_length=16, min_frequency=0.5, min_well=1, min_count=100, nprefix=7, nsuffix=7)
         p = Progress(nrow(table), desc = "Collecting prefix/suffix")
-        @info "Prefix and suffix frequency threshold set to $min_frequency and count threshold set to $min_count"
+        @info "Prefix and suffix frequency threshold set to $min_frequency, min count is $min_count and min wells is $min_well"
         @info "Prefixes are set to be $(nprefix) bases long and suffixes must be $(nsuffix) bases long"
         result = Folds.map(db) do (dname, dseq)
             prefix_set = Accumulator{String,Int}()
             suffix_set = Accumulator{String,Int}()
             if length(dseq) < min_length
-                @warn "$dname shorter than 16, skipping"
-                return nothing
+                @warn "$dname shorter than $min_length, skipping"
+                return (dname=dname, prefix=prefix_set, suffix=suffix_set)
             end
             subdf = table[occursin.(string(dseq), table.genomic_sequence),:]
             hits = transform(subdf, :genomic_sequence => ByRow(s-> flanks(string(dseq),s, nprefix=nprefix, nsuffix=nsuffix)) => [:prefix,:suffix])
-            combined = combine(groupby(hits,[:prefix,:suffix, :well, :case]),nrow => :count)
-            if nrow(combined) == 0
-                return nothing
+            # Count prefixes and suffixes
+            combined_prefix = combine(groupby(hits,[:prefix, :well, :case]), nrow => :count)
+            combined_suffix = combine(groupby(hits,[:suffix, :well, :case]), nrow => :count)
+
+            # Compute frequency
+            transform!(combined_prefix, :count => ByRow(x->x/maximum(x)) => :frequency)
+            transform!(combined_suffix, :count => ByRow(x->x/maximum(x)) => :frequency)
+
+            # Filter
+            filter!(x->x.frequency >= min_frequency, combined_prefix)
+            filter!(x->x.frequency >= min_frequency, combined_suffix)
+            filter!(x->x.count >= min_count, combined_prefix)
+            filter!(x->x.count >= min_count, combined_suffix)
+
+            # For this particular alelle, we can he this particular prefix/suffix
+            # Separate prefix and suffix
+            for row in eachrow(combined_prefix)
+                push!(prefix_set, row.prefix)
             end
-            # Prefixes
-            frequent = combined[(combined.count ./ maximum(combined.count)) .>= min_frequency,:]
-            if maximum(combined.count) > min_count
-                for p in frequent.prefix
-                    push!(prefix_set, p)
-                end
-                for s in frequent.suffix
-                    push!(suffix_set, s)
-                end
+            for row in eachrow(combined_suffix)
+                push!(suffix_set, row.suffix)
             end
             next!(p)
             return (dname=dname, prefix=prefix_set, suffix=suffix_set)
         end
         finish!(p)
-        return filter(x->x !== nothing, result)
+        combined_prefix_acc = combine_accumulators(map(x->x.prefix, result))
+        combined_suffix_acc = combine_accumulators(map(x->x.suffix, result))
+        prefix_sorted = filter(kv->kv[2] >= min_well, sort(collect(combined_prefix_acc), by=x->x[2], rev=true))
+        suffix_sorted = filter(kv->kv[2] >= min_well, sort(collect(combined_suffix_acc), by=x->x[2], rev=true))
+        return prefix_sorted, suffix_sorted
     end
 
     """
@@ -195,10 +207,10 @@ module regex
     Align two sequences locally
     """
     function local_align(x, y)
-        scoremodel = AffineGapScoreModel(EDNAFULL, gap_open=-5, gap_extend=-1);
-        res = pairalign(SemiGlobalAlignment(), x, y, scoremodel)
+        scoremodel = AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1);
+        pairalign(SemiGlobalAlignment(), x, y, scoremodel)
     end
-    
+
     """
         best_alignment(query, db)
     
