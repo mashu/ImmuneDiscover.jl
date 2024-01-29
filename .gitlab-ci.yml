@@ -40,7 +40,7 @@ build_binary:
   image: ubuntu:20.04
   timeout: 3h 30m
   script:
-    - apt-get update -qq && apt-get install -y clang curl
+    - apt-get update -qq && apt-get install -y clang curl git
     - curl -fsSL https://install.julialang.org | sh -s -- -y
     - |
       ~/.juliaup/bin/julia --startup-file=no --threads auto --project=@. -e '
