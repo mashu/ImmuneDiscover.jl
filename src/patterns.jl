@@ -64,7 +64,8 @@ module patterns
     function trim_by_distance(group::DataFrame, gene_df::DataFrame, search_fragments::Vector{String})
         # Find positions of search_fragments in group dataframe
         positions = Dict()
-        trimmed_sequences = []
+        trimmed_sequences = Vector{String}()
+        case = Vector{String}()
         for kmer in search_fragments
             positions[kmer] = ()
         end
@@ -95,9 +96,10 @@ module patterns
                 end
                 gene = gene_df[i,:genomic_sequence][start-prefix:start+suffix+length(kmer)-1]
                 push!(trimmed_sequences, gene)
+                push!(case, gene_df[i,:case])
             end
         end
-        return trimmed_sequences
+        return trimmed_sequences, cases
     end
 
     function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false) where F <: AbstractFloat
@@ -125,19 +127,21 @@ module patterns
             gene_df = filter(x->any([occursin(fragment, x.genomic_sequence) for fragment in search_fragments]), reads_df)
         end
         trimmed_sequences = []
+        case = []
         if !noprofile
             # Trim sequences
             prof_start, prof_stop = trim.trim_profiles(group.seq, weights)
             ok, trimmed_sequences, region = trim.find_segments(gene_df.genomic_sequence, prof_start, prof_stop, mlen)
+            case = gene_df[ok,:case]
             if sum(ok)/length(ok) < 0.9
                 @warn "Not enough sequences trimmed for $(unique(group.gene)) possibly due incomplete database?"
             end
         else
-            trimmed_sequences = trim_by_distance(group, gene_df, search_fragments)
+            trimmed_sequences, case = trim_by_distance(group, gene_df, search_fragments)
         end
         # Group by identity
-        trimmed_sequences_df = DataFrame(seq = trimmed_sequences)
-        clustered = sort(combine(groupby(trimmed_sequences_df, :seq), nrow => :count), :count, rev=true)
+        trimmed_sequences_df = DataFrame(seq = trimmed_sequences, case = case)
+        clustered = sort(combine(groupby(trimmed_sequences_df, [:seq,:case]), nrow => :count), :count, rev=true)
 
         # Annotate closest
         closest = map(x->find_closest(x, db_df), clustered.seq)
@@ -149,7 +153,8 @@ module patterns
         clustered[!,:length_db] = map(x->get(db_dict, x[1], "") , closest)
         clustered[!,:patterns] .= join(search_fragments, ",")
         # Compute and filter by frequency
-        clustered[!,:ratio] = clustered.count ./ maximum(clustered.count)
+        transform!(groupby(clustered, :case), :count => (x -> x ./ maximum(x)) => :ratio)
+
         return clustered
     end
 
