@@ -204,7 +204,7 @@ module patterns
                     return discovered
                 else
                     @warn "No patterns found for $gene"
-                    return DataFrame([[],[],[],[], [],[],[], [],[],[]], [:count, :closest, :dist, :allele_name, :gene, :length, :length_db, :patterns, :ratio, :seq])
+                    return DataFrame([[],[],[],[], [],[],[], [], [],[],[]], [:count, :closest, :dist, :allele_name, :gene, :length, :length_db, :patterns, :case, :ratio, :seq])
                 end
             end
         end
