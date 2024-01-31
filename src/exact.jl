@@ -42,6 +42,12 @@ module exact
         end
     end
 
+    # Custom function to sort and select top N rows for each group
+    function sort_and_select_top_n(df, N)
+        sorted_df = sort(df, :flank_count, rev=true)
+        return first(sorted_df, N)
+    end
+
     """
         exact_search(table, query, gene; mincount=10, minfreq=0.2, collapse=true)
 
@@ -54,9 +60,9 @@ module exact
         minfreq::Float: Minimum frequency of reads for a sequence to be considered
         full_mincount::Int: Minimum number of reads for a full record to be considered
         full_minfreq::Float: Minimum frequency of reads for a full record to be considered
-        collapse::Bool: If true, only return highest count full record, otherwise return all records
+        N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minfreq=0.01, full_mincount=2, full_minfreq=0.01, collapse=true)
+    function exact_search(table, query, gene; mincount=10, minfreq=0.01, full_mincount=2, full_minfreq=0.01, N=10)
         @info "Using mincount: $mincount and minfreq: $minfreq for genes: $gene"
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
@@ -92,10 +98,16 @@ module exact
         priority_columns = ["well", "case", "gene", "db_name", "count", "full_count", "frequency", "full_frequency"]
         remaining_columns = setdiff(names(udf), priority_columns)
         udf[:, vcat(priority_columns, remaining_columns)]
-        # Return only first highest count full record, otherwise return all records
-        if collapse
-            return unique(udf, [:well, :case, :gene, :db_name, :sequence])
-        end
-        return udf
+
+        # Grouping by the specified columns
+        gdf = groupby(udf, [:well, :case, :gene, :db_name, :sequence])
+
+        # Adding flank_index which enumerates records within each group
+        udf_indexed = transform(gdf, :well => (x -> 1:length(x)) => :flank_index)
+
+        # Apply the custom function to each group
+        limited_udf = filter(x->x.flank_index <= N, udf_indexed)
+
+        return limited_udf
     end
 end

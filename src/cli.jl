@@ -251,9 +251,11 @@ module cli
             range_tester = (x->x ∈ genes)
             arg_type = String
             help = "gene; must be one of " * join(genes, ", ", " or ")
-        "-u", "--uncollapsed"
-            help = "Saves uncollapsed full records."
-            action = :store_true
+        "-t", "--top"
+            help = "Saves at most N records of flank and sequence."
+            arg_type = Int
+            default = 1
+            range_tester = (x->x >= 1)
         end
 
         @add_arg_table! s["pattern"] begin
