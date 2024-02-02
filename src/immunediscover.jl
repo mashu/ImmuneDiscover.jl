@@ -45,6 +45,19 @@ module immunediscover
         concatenated_string
     end
 
+    function validate_types(types)
+        allowed_types = ["heptamer", "spacer", "nonamer"]
+        for type in types
+            if !(type in allowed_types)
+                error("Invalid type: $type. Allowed types are: heptamer, spacer, nonamer.")
+            end
+        end
+
+        if isempty(types)
+            error("At least one type must be specified.")
+        end
+    end
+
     """
         real_main(args=[])
     
@@ -125,11 +138,15 @@ module immunediscover
                 full_mincount = parsed_args["exact"]["full-mincount"]
                 full_minfreq = parsed_args["exact"]["full-minfreq"]
                 top = parsed_args["exact"]["top"]
+                affix = parsed_args["exact"]["affix"]
+                types = split(parsed_args["exact"]["types"], ',')
+                validate_types(types)
+                @info "Extract RSS types: $(join(types,','))"
                 if top != 1
                     @info "Uncollapsed mode enabled; at most $top full records will be returned."
                 end
                 gene = parsed_args["exact"]["gene"]
-                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq, full_mincount=full_mincount, full_minfreq=full_minfreq, N=top)
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq, full_mincount=full_mincount, full_minfreq=full_minfreq, affix=affix, rss=types, N=top)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     println(plotgenes(counts_df))
@@ -184,7 +201,7 @@ module immunediscover
                 top_output = "$(output_basename)-top.$output_extension"
                 filter!(x->x.length >= parsed_args["pattern"]["length"], final)
                 filter!(x->x.count >= parsed_args["pattern"]["mincount"], final)
-                top_per_gene = combine(groupby(final, :gene), df -> sort(df, :count, rev=true)[1:min(parsed_args["pattern"]["top"], nrow(df)), :])
+                top_per_gene = combine(groupby(final, [:gene, :case]), df -> sort(df, :count, rev=true)[1:min(parsed_args["pattern"]["top"], nrow(df)), :])
                 dropmissing!(top_per_gene)
                 CSV.write(top_output, top_per_gene, compress=true, delim='\t')
                 # Filter by criteria

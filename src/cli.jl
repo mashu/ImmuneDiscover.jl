@@ -223,26 +223,30 @@ module cli
         "output"    
             help = "TSV file to save ouput"
             required = true
-        "-f","--minfreq"
+        "-f", "--minfreq"
             help = "Minimum allelic ratio applied within each gene group"
-            default = 0.01
+            default = 0.1
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "-c", "--mincount"
             help = "Minimum cluster size"
-            default = 10
+            default = 5
             arg_type = Int
             range_tester = (x->x >= 1)
         "--full-minfreq"
             help = "Minimum allelic ratio applied within each gene group for full record"
-            default = 0.01
+            default = 0.1
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--full-mincount"
             help = "Minimum cluster size for full record"
-            default = 2
+            default = 5
             arg_type = Int
             range_tester = (x->x >= 1)
+        "--types"
+            help = "Comma-separated list of types: heptamer, spacer, nonamer"
+            default = "heptamer,spacer,nonamer"
+            arg_type = String
         "-n","--noplot"
             help = "Disable unicode gene plot"
             action = :store_true
@@ -251,6 +255,11 @@ module cli
             range_tester = (x->x ∈ genes)
             arg_type = String
             help = "gene; must be one of " * join(genes, ", ", " or ")
+        "-a", "--affix"
+            help = "Number of bases to extract from the non-RSS side of the sequence"
+            arg_type = Int
+            default = 14
+            range_tester = (x->x >= 1)
         "-t", "--top"
             help = "Saves at most N records of flank and sequence."
             arg_type = Int

@@ -4,6 +4,39 @@ module exact
     using ProgressMeter
     using Folds
 
+    function filter_tuple_by_types(types_as_strings, mandatory_key; tuple_data)
+        # Ensure mandatory_key is a valid option
+        if mandatory_key ∉ ["prefix", "suffix"]
+            error("mandatory_key must be either 'prefix' or 'suffix'")
+        end
+
+        # Define the full tuple structure as strings, including both prefix and suffix possibilities
+        full_tuple_keys_as_strings = ["prefix", "sequence", "heptamer", "spacer", "nonamer", "suffix"]
+
+        # Initialize selected data with mandatory 'sequence' and either 'prefix' or 'suffix'
+        selected_data = Dict("sequence" => tuple_data.sequence)
+        if mandatory_key in keys(tuple_data)
+            selected_data[mandatory_key] = getfield(tuple_data, Symbol(mandatory_key))
+        end
+
+        # Convert the user-specified types to a set of strings for efficient look-up
+        types_set = Set(types_as_strings)
+
+        # Loop through each possible key and add it to the selected data if it's included in the types
+        for key_str in full_tuple_keys_as_strings
+            key_sym = Symbol(key_str) # Convert the string key to a symbol for field access
+            if (key_str in types_as_strings || key_str in ["sequence", mandatory_key]) && key_sym in keys(tuple_data)
+                # Dynamically select the field from the tuple and add it to the selected data
+                selected_data[key_str] = getfield(tuple_data, key_sym)
+            end
+        end
+
+        # Convert the dictionary back to a tuple for the result
+        result_tuple = NamedTuple{Tuple(Symbol.(keys(selected_data)))}(values(selected_data))
+
+        return result_tuple
+    end
+
     """
         extract_flanking(genomic_sequence::String, range::Tuple{Int, Int}, gene_type::String, n::Int)
 
@@ -60,9 +93,11 @@ module exact
         minfreq::Float: Minimum frequency of reads for a sequence to be considered
         full_mincount::Int: Minimum number of reads for a full record to be considered
         full_minfreq::Float: Minimum frequency of reads for a full record to be considered
+        affix::Int: Number of bases to extract from the non-RSS side of the sequence
+        rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minfreq=0.01, full_mincount=2, full_minfreq=0.01, N=10)
+    function exact_search(table, query, gene; mincount=10, minfreq=0.01, full_mincount=2, full_minfreq=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10)
         @info "Using mincount: $mincount and minfreq: $minfreq for genes: $gene"
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
@@ -74,9 +109,10 @@ module exact
             @inbounds for (name, seq) in query
                 match = findfirst(seq, row.genomic_sequence)
                 if match !== nothing
-                    flanks = extract_flanking(row.genomic_sequence, (minimum(match), maximum(match)), gene, 10)
+                    flanks = extract_flanking(row.genomic_sequence, (minimum(match), maximum(match)), gene, affix)
+                    filtered_flanks = filtered_tuple = gene == "V" ? filter_tuple_by_types(rss, "prefix", tuple_data = flanks) : gene == "J" ? filter_tuple_by_types(rss, "suffix", tuple_data = flanks) : flanks
                     meta = (well=string(well), case=string(case), db_name=string(name))
-                    push!(matches, merge(meta, flanks))
+                    push!(matches, merge(meta, filtered_flanks))
                 end
             end
             matches
