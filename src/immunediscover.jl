@@ -317,7 +317,7 @@ module immunediscover
                 end
                 indices, position = bwa_sequences(genome, sequences, chromosome_name)
                 tsv[!,:position] = position
-                tsv[indices,:] |> CSV.write(outtsv, delim='\t')
+                CSV.write(tsv[indices,:], outtsv, compress=true, delim='\t')
                 @info "Filtered result saved in $outtsv"
             end
             if get(parsed_args,"%COMMAND%","") == "hamming"
