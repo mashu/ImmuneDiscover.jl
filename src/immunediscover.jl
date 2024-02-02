@@ -166,7 +166,12 @@ module immunediscover
                 discard = Set{Tuple{String,String,String}}()
                 for row in eachrow(data)
                     for (name, seq) in db
-                        if occursin(row[colseq], seq) || occursin(seq, row[colseq])
+                        if occursin(row[colseq], seq)
+                            @info "Allele $(row[colname]) is a substring of $(name)"
+                            push!(discard, (name, row[colname], row[colseq]))
+                        end
+                        if occursin(seq, row[colseq])
+                            @info "Allele $(name) is a substring of $(row[colname])"
                             push!(discard, (name, row[colname], row[colseq]))
                         end
                     end
