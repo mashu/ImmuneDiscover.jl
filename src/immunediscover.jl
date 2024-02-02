@@ -206,9 +206,10 @@ module immunediscover
                 top_output = "$(output_basename)-top.$output_extension"
                 # Mandatory length filter
                 filter!(x->x.length >= parsed_args["pattern"]["length"], final)
+                top = parsed_args["pattern"]["top"]
                 if top > 0
-                    @info "Saving top $(parsed_args["pattern"]["top"]) candidates per gene and case in $top_output"
-                    top_per_gene = combine(groupby(final, [:gene, :case]), df -> sort(df, :count, rev=true)[1:min(parsed_args["pattern"]["top"], nrow(df)), :])
+                    @info "Saving top $top candidates per gene and case in $top_output"
+                    top_per_gene = combine(groupby(final, [:gene, :case]), df -> sort(df, :count, rev=true)[1:min(top, nrow(df)), :])
                     dropmissing!(top_per_gene)
                     CSV.write(top_output, top_per_gene, compress=true, delim='\t')
                 end
