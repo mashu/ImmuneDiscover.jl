@@ -208,8 +208,8 @@ module immunediscover
                 filter!(x->x.length >= parsed_args["pattern"]["length"], final)
                 top = parsed_args["pattern"]["top"]
                 if top > 0
-                    @info "Saving top $top candidates per gene and case in $top_output"
-                    top_per_gene = combine(groupby(final, [:gene, :case]), df -> sort(df, :count, rev=true)[1:min(top, nrow(df)), :])
+                    @info "Saving top $top candidates per allele_name and case in $top_output"
+                    top_per_gene = combine(groupby(final, [:gene, :allele_name, :case]), df -> sort(df, :count, rev=true)[1:min(top, nrow(df)), :])
                     dropmissing!(top_per_gene)
                     CSV.write(top_output, top_per_gene, compress=true, delim='\t')
                 end

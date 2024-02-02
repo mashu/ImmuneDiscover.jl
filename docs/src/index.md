@@ -219,7 +219,7 @@ The `pattern` program accepts the following parameters:
 
 ### Optional Arguments
 
-- `-t, --top TOP`: Save top candidates with highest counts per gene and case. (Default: 5)
+- `-t, --top TOP`: Save top candidates with highest counts per allele_name and case. (Default: 5)
 - `-w, --weights WEIGHTS`: Length of the position weight matrix. (Default: 20)
 - `-n, --noprofile`: Use distance to database gene lengths instead of profiles to trim reads. (Default: false)
 - `-l, --length LENGTH`: Minimum length of the trimmed read. (Default: 200)

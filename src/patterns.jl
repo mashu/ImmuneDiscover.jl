@@ -190,6 +190,8 @@ module patterns
         candidates = Folds.map(unique(db_df.gene)) do gene
             logger = thread_loggers[Threads.threadid()]
             with_logger(logger) do
+                # Record the start time before the block
+                start_time_ns = time_ns()
                 @info gene
                 group = filter(x->x.gene == gene, db_df)
                 local outgroup
@@ -200,6 +202,11 @@ module patterns
                 end
                 discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist, noprofile=noprofile)
                 ProgressMeter.next!(p)
+                # Record the end time after the block
+                end_time_ns = time_ns()
+                # Calculate the elapsed time in seconds
+                elapsed_time_seconds = (end_time_ns - start_time_ns) / 1e9
+                @info "Elapsed time for $gene: $elapsed_time_seconds seconds"
                 if discovered !== nothing
                     return discovered
                 else
