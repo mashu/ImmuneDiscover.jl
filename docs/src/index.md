@@ -123,6 +123,8 @@ Generally, the counts for full records tend to be smaller from those of collapse
 - `-n, --noplot`: Disable unicode gene plot. This option does not have associated types or defaults as it is a toggle switch.
 - `-g, --gene`: Gene to use for plotting. (Default: "V")
 - `-t, --top`: Saves at most N records of flank and sequence. (Default: 1)
+- `--types`: Types of RSS to extract. (Default: "heptamer,spacer,nonamer")
+- `-a, --affix`: The length of the remaining prefix or suffix to extract. (Default: 14)
 
 ### Exact output
 The output is a TSV file containing the following columns:
@@ -217,7 +219,7 @@ The `pattern` program accepts the following parameters:
 
 ### Optional Arguments
 
-- `-t, --top TOP`: Save top candidates with highest counts per gene. (Default: 5)
+- `-t, --top TOP`: Save top candidates with highest counts per gene and case. (Default: 5)
 - `-w, --weights WEIGHTS`: Length of the position weight matrix. (Default: 20)
 - `-n, --noprofile`: Use distance to database gene lengths instead of profiles to trim reads. (Default: false)
 - `-l, --length LENGTH`: Minimum length of the trimmed read. (Default: 200)
