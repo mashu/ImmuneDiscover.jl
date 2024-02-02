@@ -278,7 +278,7 @@ module cli
             help = "TSV file to save demultiplex data"
             required = true
         "-t", "--top"
-            help = "Save top candidates with highest counts per gene"
+            help = "Save top candidates with highest counts per gene and case"
             arg_type = Int
             default = 5
             range_tester = (x->x >= 1)
