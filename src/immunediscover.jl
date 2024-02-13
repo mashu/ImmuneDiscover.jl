@@ -11,6 +11,7 @@ module immunediscover
     include("patterns.jl")
     include("regex.jl")
     include("bwa.jl")
+    include("nwpattern.jl")
 
     using .cli
     using .demultiplex
@@ -21,6 +22,7 @@ module immunediscover
     using .exact
     using .heptamer
     using .hamming
+    using .nwpattern
     using .patterns
     using .regex
     using .bwa
@@ -183,6 +185,30 @@ module immunediscover
                 output = cli.always_gz(parsed_args["exclude"]["output"])
                 CSV.write(output, data, compress=true, delim='\t')
             end
+            if get(parsed_args,"%COMMAND%","") == "nwpattern"
+                @info "Running nwpattern"
+                tsv  = parsed_args["nwpattern"]["input"]
+                fasta = parsed_args["nwpattern"]["fasta"]
+                candidates_tsv = parsed_args["nwpattern"]["output"]
+                filtered_candidates_tsv = first(split(parsed_args["nwpattern"]["output"], '.')) * "-final.tsv.gz"
+                k = parsed_args["nwpattern"]["kmer"]
+                n = parsed_args["nwpattern"]["sample"]
+                max_distance = parsed_args["nwpattern"]["maxdist"]
+                flank_length =  parsed_args["nwpattern"]["window"]
+                min_length = parsed_args["nwpattern"]["length"]
+                min_count = parsed_args["nwpattern"]["mincount"]
+                min_frequency = parsed_args["nwpattern"]["minfreq"]
+                max_combinations = parsed_args["nwpattern"]["max-combinations"]
+                max_attempts = parsed_args["nwpattern"]["max-attempts"]
+                discover_alleles(tsv, fasta, candidates_tsv, filtered_candidates_tsv,
+                k=k, n=n, max_distance=max_distance,
+                flank_length=flank_length,
+                min_length=min_length,
+                min_count=min_count,
+                min_frequency=min_frequency,
+                max_combinations=max_combinations,
+                max_attempts=max_attempts)
+            end
             if get(parsed_args,"%COMMAND%","") == "pattern"
                 @info "Pattern search"
                 noprofile = parsed_args["pattern"]["noprofile"] == true
@@ -198,7 +224,7 @@ module immunediscover
                     blacklist = DataFrame(load_fasta(parsed_args["pattern"]["blacklist"]),[:id, :seq])
                     blacklist[!,:gene] = map(x->replace(first(split(x.id,'*')), r"D$"=>""), eachrow(blacklist)) # Remove D suffixes of genes
                 end
-                final = patterns.search_patterns(table, blacklist, db_df, fragment_size=parsed_args["pattern"]["kmer"], max_fragment_size=parsed_args["pattern"]["maxkmer"], max_fragments=parsed_args["pattern"]["sample"], weights=parsed_args["pattern"]["weights"], mlen=parsed_args["pattern"]["length"], min_freq=parsed_args["pattern"]["minfreq"], min_count=parsed_args["pattern"]["mincount"], max_dist=parsed_args["pattern"]["maxdist"], noprofile=noprofile)
+                final = patterns.search_patterns(table, blacklist, db_df, fragment_size=parsed_args["pattern"]["kmer"], max_fragment_size=parsed_args["pattern"]["maxkmer"], max_fragments=parsed_args["pattern"]["sample"], weights=parsed_args["pattern"]["weights"], mlen=parsed_args["pattern"]["length"], min_freq=parsed_args["pattern"]["minfreq"], min_count=parsed_args["pattern"]["mincount"], max_dist=parsed_args["pattern"]["maxdist"], noprofile=noprofile, usehalf=parsed_args["pattern"]["usehalf"])
                 # Output path
                 output = cli.always_gz(parsed_args["pattern"]["output"])
                 # Save top candidates

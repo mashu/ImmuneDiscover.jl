@@ -2,9 +2,10 @@ module cli
     using ArgParse
     export parse_commandline
     import ArgParse.parse_item
+    using ArgParse: @add_arg_table!
 
     function get_latest_git_tag()
-	return strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0 `, String))
+	    return strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0 `, String))
     end
 
     const SOFTWARE_VERSION = get_latest_git_tag()
@@ -49,6 +50,9 @@ module cli
                 action = :command
             "hamming"
                 help = "Search for matches within hamming distance"
+                action = :command
+            "nwpattern"
+                help = "Search for novel alleles with nwpattern and trim with PWM"
                 action = :command
             "pattern"
                 help = "Search for novel alleles with kmers and trim with PWM"
@@ -267,6 +271,63 @@ module cli
             range_tester = (x->x >= 1)
         end
 
+        @add_arg_table! s["nwpattern"] begin
+        "input"
+            help = "TSV file with demultiplex data"
+            required = true
+        "fasta"
+            help = "FASTA file with aligned gene sequences to build trimming profile"
+            required = true
+        "output"
+            help = "TSV file to save demultiplex data"
+            required = true
+        "-w", "--window"
+            help = "Length of the flanks"
+            default = 30
+            arg_type = Int
+            range_tester = (x->x > 1)
+        "-l", "--length"
+            help = "Minimum length of the trimmed read"
+            default = 200
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "-k", "--kmer"
+            help = "Kmer size which will be used to search for patterns"
+            default = 7
+            arg_type = Int
+            range_tester = (x->x >= 3)
+        "-d", "--maxdist"
+            help = "Maximum distance allowed for alleles"
+            default = 10
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "-s", "--sample"
+            help = "Number of kmers in a combination"
+            default = 5
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "--max-combinations"
+            help = "Number of combinations to sample (higher slower but more sequences found)"
+            default = 100000
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "--max-attempts"
+            help = "Number of samplings to attempt (higher slower but more sequences found)"
+            default = 100000
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "-f","--minfreq"
+            help = "Minimum allelic ratio applied within each gene group"
+            default = 0.1
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-c","--mincount"
+            help = "Minimum count for an allele"
+            default = 5
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        end
+
         @add_arg_table! s["pattern"] begin
         "input"
             help = "TSV file with demultiplex data"
@@ -300,6 +361,9 @@ module cli
             default = 12
             arg_type = Int
             range_tester = (x->x >= 3)
+        "-u", "--usehalf"
+            help = "Use half of the allele as a search word instead of kmer"
+            action = :store_true
         "-m", "--maxkmer"
             help = "Maximum kmer size if kmer size needs to be increased automatically"
             default = 50
