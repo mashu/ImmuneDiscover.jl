@@ -43,7 +43,7 @@ module patterns
         if length(kmers) == 0
             return []
         end
-        common_kmers = intersect(kmers...)
+        common_kmers = intersect(kmers...) # union(kmers...) #intersect(kmers...)  # Note do not discard allele specific kmers
         # Filter common_kmers if they occur within outgroup seq
         fragments = filter(x->!any([occursin(x, seq) for seq in outgroup.seq]), common_kmers)
 
@@ -99,14 +99,32 @@ module patterns
                 push!(case, gene_df[i,:case])
             end
         end
-        return trimmed_sequences, cases
+        return trimmed_sequences, case
     end
 
-    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false) where F <: AbstractFloat
+    function twin(sequence)
+        mid = div(length(sequence),2)
+        return sequence[1:mid], sequence[mid+1:end]
+    end
+    
+    function search_pattern(reads_df::DataFrame, group::DataFrame, outgroup::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false, usehalf=false) where F <: AbstractFloat
         # Lookup dictionary for database sequences
         db_dict = Dict(map(x->(x[1],length(x[2])), eachrow(db_df)))
         # Find unique fragments
-        fragments = find_unique_fragments(group, outgroup, fragment_size=fragment_size, max_fragment_size=max_fragment_size)
+        local fragments
+        if usehalf
+            @info "Using half of each allele (instead of kmers)"
+            twins = Set()
+            for seq in group.seq
+                for t in twin(seq)
+                    push!(twins, t)
+                end
+            end
+            fragments = filter(x->!any([occursin(x, seq) for seq in outgroup.seq]), collect(twins))
+        else
+            @info "Computing kmers"
+            fragments = find_unique_fragments(group, outgroup, fragment_size=fragment_size, max_fragment_size=max_fragment_size)
+        end
         if length(fragments) == 0
             return nothing
         end
@@ -118,7 +136,7 @@ module patterns
         attempt = 1
         while (nrow(gene_df) <= min_count)
             if attempt == 3
-                @info "No patterns found for $(unique(group.gene))"
+                @warn "No patterns found for $(unique(group.gene))"
                 return nothing
             end
             @info "Attempt $attempt at patterns resampling because no sufficient (>= $min_count) matches for $(unique(group.gene))"
@@ -179,7 +197,7 @@ module patterns
     end
 
     # Write a function that runs search_pattern for each gene
-    function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false) where F <: AbstractFloat
+    function search_patterns(reads_df::DataFrame, blacklist::DataFrame, db_df::DataFrame; fragment_size::Int=20, max_fragment_size::Int=60, max_fragments::Int=5, weights::Int=20, mlen::Int=100, min_freq::F=0.01, min_count=10, max_dist=10, noprofile=false, usehalf=false) where F <: AbstractFloat
         # Assert that group, outgroup and db_df table have required colums
         @assert all([x in names(blacklist) for x in ["id", "gene", "seq"]])
         @assert all([x in names(db_df) for x in ["id", "gene", "seq"]])
@@ -200,7 +218,7 @@ module patterns
                 else
                     outgroup = filter(x->x.gene != gene, db_df)
                 end
-                discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist, noprofile=noprofile)
+                discovered = search_pattern(reads_df, group, outgroup, db_df, fragment_size=fragment_size, max_fragment_size=max_fragment_size, max_fragments=max_fragments, weights=weights, mlen=mlen, min_freq=min_freq, min_count=min_count, max_dist=max_dist, noprofile=noprofile, usehalf=usehalf)
                 ProgressMeter.next!(p)
                 # Record the end time after the block
                 end_time_ns = time_ns()
