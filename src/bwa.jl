@@ -35,11 +35,14 @@ module bwa
                 max_score = maximum(map(x->(x.score), alns))
                 alns = filter(x->x.score == max_score, alns)
                 descriptions = map(x->description(x, aligner), alns)
-                match = filter(x->occursin(chromosome_name, x), descriptions)
-                nomatch = filter(x->!occursin(chromosome_name, x), descriptions)
+
+                index = map(x->occursin(chromosome_name, x) && occursin("Primary Assembly", x), descriptions)
+                match = descriptions[index]
+                nomatch = descriptions[.!index]
+
                 if length(match) > 0
                     result[nallele] = true
-                    position[nallele] = "$(BurrowsWheelerAligner.refname(first(alns), aligner)):$(first(alns).pos)"
+                    position[nallele] = "$(BurrowsWheelerAligner.refname(first(alns[index]), aligner)):$(first(alns[index]).pos)"
                 else
                     bad_chromosome = first(nomatch)
                     push!(discard, (genome_file, name, bad_chromosome))
