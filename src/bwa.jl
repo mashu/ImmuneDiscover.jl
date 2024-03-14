@@ -21,7 +21,7 @@ module bwa
         result = zeros(Bool, length(sequences))
         aligners = create_aligner(genome_path)
         discard = Accumulator{Tuple{String,String,String}, Int}()
-        position = fill("",length(sequences))
+        position = fill("", length(sequences))
         @showprogress for (nallele, (name, sequence)) in enumerate(sequences)
             record = FASTA.Record(name, sequence)
             for (genome_file, aligner) in aligners
@@ -29,7 +29,7 @@ module bwa
                 # Pick alignments with the highest score
                 if length(alns) == 0
                     @info "$name does **NOT** align to the $genome_file uniquely or at all (skipping)"
-                    push!(result, false)
+                    result[nallele] = false
                     continue
                 end
                 max_score = maximum(map(x->(x.score), alns))
