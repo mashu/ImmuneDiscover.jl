@@ -12,6 +12,7 @@ module immunediscover
     include("regex.jl")
     include("bwa.jl")
     include("nwpattern.jl")
+    include("blast.jl")
 
     using .cli
     using .demultiplex
@@ -26,13 +27,14 @@ module immunediscover
     using .patterns
     using .regex
     using .bwa
+    using .blast
 
     using CSV
     using DataFrames
     using UnicodePlots
     using Glob
 
-    export load_fasta
+    export load_fasta, blast_discover
 
     """
         concatenate_columns(row, col_names)
@@ -67,7 +69,7 @@ module immunediscover
     """
     function real_main(args=[])
         parsed_args = parse_commandline(args)
-        if parsed_args != nothing
+        if parsed_args !== nothing
             if get(parsed_args,"%COMMAND%","") == "demultiplex"
                 @info "Demultiplexing"
                 table, stats = immunediscover.demultiplex.demux(parsed_args["demultiplex"]["fastq"],
@@ -129,6 +131,46 @@ module immunediscover
                 output = cli.always_gz(parsed_args["trim"]["output"])
                 CSV.write(output, subtable, compress=true, delim='\t')
                 @info "Trimmed data saved in compressed $output file"
+            end
+
+            if get(parsed_args,"%COMMAND%","") == "blast"
+                @info "Discovery with BLAST assignments"
+                fasta_path = parsed_args["blast"]["fasta"]
+                DB = load_fasta(fasta_path, validate=false)
+                if parsed_args["blast"]["gene"] == "D"
+                    ext_fasta_path = blast.replace_extension(fasta_path,"fasta"; tag="-extended")
+                    if !isfile(ext_fasta_path)
+                        @info "Extending provided D gene sequences by 20 nucleotides on each side from most common genomic pattern"
+                        nameDs = filter(x->occursin(r"^IGHD[0-9].*", x[1]), DB)
+                        demux = blast.load_csv(parsed_args["blast"]["input"])
+                        extended_Ds = accumulate_Ds(nameDs, demux, ext_size=parsed_args["blast"]["extend"])                    
+                        save_Ds(extended_Ds, ext_fasta_path)
+                        @info "Using $ext_fasta_path for BLAST"
+                    else
+                        @info "Using $ext_fasta_path for BLAST as it already exists"
+                    end
+                    fasta_path = ext_fasta_path
+                end
+                # Run discovery
+                blast_clusters = blast_discover(parsed_args["blast"]["input"], fasta_path,
+                max_dist=parsed_args["blast"]["maxdist"], min_count=parsed_args["blast"]["mincount"], min_frequency=parsed_args["blast"]["minfreq"], pseudo=parsed_args["blast"]["pseudo"],
+                min_length=parsed_args["blast"]["length"], args=parsed_args["blast"]["args"])
+                # Correct D core with an alignment
+                if parsed_args["blast"]["gene"] == "D"
+                    DBdict = Dict(DB)
+                    transform!(blast_clusters, :sseqid => ByRow(x->DBdict[String(x)]) => :db_seq)
+                    transform!(blast_clusters, [:qseq, :db_seq] => ByRow((qseq, db_seq) -> blast.semilocal_alignment(String(qseq), String(db_seq))) => [:aln_qseq, :aln_mismatch])
+                    # Apply again distance based filtler for Ds after the core has been re-aligned and we know the number of mismatches in the core
+                    filter!(x->x.aln_mismatch <= parsed_args["blast"]["maxdist"], blast_clusters)
+                    # Compute new name for all rows where distance != 0 based on column closest
+                    blast_clusters[:, :allele_name] = map(x->(x.aln_mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.aln_qseq)*" Novel", eachrow(blast_clusters))
+                else
+                    # Compute new name for all rows where distance != 0 based on column closest
+                    blast_clusters[:, :allele_name] = map(x->(x.mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.qseq)*" Novel", eachrow(blast_clusters))
+                end
+                output = cli.always_gz(parsed_args["blast"]["output"])
+                @info "Saving discovered sequences after BLAST in compressed $output file"
+                CSV.write(output, blast_clusters, compress=true, delim='\t')
             end
 
             if get(parsed_args,"%COMMAND%","") == "exact"
@@ -337,9 +379,8 @@ module immunediscover
             end
             if get(parsed_args,"%COMMAND%","") == "bwa"
                 @info "BWA search to filter candidates if they match correct chromosome"
-                df = CSV.File(parsed_args["bwa"]["tsv"],delim='\t') |> DataFrame
+                df = CSV.File(parsed_args["bwa"]["tsv"], delim='\t') |> DataFrame
                 chromosome_name = parsed_args["bwa"]["chromosome"]
-                tsv = CSV.File(parsed_args["bwa"]["tsv"],delim='\t') |> DataFrame
                 outtsv = parsed_args["bwa"]["output"]
                 genome = parsed_args["bwa"]["genome"]
                 colname = parsed_args["bwa"]["colname"]
@@ -352,8 +393,14 @@ module immunediscover
                     (row[colname], concatenated_sequence)
                 end
                 indices, position = bwa_sequences(genome, sequences, chromosome_name)
-                tsv[!,:position] = position
-                CSV.write(tsv[indices,:], outtsv, compress=true, delim='\t')
+                df[!,:position] = position
+                @info "$(length(sequences))"
+                @info "$(nrow(df)) sequences matched chromosome $chromosome_name"
+                @info "$(length(indices)) sequences matched chromosome $chromosome_name"
+                @info "$(indices[1:10])"
+                @info "$(df[1:10,:])"
+
+                CSV.write(outtsv, df[indices,:], compress=true, delim='\t')
                 @info "Filtered result saved in $outtsv"
             end
             if get(parsed_args,"%COMMAND%","") == "hamming"

@@ -75,7 +75,14 @@ module cli
             "bwa"
                 help = "Filter input TSV file by mapping to the genome"
                 action = :command
+            "blast"
+                help = "Run BLAST on the input TSV file and perform identity clustering for discovery"
+                action = :command
             end
+
+        # Define the genes and choices for ArgParse
+        genes = ["V", "D", "J"]
+        choices = ["IGKV", "IGLV", "IGHV"]
 
         @add_arg_table! s["demultiplex"] begin
             "fastq"
@@ -97,7 +104,6 @@ module cli
                 action = :store_true
         end
 
-        choices = ["IGKV", "IGLV", "IGHV"]
         @add_arg_table! s["heptamer"] begin
             "tsv"
                 help = "TSV file with demultiplexed reads"
@@ -216,7 +222,55 @@ module cli
             action = :store_true
         end
 
-        genes = ["V", "D", "J"]
+        @add_arg_table! s["blast"] begin
+        "input"
+            help = "TSV file with demultiplex data"
+            required = true
+        "fasta"
+            help = "FASTA file with database sequences"
+            required = true
+        "output"
+            help = "TSV file to save discovery results"
+            required = true
+        "-p", "--pseudo"
+            help = "FASTA file with pseudo-genes"
+            arg_type = String
+            default = ""
+        "-f", "--minfreq"
+            help = "Minimum allelic ratio applied within each gene group"
+            default = 0.1
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-c", "--mincount"
+            help = "Minimum cluster size"
+            default = 5
+            arg_type = Int
+        "-d", "--maxdist"
+            help = "Maximum distance allowed for alleles"
+            default = 10
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "-l", "--length"
+            help = "Minimum length of the trimmed read"
+            default = 290
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "-a", "--args"
+            help = "Additional arguments to pass to blastn"
+            arg_type = String
+            default = ""
+        "-g", "--gene"
+            default = "V"
+            range_tester = (x->x ∈ genes)
+            arg_type = String
+            help = "gene; must be one of " * join(genes, ", ", " or ")
+        "-e", "--extend"
+            help = "How much to extend Ds"
+            default = 20
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        end
+
         @add_arg_table! s["exact"] begin
         "tsv"
             help = "TSV file with demultiplexed data"
