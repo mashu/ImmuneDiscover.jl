@@ -10,6 +10,7 @@ CurrentModule = immunediscover
 Immunediscover is a software package specifically developed for analyzing genomic next-generation sequencing (NGS) data of immune receptors. The package can be acquired as a prebuilt binary bundle from the [releases page](https://gitlab.com/gkhlab/immunediscover.jl/-/releases).
 
 Immunediscover comprises multiple commands functioning as distinct standalone tools, each serving a unique purpose. The initial input for the program is a single FASTQ file containing the reads and TSV file with indexing barcodes (indices). Subsequent subcommands necessitate the demultiplexing of data into a TSV format.
+
 # Installation
 Downloading the Software: Immunediscover, a software package, is provided as a pre-compiled (prebuilt) binary. This means that you don't have to compile or build the software from its source code. You can download it directly from the releases page on their GitLab repository. Here is the link to that page:  [releases page](https://gitlab.com/gkhlab/immunediscover.jl/-/releases). Choose the version that matches your operating system.
 
@@ -33,8 +34,7 @@ Basic usage typicallly consists of the following steps:
 2. **Exact**: Assigns demultiplexed reads to exact matches within a database of known alleles.
 
 These optional steps are aimed at discovering novel alleles:
-3. **Pattern**: Conducts a search for alleles using kmers and trimming heuristics (this method is faster but may result in more false positives).
-4. **Hamming**: Searches for similar sequences across all reads by sliding a window of a known allele across the read (this method does not discover differences in length but produces fewer false positives).
+3. **Blast**: A BLAST search for novel alleles, which runs BLAST command, but performs additional collapsing of identical local alignments and filtering to find novel alleles.
 
 Some of the subcommands use multithreading to speed up the process. The number of threads can be controlled using the `JULIA_NUM_THREADS` environment variable. For instance, to use 4 threads, run the following command before executing immunediscover:
 ```bash
@@ -140,6 +140,47 @@ The output is a TSV file containing the following columns:
 - `log2_count`: Represents the logarithm base 2 of the count.
 
 Additional columns, such as `prefix`, `suffix`, `heptamer`, `spacer`, and `nonamer`, are included based on the `--gene` option, which is set to `V` by default.
+
+# Blast
+This process involves running external BLAST assignments on the sequences. The command accepts a TSV file with demultiplex data. The output is a filtered TSV file with the identified novel alleles and their counts for each well and case.
+For the Vs, process peforms BLAST assignment, collapses identical sequences and applies filters. For the Ds, process extends the sequence by given length and then uses that as a BLAST query. After the BLAST searches, Ds are re-alinged with semi-local alignment to the orignal database to restore the original length and find the actal number of mismatches in the original sequence. In the case of Ds, filters are applied on the extended sequence, except for distance filter which is applied after the re-alignment and restoring original length as well as recomputing mismatches.
+
+To run BLAST assignments on the sequences, use the command:
+```bash
+immunediscover blast PLATE-H-DJ-demultiplex.tsv.gz D.fasta PLATE-H-DJ-demultiplex-blast.tsv.gz -l 50 -f 0.1 -c 5 -d 3 -g D
+immunediscover blast PLATE-H-V-demultiplex.tsv.gz D.fasta PLATE-H-V-demultiplex-blast.tsv.gz -l 250 -f 0.1 -c 5 -d 10 -g V
+```
+
+### Positional Arguments
+
+1. `input`: TSV file with demultiplex data
+2. `fasta`: FASTA file with database sequences
+3. `output`: TSV file to save discovery results
+
+### Optional Arguments
+- `-p, --pseudo`: FASTA file with pseudo-genes (default: "")
+- `-f, --minfreq`: Minimum allelic ratio applied within each gene group (type: Float64, default: 0.1)
+- `-c, --mincount`: Minimum cluster size (type: Int64, default: 5)
+-  `-d, --maxdist`: Maximum distance allowed for alleles (type: Int64, default: 10)
+- `-l, --length`: Minimum length of the trimmed read (type: Int64, default: 290)
+- `-a, --args`: Additional arguments to pass to blastn (default: "")
+- `-g, --gene`: Gene; must be one of V, D or J (default: "V")
+- `-e, --extend`: How much to extend Ds (type: Int64, default: 20)
+
+### Blast subcommand output
+The output is a compressed TSV file with the following columns:
+- `well`: The well on the plate.
+- `case`: The case (donor) containing the allele.
+- `sseqid`: The name of the allele assigned by BLAST
+- `mismatch`: The number of mismatches in extended sequence (Ds) or in the original sequence (Vs)
+- `count`: The number of reads matching the allele.
+- `gene`: The gene of the allele.
+- `frequency`: The frequency of the allele.
+- `db_seq`: The closest known sequence of the allele.
+- `aln_qseq`: The re-alignment of the allele to the database.
+- `aln_mismatch`: The number of mismatches in the re-aligned sequence.
+- `allele_name`: The new name of the allele re-evaluated after re-alignment which can include tag `Novel` if allele is new.
+NOTE: that `count`, `frequency` refer to the extended sequence (Ds) or the original sequence (Vs) depending on the gene.
 
 # Hamming
 
@@ -321,3 +362,4 @@ immunediscover bwa test-regex.tsv.gz gnome.fasta test_bwa.tsv.gz -c "chromosome 
 - `-c, --chromosome`: Chromosome to align to that has this string in genomic record description (Default: "chromosome 14")
 - `-n, --colname`: Column name to use for allele name (Default: "best_name")
 - `-s, --colseq`: Column names to use for sequence (Default: "prefix best_aln suffix")
+
