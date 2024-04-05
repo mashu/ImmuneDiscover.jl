@@ -30,7 +30,7 @@ UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 XAM = "d759349c-bcba-11e9-07c2-5b90f8f05f7c"
 
 [compat]
-Automa = "1"
+Automa = ">=1.0.0, <1.0.4"
 julia = "1.9"
 
 [extras]
