@@ -125,6 +125,8 @@ Generally, the counts for full records tend to be smaller from those of collapse
 - `-t, --top`: Saves at most N records of flank and sequence. (Default: 1)
 - `--types`: Types of RSS to extract. (Default: "heptamer,spacer,nonamer")
 - `-a, --affix`: The length of the remaining prefix or suffix to extract. (Default: 14)
+- `-r, --refgene`: Space separated reference genes to use for computing ratio. (Default: "")
+- `-l, --limit`: Limit to this number of sequences, zero means no limit. (Default: 0)
 
 ### Exact output
 The output is a TSV file containing the following columns:

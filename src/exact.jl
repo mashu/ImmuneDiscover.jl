@@ -146,4 +146,39 @@ module exact
 
         return limited_udf
     end
+
+    function transform_counts(group_df, allele_name)
+        # Find the row where the allele_name matches
+        ref_row = filter(row -> row.db_name == allele_name, group_df)
+        
+        # Check if the reference row is found
+        ref_count = 1
+        well, case = first(map(r->(r.well, r.case), eachrow(unique(group_df, [:well,:case]))))
+        if isempty(ref_row)
+            @warn "Reference allele_name $allele_name not found in well $well and case $case"
+        else
+            @info "Applying allele_name $allele_name to well $well and case $case"
+            ref_count = ref_row.count
+        end
+        new_name = "$(allele_name)_ratio"
+    
+        # Calculate the ratio and add it as a new column
+        group_df[!, new_name] = group_df.count ./ ref_count
+    
+        return group_df
+    end
+    
+    function grouped_ratios(counts_df, refgene)
+        transformed = []
+        for group in groupby(counts_df, [:well, :case])
+            if refgene != ""
+                group = transform_counts(group, refgene)
+            end
+            push!(transformed, group)
+        end
+        transformed_df = reduce(vcat, transformed)
+        return transformed_df
+    end
+    
+    export grouped_ratios, transform_counts
 end

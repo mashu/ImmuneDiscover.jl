@@ -175,7 +175,16 @@ module immunediscover
 
             if get(parsed_args,"%COMMAND%","") == "exact"
                 @info "Exact search"
+                limit = parsed_args["exact"]["limit"]
+                refgenes = parsed_args["exact"]["refgene"]
+                if length(refgenes) > 0
+                    @info "Using reference genes $refgenes"
+                end
                 table = load_demultiplex(parsed_args["exact"]["tsv"])
+                if limit > 0
+                    @info "Limiting number of demultiplexed reads to $limit"
+                    table = table[1:limit,:]
+                end
                 db = load_fasta(parsed_args["exact"]["fasta"], validate=false)
                 mincount = parsed_args["exact"]["mincount"]
                 minfreq = parsed_args["exact"]["minfreq"]
@@ -193,9 +202,19 @@ module immunediscover
                 counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq, full_mincount=full_mincount, full_minfreq=full_minfreq, affix=affix, rss=types, N=top)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
-                    println(plotgenes(counts_df))
+                    if nrow(counts_df) > 0
+                        println(plotgenes(counts_df))
+                    else
+                        @warn "No exact matches to plot"
+                    end
                 end
                 output = cli.always_gz(parsed_args["exact"]["output"])
+                # Compute refgene ratios
+                if length(refgenes) > 0
+                    for refgene in refgenes
+                        counts_df = grouped_ratios(counts_df, refgene)
+                    end
+                end
                 CSV.write(output, counts_df, compress=true, delim='\t')
                 @info "Exact search data saved in compressed $output file"
             end

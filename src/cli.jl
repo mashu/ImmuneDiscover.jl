@@ -303,7 +303,7 @@ module cli
             range_tester = (x->x >= 1)
         "--types"
             help = "Comma-separated list of types: heptamer, spacer, nonamer"
-            default = "heptamer,spacer,nonamer"
+            default = "heptamer"
             arg_type = String
         "-n","--noplot"
             help = "Disable unicode gene plot"
@@ -323,6 +323,15 @@ module cli
             arg_type = Int
             default = 1
             range_tester = (x->x >= 1)
+        "-r", "--refgene"
+            help = "Space separated reference genes to use for computing ratio"
+            nargs = '*'  # Accepts zero or more values
+            arg_type = String
+        "-l", "--limit"
+            help = "Limit to this number of sequences, zero means no limit"
+            arg_type = Int
+            default = 0
+            range_tester = (x->x >= 0)
         end
 
         @add_arg_table! s["nwpattern"] begin
