@@ -372,7 +372,7 @@ module immunediscover
                     end
                     @info "Saving collected data in $output"
                     collectd_df = vcat(collected...)
-                    CSV.write(output, collectd_df, delim='\t')
+                    CSV.write(output, collectd_df, delim='\t', compress=true)
                 else
                     @warn "No files found matching pattern $pattern"
                 end
@@ -424,7 +424,7 @@ module immunediscover
                 assignments_df = hamming_search(table, db, max_dist=parsed_args["hamming"]["maxdist"], column=column, check_bounds=checkbounds, umi=umi)
                 if assignments !== nothing
                     @info "Saving intermediate assignments"
-                    CSV.write(assignments, assignments_df, delim='\t')
+                    CSV.write(assignments, assignments_df, delim='\t', compress=true)
                 end
                 summarized = hamming.summarize(assignments_df, db, min_count=parsed_args["hamming"]["mincount"], cluster_ratio=parsed_args["hamming"]["ratio"])
                 output = cli.always_gz(parsed_args["hamming"]["output"])
