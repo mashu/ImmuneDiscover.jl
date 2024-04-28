@@ -404,14 +404,15 @@ module immunediscover
                 genome = parsed_args["bwa"]["genome"]
                 colname = parsed_args["bwa"]["colname"]
                 colseq = parsed_args["bwa"]["colseq"]
+                tag = parsed_args["bwa"]["tag"]
                 @info "Using columns: $colname, $colseq"
                 @info "Using genome: $genome"
-                @info "Filter by chromosome: $chromosome_name"
+                @info "Filter by chromosome: $chromosome_name and $tag tag"
                 sequences = map(eachrow(df)) do row
                     concatenated_sequence = concatenate_columns(row, colseq)
                     (row[colname], concatenated_sequence)
                 end
-                indices, position = bwa_sequences(genome, sequences, chromosome_name)
+                indices, position = bwa_sequences(genome, sequences, chromosome_name, tag=tag)
                 df[!,:position] = position
                 @info "$(length(sequences))"
                 @info "$(nrow(df)) sequences matched chromosome $chromosome_name"

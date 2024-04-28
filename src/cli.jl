@@ -585,6 +585,10 @@ module cli
             default = ["prefix", "best_aln", "suffix"]
             nargs = '*'  # Accepts zero or more values
             arg_type = String
+        "-t", "--tag"
+            help = "Tag to filter by"
+            default = "Primary Assembly"
+            arg_type = String
         end
 
         # Show help if no arguments are provided

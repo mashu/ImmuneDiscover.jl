@@ -17,7 +17,7 @@ module bwa
         return [(path, BurrowsWheelerAligner.Aligner(path)) for path in genome_path]
     end
 
-    function bwa_sequences(genome_path, sequences, chromosome_name)
+    function bwa_sequences(genome_path, sequences, chromosome_name; tag="Primary Assembly")
         result = zeros(Bool, length(sequences))
         aligners = create_aligner(genome_path)
         discard = Accumulator{Tuple{String,String,String}, Int}()
@@ -36,7 +36,7 @@ module bwa
                 alns = filter(x->x.score == max_score, alns)
                 descriptions = map(x->description(x, aligner), alns)
 
-                index = map(x->occursin(chromosome_name, x) && occursin("Primary Assembly", x), descriptions)
+                index = map(x->occursin(chromosome_name, x) && occursin(tag, x), descriptions)
                 match = descriptions[index]
                 nomatch = descriptions[.!index]
 
