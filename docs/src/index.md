@@ -137,8 +137,8 @@ The output is a TSV file containing the following columns:
 - `full_count`: Indicates the number of full records in which the allele matched the read.
 - `count`: Reflects the number of records in which the allele matched the read.
 - `gene`: Specifies the gene associated with the allele.
-- `full_frequency`: Describes the frequency of full records in which the allele matched the read.
-- `frequency`: Captures the frequency of records in which the allele matched the read.
+- `full_frequency`: Describes the frequency of records in which the allele and along with optionally selected RSS composition matched the read.
+- `frequency`: Captures the frequency of records in which the allele sequence alone matched the read.
 - `log2_count`: Represents the logarithm base 2 of the count.
 
 Additional columns, such as `prefix`, `suffix`, `heptamer`, `spacer`, and `nonamer`, are included based on the `--gene` option, which is set to `V` by default.
