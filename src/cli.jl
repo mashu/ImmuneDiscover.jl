@@ -291,6 +291,11 @@ module cli
             default = 5
             arg_type = Int
             range_tester = (x->x >= 1)
+        "-s", "--minspan"
+            help = "Minimum span of the allele sequence"
+            default = 0.6
+            arg_type = Float64
+            range_tester = (x->x >= 0.0)
         "--full-minfreq"
             help = "Minimum allelic ratio applied within each gene group for full record"
             default = 0.1

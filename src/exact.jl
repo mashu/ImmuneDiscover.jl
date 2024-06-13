@@ -91,14 +91,15 @@ module exact
         gene::String: Gene type (V, D, J)
         mincount::Int: Minimum number of reads for a sequence to be considered
         minfreq::Float: Minimum frequency of reads for a sequence to be considered
+        minspan::Float: Minimum span of the sequence to be considered
         full_mincount::Int: Minimum number of reads for a full record to be considered
         full_minfreq::Float: Minimum frequency of reads for a full record to be considered
         affix::Int: Number of bases to extract from the non-RSS side of the sequence
         rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minfreq=0.01, full_mincount=2, full_minfreq=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10)
-        @info "Using mincount: $mincount and minfreq: $minfreq for genes: $gene"
+    function exact_search(table, query, gene; mincount=10, minfreq=0.01, minspan=0.5, full_mincount=2, full_minfreq=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10)
+        @info "Using mincount: $mincount, minfreq: $minfreq and minspan: $minspan for genes: $gene"
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
         result = Folds.map(eachrow(table)) do row
@@ -110,9 +111,13 @@ module exact
                 match = findfirst(seq, row.genomic_sequence)
                 if match !== nothing
                     flanks = extract_flanking(row.genomic_sequence, (minimum(match), maximum(match)), gene, affix)
-                    filtered_flanks = filtered_tuple = gene == "V" ? filter_tuple_by_types(rss, "prefix", tuple_data = flanks) : gene == "J" ? filter_tuple_by_types(rss, "suffix", tuple_data = flanks) : flanks
+                    filtered_flanks = gene == "V" ? filter_tuple_by_types(rss, "prefix", tuple_data = flanks) : gene == "J" ? filter_tuple_by_types(rss, "suffix", tuple_data = flanks) : flanks
                     meta = (well=string(well), case=string(case), db_name=string(name))
-                    push!(matches, merge(meta, filtered_flanks))
+                    target_len = maximum(match)-minimum(match)+1
+                    span = target_len/length(seq)
+                    if span >= minspan
+                        push!(matches, merge(meta, filtered_flanks))
+                    end
                 end
             end
             matches
@@ -147,32 +152,32 @@ module exact
         return limited_udf
     end
 
-    function transform_counts(group_df, allele_name)
-        # Find the row where the allele_name matches
-        ref_row = filter(row -> row.db_name == allele_name, group_df)
+    function transform_counts(group_df, name; count_col=:count)
+        # Find the row where the name matches
+        ref_row = filter(row -> startswith(row.db_name, name), group_df)
         
         # Check if the reference row is found
         ref_count = 1
         well, case = first(map(r->(r.well, r.case), eachrow(unique(group_df, [:well,:case]))))
         if isempty(ref_row)
-            @warn "Reference allele_name $allele_name not found in well $well and case $case"
+            @warn "Reference name $name not found in well $well and case $case"
         else
-            @info "Applying allele_name $allele_name to well $well and case $case"
+            @info "Applying name $name to well $well and case $case"
             ref_count = ref_row.count
         end
-        new_name = "$(allele_name)_ratio"
+        new_name = "$(count_col)_$(first(split(name,'*')))_ratio"
     
         # Calculate the ratio and add it as a new column
-        group_df[!, new_name] = group_df.count ./ ref_count
+        group_df[!, new_name] = group_df[:, count_col] ./ ref_count
     
         return group_df
     end
-    
-    function grouped_ratios(counts_df, refgene)
+
+    function grouped_ratios(counts_df, refgene; count_col=:count)
         transformed = []
         for group in groupby(counts_df, [:well, :case])
             if refgene != ""
-                group = transform_counts(group, refgene)
+                group = transform_counts(group, refgene, count_col=count_col)
             end
             push!(transformed, group)
         end

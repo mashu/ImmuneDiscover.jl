@@ -157,6 +157,7 @@ module immunediscover
                 min_length=parsed_args["blast"]["length"], args=parsed_args["blast"]["args"])
                 # Correct D core with an alignment
                 if parsed_args["blast"]["gene"] == "D"
+                    @info "Re-aligning D core and renaming alleles for D genes"
                     DBdict = Dict(DB)
                     transform!(blast_clusters, :sseqid => ByRow(x->DBdict[String(x)]) => :db_seq)
                     transform!(blast_clusters, [:qseq, :db_seq] => ByRow((qseq, db_seq) -> blast.semilocal_alignment(String(qseq), String(db_seq))) => [:aln_qseq, :aln_mismatch])
@@ -165,6 +166,7 @@ module immunediscover
                     # Compute new name for all rows where distance != 0 based on column closest
                     blast_clusters[:, :allele_name] = map(x->(x.aln_mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.aln_qseq)*" Novel", eachrow(blast_clusters))
                 else
+                    @info "Renaming alleles for V or J genes"
                     # Compute new name for all rows where distance != 0 based on column closest
                     blast_clusters[:, :allele_name] = map(x->(x.mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.qseq)*" Novel", eachrow(blast_clusters))
                 end
@@ -188,6 +190,7 @@ module immunediscover
                 db = load_fasta(parsed_args["exact"]["fasta"], validate=false)
                 mincount = parsed_args["exact"]["mincount"]
                 minfreq = parsed_args["exact"]["minfreq"]
+                minspan = parsed_args["exact"]["minspan"]
                 full_mincount = parsed_args["exact"]["full-mincount"]
                 full_minfreq = parsed_args["exact"]["full-minfreq"]
                 top = parsed_args["exact"]["top"]
@@ -199,7 +202,7 @@ module immunediscover
                     @info "Uncollapsed mode enabled; at most $top full records will be returned."
                 end
                 gene = parsed_args["exact"]["gene"]
-                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq, full_mincount=full_mincount, full_minfreq=full_minfreq, affix=affix, rss=types, N=top)
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq, minspan=minspan, full_mincount=full_mincount, full_minfreq=full_minfreq, affix=affix, rss=types, N=top)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     if nrow(counts_df) > 0
@@ -212,7 +215,10 @@ module immunediscover
                 # Compute refgene ratios
                 if length(refgenes) > 0
                     for refgene in refgenes
-                        counts_df = grouped_ratios(counts_df, refgene)
+                        counts_df = grouped_ratios(counts_df, refgene, count_col=:count)
+                        # Transform df to sum gene count per gene
+                        transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :gene_count)
+                        counts_df = grouped_ratios(counts_df, refgene, count_col=:gene_count)
                     end
                 end
                 CSV.write(output, counts_df, compress=true, delim='\t')

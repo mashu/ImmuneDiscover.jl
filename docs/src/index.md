@@ -118,6 +118,7 @@ Generally, the counts for full records tend to be smaller from those of collapse
 ### Optional Arguments
 - `-f, --minfreq FREQ`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
 - `-c, --mincount MINCOUNT`: Minimum cluster size. (Default: 10)
+- `-s, --minspan MINSPAN`: Minimum query span with respect to database sequence to be considered as valid match. (Default: 0.6)
 - `--full-minfreq FREQ`: Minimum allelic ratio applied within each gene group for **full record**. (Default: 0.01)
 - `--full-mincount MINCOUNT`: Minimum cluster size for **full record**. (Default: 1)
 - `-n, --noplot`: Disable unicode gene plot. This option does not have associated types or defaults as it is a toggle switch.
@@ -134,13 +135,15 @@ The output is a TSV file containing the following columns:
 - `case`: Specifies the case (donor) that contains the allele.
 - `db_name`: Denotes the name of the allele as listed in the database.
 - `sequence`: Represents the sequence of the allele.
-- `full_count`: Indicates the number of full records in which the allele matched the read.
+- `full_count`: Indicates the number of records (full records) in which the allele and flanking regions matched the read.
 - `count`: Reflects the number of records in which the allele matched the read.
 - `gene`: Specifies the gene associated with the allele.
 - `full_frequency`: Describes the frequency of records in which the allele and along with optionally selected RSS composition matched the read.
 - `frequency`: Captures the frequency of records in which the allele sequence alone matched the read.
 - `log2_count`: Represents the logarithm base 2 of the count.
-
+- `gene_count`: Summed up `count` column for all alleles in a gene within each well and case.
+- `count_refgene_ratio`: Where `refgene` is replaced with selected reference gene is the ratio between `count` and `count` for refgene.
+- `gene_count_refgene_ratio`: Where `refgene` is replaced with selected reference gene is the ratio between `gene_count` and `count` for refgene. 
 Additional columns, such as `prefix`, `suffix`, `heptamer`, `spacer`, and `nonamer`, are included based on the `--gene` option, which is set to `V` by default.
 
 # Blast
