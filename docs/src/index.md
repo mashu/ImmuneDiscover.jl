@@ -116,15 +116,15 @@ The records stored in the output can be categorized as follows:
 Generally, the counts for full records tend to be smaller from those of collapsed records. This difference arises because flanking regions are often more unique and dilute the total counts as compared to records collapsed by the allelle sequence only.
 
 ### Optional Arguments
-- `-f, --minfreq FREQ`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
+- `-f, --minratio FREQ`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
 - `-c, --mincount MINCOUNT`: Minimum cluster size. (Default: 10)
 - `-s, --minspan MINSPAN`: Minimum query span with respect to database sequence to be considered as valid match. (Default: 0.6)
-- `--full-minfreq FREQ`: Minimum allelic ratio applied within each gene group for **full record**. (Default: 0.01)
+- `--full-minratio RATIO`: Minimum allelic ratio applied within each gene group for **full record**. (Default: 0.01)
 - `--full-mincount MINCOUNT`: Minimum cluster size for **full record**. (Default: 1)
 - `-n, --noplot`: Disable unicode gene plot. This option does not have associated types or defaults as it is a toggle switch.
 - `-g, --gene`: Gene to use for plotting. (Default: "V")
 - `-t, --top`: Saves at most N records of flank and sequence. (Default: 1)
-- `--types`: Types of RSS to extract. (Default: "heptamer,spacer,nonamer")
+- `--rss`: Types of RSS to extract. (Default: "heptamer,spacer,nonamer")
 - `-a, --affix`: The length of the remaining prefix or suffix to extract. (Default: 14)
 - `-r, --refgene`: Space separated reference genes to use for computing ratio. (Default: "")
 - `-l, --limit`: Limit to this number of sequences, zero means no limit. (Default: 0)
@@ -138,8 +138,8 @@ The output is a TSV file containing the following columns:
 - `full_count`: Indicates the number of records (full records) in which the allele and flanking regions matched the read.
 - `count`: Reflects the number of records in which the allele matched the read.
 - `gene`: Specifies the gene associated with the allele.
-- `full_frequency`: Describes the frequency of records in which the allele and along with optionally selected RSS composition matched the read.
-- `frequency`: Captures the frequency of records in which the allele sequence alone matched the read.
+- `full_ratio`: The number of sequences matching this allele along with optionally selected flanking sequences (RSS and affix) divided by the highest count allele of the same gene.
+- `ratio`:  The number of sequences matching this allele divided by the highest count allele of the same gene.
 - `log2_count`: Represents the logarithm base 2 of the count.
 - `gene_count`: Summed up `count` column for all alleles in a gene within each well and case.
 - `count_refgene_ratio`: Where `refgene` is replaced with selected reference gene is the ratio between `count` and `count` for refgene.

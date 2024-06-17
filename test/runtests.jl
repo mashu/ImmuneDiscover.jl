@@ -94,9 +94,9 @@ test_outcomes = Dict(
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
             db = data.load_fasta("test.fasta", validate=false)
             mincount = 1
-            minfreq = 0.01
+            minratio = 0.01
             gene = "V"
-            counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq)
+            counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio)
             sort!(counts_df, [:case, :db_name])
             @test nrow(counts_df) == 30
             @test counts_df[1, :count] == 10

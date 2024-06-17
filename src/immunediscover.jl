@@ -189,20 +189,20 @@ module immunediscover
                 end
                 db = load_fasta(parsed_args["exact"]["fasta"], validate=false)
                 mincount = parsed_args["exact"]["mincount"]
-                minfreq = parsed_args["exact"]["minfreq"]
+                minratio = parsed_args["exact"]["minratio"]
                 minspan = parsed_args["exact"]["minspan"]
                 full_mincount = parsed_args["exact"]["full-mincount"]
-                full_minfreq = parsed_args["exact"]["full-minfreq"]
+                full_minratio = parsed_args["exact"]["full-minratio"]
                 top = parsed_args["exact"]["top"]
                 affix = parsed_args["exact"]["affix"]
-                types = split(parsed_args["exact"]["types"], ',')
-                validate_types(types)
-                @info "Extract RSS types: $(join(types,','))"
+                rss = split(parsed_args["exact"]["rss"], ',')
+                validate_types(rss)
+                @info "Extract RSS types: $(join(rss,','))"
                 if top != 1
                     @info "Uncollapsed mode enabled; at most $top full records will be returned."
                 end
                 gene = parsed_args["exact"]["gene"]
-                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minfreq=minfreq, minspan=minspan, full_mincount=full_mincount, full_minfreq=full_minfreq, affix=affix, rss=types, N=top)
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, minspan=minspan, full_mincount=full_mincount, full_minratio=full_minratio, affix=affix, rss=rss, N=top)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     if nrow(counts_df) > 0

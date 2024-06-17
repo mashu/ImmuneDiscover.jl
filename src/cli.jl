@@ -281,7 +281,7 @@ module cli
         "output"    
             help = "TSV file to save ouput"
             required = true
-        "-f", "--minfreq"
+        "-f", "--minratio"
             help = "Minimum allelic ratio applied within each gene group"
             default = 0.1
             arg_type = Float64
@@ -296,7 +296,7 @@ module cli
             default = 0.6
             arg_type = Float64
             range_tester = (x->x >= 0.0)
-        "--full-minfreq"
+        "--full-minratio"
             help = "Minimum allelic ratio applied within each gene group for full record"
             default = 0.1
             arg_type = Float64
@@ -306,8 +306,8 @@ module cli
             default = 5
             arg_type = Int
             range_tester = (x->x >= 1)
-        "--types"
-            help = "Comma-separated list of types: heptamer, spacer, nonamer"
+        "--rss"
+            help = "Comma-separated list of rss fragments: heptamer, spacer, nonamer"
             default = "heptamer"
             arg_type = String
         "-n","--noplot"
