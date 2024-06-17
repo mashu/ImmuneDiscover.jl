@@ -118,7 +118,6 @@ Generally, the counts for full records tend to be smaller from those of collapse
 ### Optional Arguments
 - `-f, --minratio FREQ`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
 - `-c, --mincount MINCOUNT`: Minimum cluster size. (Default: 10)
-- `-s, --minspan MINSPAN`: Minimum query span with respect to database sequence to be considered as valid match. (Default: 0.6)
 - `--full-minratio RATIO`: Minimum allelic ratio applied within each gene group for **full record**. (Default: 0.01)
 - `--full-mincount MINCOUNT`: Minimum cluster size for **full record**. (Default: 1)
 - `-n, --noplot`: Disable unicode gene plot. This option does not have associated types or defaults as it is a toggle switch.

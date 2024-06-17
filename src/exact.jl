@@ -91,15 +91,14 @@ module exact
         gene::String: Gene type (V, D, J)
         mincount::Int: Minimum number of reads for a sequence to be considered
         minratio::Float: Minimum ratio of reads for a sequence to be considered
-        minspan::Float: Minimum span of the sequence to be considered
         full_mincount::Int: Minimum number of reads for a full record to be considered
         full_minratio::Float: Minimum ratio of reads for a full record to be considered
         affix::Int: Number of bases to extract from the non-RSS side of the sequence
         rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minratio=0.01, minspan=0.5, full_mincount=2, full_minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10)
-        @info "Using mincount: $mincount, minratio: $minratio and minspan: $minspan for genes: $gene"
+    function exact_search(table, query, gene; mincount=10, minratio=0.01, full_mincount=2, full_minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10)
+        @info "Using mincount: $mincount, minratio: $minratio for genes: $gene"
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
         result = Folds.map(eachrow(table)) do row
@@ -113,11 +112,7 @@ module exact
                     flanks = extract_flanking(row.genomic_sequence, (minimum(match), maximum(match)), gene, affix)
                     filtered_flanks = gene == "V" ? filter_tuple_by_types(rss, "prefix", tuple_data = flanks) : gene == "J" ? filter_tuple_by_types(rss, "suffix", tuple_data = flanks) : flanks
                     meta = (well=string(well), case=string(case), db_name=string(name))
-                    target_len = maximum(match)-minimum(match)+1
-                    span = target_len/length(seq)
-                    if span >= minspan
-                        push!(matches, merge(meta, filtered_flanks))
-                    end
+                    push!(matches, merge(meta, filtered_flanks))
                 end
             end
             matches
