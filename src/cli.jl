@@ -3,6 +3,8 @@ module cli
     export parse_commandline
     import ArgParse.parse_item
     using ArgParse: @add_arg_table!
+    using Logging
+    using Dates
 
     function get_latest_git_tag()
 	    return strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0 `, String))
@@ -598,6 +600,12 @@ module cli
 
         # Show help if no arguments are provided
         try
+            open("immunediscover.log", "a") do io
+                logger = ConsoleLogger(io)
+                with_logger(logger) do
+                    @info "$(Dates.now()) - Parsing command line arguments: $args"
+                end
+            end
             return parse_args(args, s)
         catch e
             if isa(e, ArgParseError)
