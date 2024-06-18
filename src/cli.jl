@@ -598,7 +598,7 @@ module cli
             open("immunediscover.log", "a") do io
                 logger = ConsoleLogger(io)
                 with_logger(logger) do
-                    @info "$(Dates.now()) - Parsing command line arguments: $args"
+                    @info "$SOFTWARE_VERSION $(Dates.now()) - Parsing command line arguments: $args"
                 end
             end
             return parse_args(args, s)
