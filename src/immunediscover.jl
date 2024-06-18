@@ -190,7 +190,6 @@ module immunediscover
                 db = load_fasta(parsed_args["exact"]["fasta"], validate=false)
                 mincount = parsed_args["exact"]["mincount"]
                 minratio = parsed_args["exact"]["minratio"]
-                minspan = parsed_args["exact"]["minspan"]
                 full_mincount = parsed_args["exact"]["full-mincount"]
                 full_minratio = parsed_args["exact"]["full-minratio"]
                 top = parsed_args["exact"]["top"]
@@ -202,7 +201,7 @@ module immunediscover
                     @info "Uncollapsed mode enabled; at most $top full records will be returned."
                 end
                 gene = parsed_args["exact"]["gene"]
-                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, minspan=minspan, full_mincount=full_mincount, full_minratio=full_minratio, affix=affix, rss=rss, N=top)
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, full_mincount=full_mincount, full_minratio=full_minratio, affix=affix, rss=rss, N=top)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     if nrow(counts_df) > 0
@@ -211,6 +210,10 @@ module immunediscover
                         @warn "No exact matches to plot"
                     end
                 end
+                # Add gene count frequency
+                transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :gene_count)
+                transform!(groupby(counts_df, [:well, :case]), :count => sum => :case_count)
+                counts_df[:,:gene_count_freq] = counts_df.gene_count ./ counts_df.case_count
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 # Compute refgene ratios
                 if length(refgenes) > 0
