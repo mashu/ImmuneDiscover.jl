@@ -6,3 +6,4 @@ Immunediscover is a package for immune repertoire sequencing, to download the bi
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://gkhlab.gitlab.io/immunediscover.jl/dev)
 [![Build Status](https://gitlab.com/gkhlab/immunediscover.jl/badges/main/pipeline.svg)](https://gitlab.com/gkhlab/immunediscover.jl/pipelines)
 [![Coverage](https://gitlab.com/gkhlab/immunediscover.jl/badges/main/coverage.svg)](https://gitlab.com/gkhlab/immunediscover.jl/commits/main)
+[![Codecov](https://codecov.io/gl/gkhlab/immunediscover.jl/graph/badge.svg?token=K5GWGJP8FS)](https://codecov.io/gl/gkhlab/immunediscover.jl)
