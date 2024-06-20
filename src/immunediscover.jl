@@ -36,6 +36,8 @@ module immunediscover
 
     export load_fasta, blast_discover
 
+    const TRUST_MINCOUNT = 5
+
     """
         concatenate_columns(row, col_names)
     
@@ -192,11 +194,22 @@ module immunediscover
                 minratio = parsed_args["exact"]["minratio"]
                 full_mincount = parsed_args["exact"]["full-mincount"]
                 full_minratio = parsed_args["exact"]["full-minratio"]
+                if (full_mincount < TRUST_MINCOUNT) || (mincount < TRUST_MINCOUNT)
+                    @warn "Decreasing mincount or full mincount below $TRUST_MINCOUNT may lead to false positives due to sequencing errors - you've been warned!"
+                end
+                if mincount < full_mincount
+                    @error "Mincount $mincount has no effect when used with higher full mincount which already discarded counts lower than $full_mincount."
+                    mincount = full_mincount # Overwrite mincount to full mincount which is reported
+                end
+                if minratio < full_minratio
+                    @error "Minratio $minratio has no effect when used with higher full minratio which already discarded ratios lower than $full_minratio."
+                    minratio = full_minratio # Overwrite minratio to full minratio which is reported
+                end
                 top = parsed_args["exact"]["top"]
                 affix = parsed_args["exact"]["affix"]
                 rss = split(parsed_args["exact"]["rss"], ',')
                 validate_types(rss)
-                @info "Extract RSS types: $(join(rss,','))"
+                @info "Extract RSS: $(join(rss,','))"
                 if top != 1
                     @info "Uncollapsed mode enabled; at most $top full records will be returned."
                 end
@@ -213,6 +226,7 @@ module immunediscover
                 # Add gene count frequency
                 transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :gene_count)
                 transform!(groupby(counts_df, [:well, :case]), :count => sum => :case_count)
+                counts_df[:,:allele_count_freq] = counts_df.count ./ counts_df.case_count
                 counts_df[:,:gene_count_freq] = counts_df.gene_count ./ counts_df.case_count
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 # Compute refgene ratios
