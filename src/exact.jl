@@ -81,6 +81,20 @@ module exact
         return first(sorted_df, N)
     end
 
+    # Define a function to get the appropriate ratio threshold
+    function get_ratio_threshold(row, expect_dict, minratio)
+        # Check if either db_name or gene matches an entry in expect_dict
+        if row.db_name in keys(expect_dict)
+            @info "Using expect_dict for $(row.db_name) in $(row.case)"
+            return expect_dict[row.db_name]
+        elseif row.gene in keys(expect_dict)
+            @info "Using expect_dict for $(row.gene) in $(row.case)"
+            return expect_dict[row.gene]
+        else
+            return minratio
+        end
+    end
+
     """
         exact_search(table, query, gene; mincount=10, minratio=0.2, collapse=true)
 
@@ -97,8 +111,11 @@ module exact
         rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minratio=0.01, full_mincount=2, full_minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10)
+    function exact_search(table, query, gene; mincount=10, minratio=0.01, expect=nothing, full_mincount=2, full_minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10)
         @info "Using mincount: $mincount, minratio: $minratio for genes: $gene"
+        if expect !== nothing
+            @info "Enforcing allelic ratios from $expect - applied after search completes"
+        end
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
         result = Folds.map(eachrow(table)) do row
@@ -119,6 +136,14 @@ module exact
         end
         result_df = DataFrame(reduce(vcat,[r for r in result if r != []]))
 
+        # Load expect if provided
+        expect_df = DataFrame(name=[], ratio=[])
+        if expect !== nothing
+            expect_df = CSV.read(expect, DataFrame, delim='\t')
+            @assert all([name in names(expect_df) for name in ["name","ratio"]]) "File must contain following columns: name, ratio"
+        end
+        expect_dict = Dict(zip(expect_df.name, expect_df.ratio))
+
         # Apply filters
         df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
         transform!(groupby(df, [:well, :case, :db_name, :sequence]), nrow => :count)
@@ -126,9 +151,10 @@ module exact
         transform!(groupby(df, [:well, :case, :gene]), :full_count => (x->x./maximum(x)) => :full_ratio)
         transform!(groupby(df, [:well, :case, :gene]), :count => (x->x./maximum(x)) => :ratio)
 
-        sort!(df, [:full_count, :count], rev=[true,true])
+        sort!(df, [:full_count, :count], rev=[true, true])
         filter!(r->(r.full_count >= full_mincount) & (r.full_ratio >= full_minratio), df)  # Order is important here to filter first on smaller numbers
-        filter!(r->(r.count >= mincount) & (r.ratio >= minratio), df)
+        #filter!(r->(r.count >= mincount) & (r.ratio >= minratio), df)
+        filter!(row -> (row.count >= mincount) && (row.ratio >= get_ratio_threshold(row, expect_dict, minratio)), df)
         udf = unique(df)
 
         # Reorder columns

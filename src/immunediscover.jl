@@ -233,7 +233,8 @@ module immunediscover
                     @info "Uncollapsed mode enabled; at most $top full records will be returned."
                 end
                 gene = parsed_args["exact"]["gene"]
-                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, full_mincount=full_mincount, full_minratio=full_minratio, affix=affix, rss=rss, N=top)
+                expect = parsed_args["exact"]["expect"]
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect=expect, full_mincount=full_mincount, full_minratio=full_minratio, affix=affix, rss=rss, N=top)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     if nrow(counts_df) > 0

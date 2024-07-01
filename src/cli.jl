@@ -344,6 +344,9 @@ module cli
             arg_type = Int
             default = 0
             range_tester = (x->x >= 0)
+        "-e","--expect"
+            help = "TSV file containing allele names and their corresponding enforced allelic ratios, with two columns: allele_name and ratio"
+            arg_type = String
         end
 
         @add_arg_table! s["nwpattern"] begin
