@@ -13,6 +13,7 @@ include("../src/exact.jl")
 include("../src/hamming.jl")
 include("../src/patterns.jl")
 include("../src/heptamer.jl")
+include("../src/keyedsets.jl")
 
 using .cli
 using .demultiplex
@@ -24,6 +25,7 @@ using .exact
 using .hamming
 using .patterns
 using .heptamer
+using .keyedsets
 
 # Initialize a dictionary to track test outcomes
 test_outcomes = Dict(
@@ -35,6 +37,79 @@ test_outcomes = Dict(
 # Run testsets
 #
 @testset verbose = true "immunediscover" begin
+    @testset "keyedsets.jl" begin
+        ks = KeyedSet()
+        @test length(ks) == 0
+
+        push!(ks, KeyedPair("key1", "value1"))
+        @test length(ks) == 1
+        @test ks["key1"] == "value1"
+
+        push!(ks, ("key2", "value2"))
+        @test length(ks) == 2
+        @test ks["key2"] == "value2"
+
+        # Test vector of tuples constructor
+        ks2 = KeyedSet([("key3", "value3"), ("key4", "value4")])
+        @test length(ks2) == 2
+        @test ks2["key3"] == "value3"
+        @test ks2["key4"] == "value4"
+
+        # Duplicate warning behaviour
+        ks = KeyedSet()
+        push!(ks, ("key1", "value1"))
+
+        # Test duplicate key with same value (should log info)
+        @test_logs (:info, "Duplicate key key1 with value value1 already exists in KeyedSet") push!(ks, ("key1", "value1"))
+        
+        # Test duplicate key with different value (should log warning)
+        @test_logs (:warn, "Key key1 with value value2 already exists in KeyedSet with value value1") push!(ks, ("key1", "value2"))
+
+        # Set operations
+        ks1 = KeyedSet([("key1", "value1"), ("key2", "value2")])
+        ks2 = KeyedSet([("key2", "value2"), ("key3", "value3")])
+
+        @test "key1" in ks1
+        @test !("key3" in ks1)
+
+        union_ks = union(ks1, ks2)
+        @test length(union_ks) == 3
+        @test Set(keys(union_ks.data)) == Set(["key1", "key2", "key3"])
+
+        intersect_ks = intersect(ks1, ks2)
+        @test length(intersect_ks) == 1
+        @test Set(keys(intersect_ks.data)) == Set(["key2"])
+
+        diff_ks = setdiff(ks1, ks2)
+        @test length(diff_ks) == 1
+        @test Set(keys(diff_ks.data)) == Set(["key1"])
+
+        # Equality
+        ks1 = KeyedSet([("key1", "value1"), ("key2", "value2")])
+        ks2 = KeyedSet([("key1", "value1"), ("key2", "value2")])
+        ks3 = KeyedSet([("key1", "value1"), ("key3", "value3")])
+
+        @test ks1 == ks2
+        @test ks1 != ks3
+
+        # Collect and iteration
+        ks = KeyedSet([("key1", "value1"), ("key2", "value2")])
+        collected = collect(ks)
+        @test length(collected) == 2
+        @test ("key1", "value1") in collected
+        @test ("key2", "value2") in collected
+
+        count = 0
+        for key in ks
+            @test key in ["key1", "key2"]
+            count += 1
+        end
+        @test count == 2
+
+        # Show method
+        ks = KeyedSet([("key1", "value1"), ("key2", "value2")])
+        @test sprint(show, ks) == "KeyedSet(size=2)"
+    end
     @testset "simulate.jl" begin
         fastq_records = simulate.generate_fastq(["A"^10, "A"^9*"T"], ["CACAGTGATGTAGCACAGTG", "CACAGTGATGTAGCACAGTG"], ["T"^10, "T"^10], [10, 5])
         fasta_records = simulate.generate_fasta(["CACAGTG", "CACAGTG"], ["ATGTAG", "ATGTAG"], ["CACAGTG", "CACAGTG"], [10, 5])

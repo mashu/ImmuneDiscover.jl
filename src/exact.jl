@@ -123,11 +123,12 @@ module exact
         df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
         transform!(groupby(df, [:well, :case, :db_name, :sequence]), nrow => :count)
         transform!(df, :db_name => ByRow(x -> first(split(x, '*'))) => :gene)
-        transform!(groupby(df, [:well, :case, :gene]), :full_count => (x->x./maximum(x))=> :full_ratio)
-        transform!(groupby(df, [:well, :case, :gene]), :count => (x->x./maximum(x))=> :ratio)
+        transform!(groupby(df, [:well, :case, :gene]), :full_count => (x->x./maximum(x)) => :full_ratio)
+        transform!(groupby(df, [:well, :case, :gene]), :count => (x->x./maximum(x)) => :ratio)
+
         sort!(df, [:full_count, :count], rev=[true,true])
         filter!(r->(r.full_count >= full_mincount) & (r.full_ratio >= full_minratio), df)  # Order is important here to filter first on smaller numbers
-        filter!(r->(r.count >= mincount) & (r.ratio >= minratio) , df)
+        filter!(r->(r.count >= mincount) & (r.ratio >= minratio), df)
         udf = unique(df)
 
         # Reorder columns

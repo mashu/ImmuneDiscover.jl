@@ -139,6 +139,7 @@ The output is a TSV file containing the following columns:
 - `gene`: Specifies the gene associated with the allele.
 - `full_ratio`: The number of sequences matching this allele along with optionally selected flanking sequences (RSS and affix) divided by the highest count allele of the same gene.
 - `ratio`:  The number of sequences matching this allele divided by the highest count allele of the same gene.
+- `allele_freq`: The counts for allele and cases divided by the sum of counts per gene for that case. This reflects the contribution of allele within a gene.
 - `allele_count_freq`: The counts for allele and cases divided by the number of counts per case. This reflects relative allele usage.
 - `gene_count_freq`: The sum of counts per gene and case divided by the number of counts per case. This reflects relative gene usage.
 - `log2_count`: Represents the logarithm base 2 of the count.

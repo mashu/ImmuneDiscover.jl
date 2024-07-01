@@ -80,6 +80,9 @@ module cli
             "blast"
                 help = "Run BLAST on the input TSV file and perform identity clustering for discovery"
                 action = :command
+            "diff"
+                help = "Diff two FASTA files based on sequence identity but keep associated names"
+                action = :command
             end
 
         # Define the genes and choices for ArgParse
@@ -104,6 +107,13 @@ module cli
             "-s", "--split"
                 help = "Split FASTQ files per case"
                 action = :store_true
+        end
+
+        @add_arg_table! s["diff"] begin
+            "fasta"
+                help = "FASTA files with sequences"
+                nargs = '+'
+                required = true
         end
 
         @add_arg_table! s["heptamer"] begin

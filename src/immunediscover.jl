@@ -13,6 +13,7 @@ module immunediscover
     include("bwa.jl")
     include("nwpattern.jl")
     include("blast.jl")
+    include("keyedsets.jl")
 
     using .cli
     using .demultiplex
@@ -28,6 +29,7 @@ module immunediscover
     using .regex
     using .bwa
     using .blast
+    using .keyedsets
 
     using CSV
     using DataFrames
@@ -110,6 +112,23 @@ module immunediscover
                 @info "Summary heptamer data saved in compressed $(parsed_args["heptamer"]["summary"]) file"
             end
 
+            if get(parsed_args,"%COMMAND%","") == "diff"
+                fasta = parsed_args["diff"]["fasta"]
+                fasta_files = [(file=file, records=immunediscover.load_fasta.(file)) for file in fasta]
+                sets = [(file=x, set=KeyedSet(reverse.(y))) for (x,y) in fasta_files]
+                for i in eachindex(sets)
+                    for j in i+1:length(sets)
+                        # All vs vall comparisons
+                        println("Comparing $(sets[i].file) vs $(sets[j].file)")
+                        println("Union: $(length(union(sets[i].set, sets[j].set)))")
+                        println("Intersection: $(length(intersect(sets[i].set, sets[j].set)))")
+                        ab = last.(collect(setdiff(sets[i].set, sets[j].set)))
+                        ba = last.(collect(setdiff(sets[j].set, sets[i].set)))
+                        println("Difference ($(length(ab))): \n$(join(ab, "\n"))")
+                        println("Difference ($(length(ba))): \n$(join(ba, "\n"))")
+                    end
+                end
+            end
             if get(parsed_args,"%COMMAND%","") == "trim"
                 @info "Trimming"
                 table = load_demultiplex(parsed_args["trim"]["input"])
@@ -228,6 +247,8 @@ module immunediscover
                 transform!(groupby(counts_df, [:well, :case]), :count => sum => :case_count)
                 counts_df[:,:allele_count_freq] = counts_df.count ./ counts_df.case_count
                 counts_df[:,:gene_count_freq] = counts_df.gene_count ./ counts_df.case_count
+                transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
+
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 # Compute refgene ratios
                 if length(refgenes) > 0
