@@ -1,5 +1,5 @@
 variables:
-  LINUX_AMD64_BINARY: "immunediscover-ubuntu-x86-64.tar.gz"
+  LINUX_AMD64_BINARY: "immunediscover-ubuntu-x86-64_${CI_COMMIT_TAG}.tar.gz"
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/immunediscover/${CI_COMMIT_TAG}"
 
 cache:
