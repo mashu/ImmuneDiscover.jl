@@ -82,14 +82,16 @@ module exact
     end
 
     # Define a function to get the appropriate ratio threshold
-    function get_ratio_threshold(row, expect_dict, minratio)
+    function get_ratio_threshold(row, expect_dict, minratio, ratio, count, full_count, full_ratio)
         # Check if either db_name or gene matches an entry in expect_dict
         if row.db_name in keys(expect_dict)
-            @info "Using expect_dict for $(row.db_name) in $(row.case)"
-            return expect_dict[row.db_name]
+            expect_ratio = expect_dict[row.db_name]
+            @info "Enforcing expect_ratio $expect_ratio for $(row.db_name) in $(row.case) with count $count, ratio $ratio, full_count $full_count, and full_ratio $full_ratio"
+            return expect_ratio
         elseif row.gene in keys(expect_dict)
-            @info "Using expect_dict for $(row.gene) in $(row.case)"
-            return expect_dict[row.gene]
+            expect_ratio = expect_dict[row.gene]
+            @info "Enforcing expect_ratio $expect_ratio for $(row.db_name) in $(row.case) with count $count and ratio $ratio, full_count $full_count, and full_ratio $full_ratio"
+            return expect_ratio
         else
             return minratio
         end
@@ -136,6 +138,7 @@ module exact
         end
         result_df = DataFrame(reduce(vcat,[r for r in result if r != []]))
 
+        # CSV.write("result_df-debug.tsv.gz", result_df, delim='\t', compressin=true)
         # Load expect if provided
         expect_df = DataFrame(name=[], ratio=[])
         if expect !== nothing
@@ -152,10 +155,10 @@ module exact
         transform!(groupby(df, [:well, :case, :gene]), :count => (x->x./maximum(x)) => :ratio)
 
         sort!(df, [:full_count, :count], rev=[true, true])
-        filter!(r->(r.full_count >= full_mincount) & (r.full_ratio >= full_minratio), df)  # Order is important here to filter first on smaller numbers
-        #filter!(r->(r.count >= mincount) & (r.ratio >= minratio), df)
-        filter!(row -> (row.count >= mincount) && (row.ratio >= get_ratio_threshold(row, expect_dict, minratio)), df)
-        udf = unique(df)
+        # Collapse individual rows into unique rows before filtering
+        udf = sort(unique(df),[:well, :case, :gene])
+        filter!(r->(r.full_count >= full_mincount) & (r.full_ratio >= full_minratio), udf)  # Order is important here to filter first on smaller numbers
+        filter!(row -> (row.count >= mincount) && (row.ratio >= get_ratio_threshold(row, expect_dict, minratio, row.ratio, row.count, row.full_count, row.full_ratio)), udf)
 
         # Reorder columns
         priority_columns = ["well", "case", "gene", "db_name", "count", "full_count", "ratio", "full_ratio"]
