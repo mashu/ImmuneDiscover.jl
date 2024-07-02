@@ -317,6 +317,9 @@ module cli
             help = "Comma-separated list of rss fragments: heptamer, spacer, nonamer"
             default = "heptamer"
             arg_type = String
+        "--raw"
+            help = "Unfiltered exact search results for diagnostics"
+            arg_type = String
         "-n","--noplot"
             help = "Disable unicode gene plot"
             action = :store_true

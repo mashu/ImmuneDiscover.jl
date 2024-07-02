@@ -113,7 +113,7 @@ module exact
         rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minratio=0.01, expect=nothing, full_mincount=2, full_minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10)
+    function exact_search(table, query, gene; mincount=10, minratio=0.01, expect=nothing, full_mincount=2, full_minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10, raw=nothing)
         @info "Using mincount: $mincount, minratio: $minratio for genes: $gene"
         if expect !== nothing
             @info "Enforcing allelic ratios from $expect - applied after search completes"
@@ -137,7 +137,9 @@ module exact
             matches
         end
         result_df = DataFrame(reduce(vcat,[r for r in result if r != []]))
-
+        if raw !== nothing
+            CSV.write(raw*".gz", result_df, delim='\t', compress=true)
+        end
         # CSV.write("result_df-debug.tsv.gz", result_df, delim='\t', compressin=true)
         # Load expect if provided
         expect_df = DataFrame(name=[], ratio=[])
