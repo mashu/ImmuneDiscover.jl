@@ -137,9 +137,7 @@ module exact
             matches
         end
         result_df = DataFrame(reduce(vcat,[r for r in result if r != []]))
-        if raw !== nothing
-            CSV.write(raw*".gz", result_df, delim='\t', compress=true)
-        end
+
         # CSV.write("result_df-debug.tsv.gz", result_df, delim='\t', compressin=true)
         # Load expect if provided
         expect_df = DataFrame(name=[], ratio=[])
@@ -149,10 +147,17 @@ module exact
         end
         expect_dict = Dict(zip(expect_df.name, expect_df.ratio))
 
-        # Apply filters
+        # Compute counts
         df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
         transform!(groupby(df, [:well, :case, :db_name, :sequence]), nrow => :count)
         transform!(df, :db_name => ByRow(x -> first(split(x, '*'))) => :gene)
+
+        # Save raw dawa
+        if raw !== nothing
+            CSV.write(raw*".gz", result_df, delim='\t', compress=true)
+        end
+
+        # Apply filters
         transform!(groupby(df, [:well, :case, :gene]), :full_count => (x->x./maximum(x)) => :full_ratio)
         transform!(groupby(df, [:well, :case, :gene]), :count => (x->x./maximum(x)) => :ratio)
 

@@ -90,7 +90,7 @@ The output is a compressed TSV file with the following columns:
 - `name`: The name of the read.
 - `genomic_sequence`: The sequence of the read.
 
-# Exact
+# Exact Match Search
 This subcommand identifies exact matches to a database of known alleles. Provide the path to the compressed FASTQ file (`fastq.gz`) and the TSV file with demultiplexed data. 
 
 To execute a search for exact matches to a database of known alleles, use the command:
@@ -98,6 +98,15 @@ To execute a search for exact matches to a database of known alleles, use the co
 immunediscover exact -g V -c 10 -f 0.1 test.tsv.gz V.fasta test-exact.tsv.gz
 ```
 Above command searches for exact matches to the database of V alleles, requiring a minimum of `10` reads per allele and a minimum frequency of `10%`. The result is a compressed TSV file containing exact matches for alleles and their counts for each well and case.
+
+If you want to use lower thresholds keep in mind that the full records (query + flanks) are filtered first, so you are required to also lower full record thresholds to see any effect of query count and frequency changes. For example, to search for exact matches to the database of V alleles, requiring a minimum of `1` read per allele and a minimum frequency of `1%`, use the following command:
+```bash
+immunediscover exact -g V -f 0.01 --full-minratio 0.01 test.tsv.gz V.fasta test-exact.tsv.gz
+```
+or if you also don't care about false positives you can set:
+```bash
+immunediscover exact -g V -c 1 -f 0.01 --full-mincount 1 --full-minratio 0.01 test.tsv.gz V.fasta test-exact.tsv.gz
+```
 
 ### Exact Program Parameters
 
