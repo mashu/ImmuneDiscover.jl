@@ -350,6 +350,16 @@ module cli
         "-e","--expect"
             help = "TSV file containing allele names and their corresponding enforced allelic ratios, with two columns: allele_name and ratio"
             arg_type = String
+        "--min-allele-count-freq"
+            help = "Minimum allele count frequency (case normalized frequency)"
+            default = 0.005
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-gene-count-freq"
+            help = "Minimum gene count frequency (case normalized frequency)"
+            default = 0.005
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
         @add_arg_table! s["nwpattern"] begin

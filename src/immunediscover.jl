@@ -235,6 +235,8 @@ module immunediscover
                 gene = parsed_args["exact"]["gene"]
                 expect = parsed_args["exact"]["expect"]
                 raw = parsed_args["exact"]["raw"]
+                min_allele_count_freq = parsed_args["exact"]["min-allele-count-freq"]
+                min_gene_count_freq = parsed_args["exact"]["min-gene-count-freq"]
                 counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect=expect, full_mincount=full_mincount, full_minratio=full_minratio, affix=affix, rss=rss, N=top, raw=raw)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
@@ -250,6 +252,8 @@ module immunediscover
                 counts_df[:,:allele_count_freq] = counts_df.count ./ counts_df.case_count
                 counts_df[:,:gene_count_freq] = counts_df.gene_count ./ counts_df.case_count
                 transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
+                @info "Filtering alleles with count frequency >= $min_allele_count_freq and gene frequency >= $min_gene_count_freq"
+                filter!(x->(x.allele_count_freq >= min_allele_count_freq) & (x.gene_count_freq >= min_gene_count_freq), counts_df)
 
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 # Compute refgene ratios
@@ -257,8 +261,8 @@ module immunediscover
                     for refgene in refgenes
                         counts_df = grouped_ratios(counts_df, refgene, count_col=:count)
                         # Transform df to sum gene count per gene
-                        transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :gene_count)
-                        counts_df = grouped_ratios(counts_df, refgene, count_col=:gene_count)
+                        transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :ref_gene_count)
+                        counts_df = grouped_ratios(counts_df, refgene, count_col=:ref_gene_count)
                     end
                 end
                 CSV.write(output, counts_df, compress=true, delim='\t')
