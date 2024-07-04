@@ -35,6 +35,7 @@ module immunediscover
     using DataFrames
     using UnicodePlots
     using Glob
+    using Statistics
 
     export load_fasta, blast_discover
 
@@ -237,6 +238,7 @@ module immunediscover
                 raw = parsed_args["exact"]["raw"]
                 min_allele_count_freq = parsed_args["exact"]["min-allele-count-freq"]
                 min_gene_count_freq = parsed_args["exact"]["min-gene-count-freq"]
+                locus = parsed_args["exact"]["locus"]
                 counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect=expect, full_mincount=full_mincount, full_minratio=full_minratio, affix=affix, rss=rss, N=top, raw=raw)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
@@ -246,11 +248,40 @@ module immunediscover
                         @warn "No exact matches to plot"
                     end
                 end
-                # Add gene count frequency
-                transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :gene_count)
-                transform!(groupby(counts_df, [:well, :case]), :count => sum => :case_count)
+                # Add gene count frequency (aggregation with alleles starting with locus only)
+                @info "Excluding genes not starting with $locus for correct allele and gene count frequency calculation"
+
+                transform!(groupby(counts_df, [:well, :case, :gene])) do group
+                    filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                    gene_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
+                    return DataFrame(gene_count = fill(gene_count, nrow(group)))
+                end
+                
+                transform!(groupby(counts_df, [:well, :case])) do group
+                    filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                    case_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
+                    return DataFrame(case_count = fill(case_count, nrow(group)))
+                end
+                
+                transform!(groupby(counts_df, [:well, :case, :gene])) do group
+                    filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                    median_gene_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
+                    return DataFrame(median_gene_count = fill(median_gene_count, nrow(group)))
+                end
+                
+                transform!(groupby(counts_df, [:well, :case])) do group
+                    filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                    median_case_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
+                    return DataFrame(median_case_count = fill(median_case_count, nrow(group)))
+                end
+
+                # Frequencies
                 counts_df[:,:allele_count_freq] = counts_df.count ./ counts_df.case_count
                 counts_df[:,:gene_count_freq] = counts_df.gene_count ./ counts_df.case_count
+                # Median ratios
+                counts_df[:,:allele_count_medratio] = counts_df.count ./ counts_df.median_case_count
+                counts_df[:,:gene_count_medratio] = counts_df.gene_count ./ counts_df.median_case_count
+
                 transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
                 @info "Filtering alleles with count frequency >= $min_allele_count_freq and gene frequency >= $min_gene_count_freq"
                 filter!(x->(x.allele_count_freq >= min_allele_count_freq) & (x.gene_count_freq >= min_gene_count_freq), counts_df)

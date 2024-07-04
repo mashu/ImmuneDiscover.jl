@@ -360,6 +360,10 @@ module cli
             default = 0.005
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--locus"
+            help = "Locus to filter genes to start with this string (e.g. IGHV) excluding other genes from the analysis (i.e control genes)"
+            arg_type = String
+            default = "IG"
         end
 
         @add_arg_table! s["nwpattern"] begin
