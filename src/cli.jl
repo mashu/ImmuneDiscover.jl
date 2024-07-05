@@ -303,16 +303,6 @@ module cli
             default = 5
             arg_type = Int
             range_tester = (x->x >= 1)
-        "--full-minratio"
-            help = "Minimum allelic ratio applied within each gene group for full record"
-            default = 0.1
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "--full-mincount"
-            help = "Minimum cluster size for full record"
-            default = 5
-            arg_type = Int
-            range_tester = (x->x >= 1)
         "--rss"
             help = "Comma-separated list of rss fragments: heptamer, spacer, nonamer"
             default = "heptamer"
@@ -352,12 +342,12 @@ module cli
             arg_type = String
         "--min-allele-count-freq"
             help = "Minimum allele count frequency (case normalized frequency)"
-            default = 0.005
+            default = 0.0001
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--min-gene-count-freq"
             help = "Minimum gene count frequency (case normalized frequency)"
-            default = 0.005
+            default = 0.0001
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--locus"

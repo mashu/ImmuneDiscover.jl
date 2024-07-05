@@ -81,19 +81,16 @@ module exact
         return first(sorted_df, N)
     end
 
-    # Define a function to get the appropriate ratio threshold
-    function get_ratio_threshold(row, expect_dict, minratio, ratio, count, full_count, full_ratio)
-        # Check if either db_name or gene matches an entry in expect_dict
+    # Function to skip filtering by ratio for certain genes
+    function get_ratio(expect_dict, row, ratio)
         if row.db_name in keys(expect_dict)
-            expect_ratio = expect_dict[row.db_name]
-            @info "Enforcing expect_ratio $expect_ratio for $(row.db_name) in $(row.case) with count $count, ratio $ratio, full_count $full_count, and full_ratio $full_ratio"
-            return expect_ratio
+            @info "Skipping allelic ratio filters for $(row.db_name) in case $(row.case)"
+            return 0
         elseif row.gene in keys(expect_dict)
-            expect_ratio = expect_dict[row.gene]
-            @info "Enforcing expect_ratio $expect_ratio for $(row.db_name) in $(row.case) with count $count and ratio $ratio, full_count $full_count, and full_ratio $full_ratio"
-            return expect_ratio
+            @info "Skipping gene ratio filters for $(row.db_name) in case $(row.case)"
+            return 0
         else
-            return minratio
+            return ratio # Return ratio if not in expect_dict
         end
     end
 
@@ -113,11 +110,8 @@ module exact
         rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minratio=0.01, expect=nothing, full_mincount=2, full_minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10, raw=nothing)
+    function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10, raw=nothing, expect_dict=Dict{String,Float64}())
         @info "Using mincount: $mincount, minratio: $minratio for genes: $gene"
-        if expect !== nothing
-            @info "Enforcing allelic ratios from $expect - applied after search completes"
-        end
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
         result = Folds.map(eachrow(table)) do row
@@ -138,15 +132,6 @@ module exact
         end
         result_df = DataFrame(reduce(vcat,[r for r in result if r != []]))
 
-        # CSV.write("result_df-debug.tsv.gz", result_df, delim='\t', compressin=true)
-        # Load expect if provided
-        expect_df = DataFrame(name=[], ratio=[])
-        if expect !== nothing
-            expect_df = CSV.read(expect, DataFrame, delim='\t')
-            @assert all([name in names(expect_df) for name in ["name","ratio"]]) "File must contain following columns: name, ratio"
-        end
-        expect_dict = Dict(zip(expect_df.name, expect_df.ratio))
-
         # Compute counts
         df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
         transform!(groupby(df, [:well, :case, :db_name, :sequence]), nrow => :count)
@@ -164,8 +149,10 @@ module exact
         sort!(df, [:full_count, :count], rev=[true, true])
         # Collapse individual rows into unique rows before filtering
         udf = sort(unique(df),[:well, :case, :gene])
-        filter!(r->(r.full_count >= full_mincount) & (r.full_ratio >= full_minratio), udf)  # Order is important here to filter first on smaller numbers
-        filter!(row -> (row.count >= mincount) && (row.ratio >= get_ratio_threshold(row, expect_dict, minratio, row.ratio, row.count, row.full_count, row.full_ratio)), udf)
+        # Filter by count and ratio
+        # Function get_ratio is used to disable filtering by ratio for certain genes in expect_dict
+        filter!(row -> (row.full_count >= mincount) & (row.full_ratio >= get_ratio(expect_dict, row, minratio)), udf)  # Order is important here to filter first on smaller numbers
+        filter!(row -> (row.count >= mincount) && (row.ratio >= get_ratio(expect_dict, row, minratio)), udf)
 
         # Reorder columns
         priority_columns = ["well", "case", "gene", "db_name", "count", "full_count", "ratio", "full_ratio"]

@@ -67,6 +67,19 @@ module immunediscover
         end
     end
 
+    # Function to get threshold for new gene
+    function get_ratio_threshold(expect_dict, row)
+        if row.db_name in keys(expect_dict)
+            @info "Applying allele_freq threshold $(expect_dict[row.db_name]) for $(row.db_name)"
+            return expect_dict[row.db_name]
+        elseif row.gene in keys(expect_dict)
+            @info "Applying allele_freq threshold $(expect_dict[row.gene]) for $(row.db_name)"
+            return expect_dict[row.gene]
+        else
+            return 0 # Return ratio if not in expect_dict
+        end
+    end
+
     """
         real_main(args=[])
     
@@ -212,19 +225,10 @@ module immunediscover
                 db = load_fasta(parsed_args["exact"]["fasta"], validate=false)
                 mincount = parsed_args["exact"]["mincount"]
                 minratio = parsed_args["exact"]["minratio"]
-                full_mincount = parsed_args["exact"]["full-mincount"]
-                full_minratio = parsed_args["exact"]["full-minratio"]
-                if (full_mincount < TRUST_MINCOUNT) || (mincount < TRUST_MINCOUNT)
-                    @warn "Decreasing mincount or full mincount below $TRUST_MINCOUNT may lead to false positives due to sequencing errors - you've been warned!"
+                if mincount < TRUST_MINCOUNT
+                    @warn "Decreasing mincount below $TRUST_MINCOUNT may lead to false positives due to sequencing errors - you've been warned!"
                 end
-                if mincount < full_mincount
-                    @error "Mincount $mincount has no effect when used with higher full mincount which already discarded counts lower than $full_mincount."
-                    mincount = full_mincount # Overwrite mincount to full mincount which is reported
-                end
-                if minratio < full_minratio
-                    @error "Minratio $minratio has no effect when used with higher full minratio which already discarded ratios lower than $full_minratio."
-                    minratio = full_minratio # Overwrite minratio to full minratio which is reported
-                end
+
                 top = parsed_args["exact"]["top"]
                 affix = parsed_args["exact"]["affix"]
                 rss = split(parsed_args["exact"]["rss"], ',')
@@ -235,11 +239,23 @@ module immunediscover
                 end
                 gene = parsed_args["exact"]["gene"]
                 expect = parsed_args["exact"]["expect"]
+
+                # Load expect if provided
+                expect_df = DataFrame(name=[], ratio=[])
+                if expect !== nothing
+                    expect_df = CSV.read(expect, DataFrame, delim='\t')
+                    @assert all([name in names(expect_df) for name in ["name","ratio"]]) "File must contain following columns: name, ratio"
+                end
+                if nrow(expect_df) > 0
+                    @info "Using expect file with $(nrow(expect_df)) entries"
+                end
+                expect_dict = Dict(zip(expect_df.name, expect_df.ratio))
+
                 raw = parsed_args["exact"]["raw"]
                 min_allele_count_freq = parsed_args["exact"]["min-allele-count-freq"]
                 min_gene_count_freq = parsed_args["exact"]["min-gene-count-freq"]
                 locus = parsed_args["exact"]["locus"]
-                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect=expect, full_mincount=full_mincount, full_minratio=full_minratio, affix=affix, rss=rss, N=top, raw=raw)
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect_dict=expect_dict, affix=affix, rss=rss, N=top, raw=raw)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     if nrow(counts_df) > 0
@@ -250,7 +266,6 @@ module immunediscover
                 end
                 # Add gene count frequency (aggregation with alleles starting with locus only)
                 @info "Excluding genes not starting with $locus for correct allele and gene count frequency calculation"
-
                 transform!(groupby(counts_df, [:well, :case, :gene])) do group
                     filtered_group = filter(row -> startswith(row.db_name, locus), group)
                     gene_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
@@ -283,6 +298,7 @@ module immunediscover
                 counts_df[:,:gene_count_medratio] = counts_df.gene_count ./ counts_df.median_case_count
 
                 transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
+                filter!(x->(x.allele_freq >= get_ratio_threshold(expect_dict, x)), counts_df)
                 @info "Filtering alleles with count frequency >= $min_allele_count_freq and gene frequency >= $min_gene_count_freq"
                 filter!(x->(x.allele_count_freq >= min_allele_count_freq) & (x.gene_count_freq >= min_gene_count_freq), counts_df)
 
