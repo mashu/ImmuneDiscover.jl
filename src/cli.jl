@@ -338,18 +338,11 @@ module cli
             default = 0
             range_tester = (x->x >= 0)
         "-e","--expect"
-            help = "TSV file containing allele names and their corresponding enforced allelic ratios, with two columns: allele_name and ratio"
+            help = "TSV file containing gene names and their corresponding allele_freq threshold, with two columns: name and ratio"
             arg_type = String
-        "--min-allele-count-freq"
-            help = "Minimum allele count frequency (case normalized frequency)"
-            default = 0.0001
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "--min-gene-count-freq"
-            help = "Minimum gene count frequency (case normalized frequency)"
-            default = 0.0001
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-d","--deletion"
+            help = "TSV file containing gene names and their corresponding gene_count_freq threshold, with two columns: name and ratio"
+            arg_type = String
         "--locus"
             help = "Locus to filter genes to start with this string (e.g. IGHV) excluding other genes from the analysis (i.e control genes)"
             arg_type = String

@@ -127,8 +127,6 @@ Generally, the counts for full records tend to be smaller from those of collapse
 ### Optional Arguments
 - `-f, --minratio FREQ`: Minimum allelic ratio applied within each gene group. (Default: 0.01)
 - `-c, --mincount MINCOUNT`: Minimum cluster size. (Default: 10)
-- `--full-minratio RATIO`: Minimum allelic ratio applied within each gene group for **full record**. (Default: 0.01)
-- `--full-mincount MINCOUNT`: Minimum cluster size for **full record**. (Default: 1)
 - `-n, --noplot`: Disable unicode gene plot. This option does not have associated types or defaults as it is a toggle switch.
 - `-g, --gene`: Gene to use for plotting. (Default: "V")
 - `-t, --top`: Saves at most N records of flank and sequence. (Default: 1)
@@ -149,8 +147,8 @@ The output is a TSV file containing the following columns:
 - `full_ratio`: The number of sequences matching this allele along with optionally selected flanking sequences (RSS and affix) divided by the highest count allele of the same gene.
 - `ratio`:  The number of sequences matching this allele divided by the highest count allele of the same gene.
 - `allele_freq`: The counts for allele and cases divided by the sum of counts per gene for that case. This reflects the contribution of allele within a gene.
-- `allele_count_freq`: The counts for allele and cases divided by the number of counts per case. This reflects relative allele usage.
-- `gene_count_freq`: The sum of counts per gene and case divided by the number of counts per case. This reflects relative gene usage.
+- `allele_case_freq`: The counts for allele and cases divided by the number of counts per case. This reflects relative allele usage.
+- `gene_case_freq`: The sum of counts per gene and case divided by the number of counts per case. This reflects relative gene usage.
 - `log2_count`: Represents the logarithm base 2 of the count.
 - `gene_count`: Summed up `count` column for all alleles in a gene within each well and case.
 - `count_refgene_ratio`: Where `refgene` is replaced with selected reference gene is the ratio between `count` and `count` for refgene.

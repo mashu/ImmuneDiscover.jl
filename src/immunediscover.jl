@@ -68,15 +68,15 @@ module immunediscover
     end
 
     # Function to get threshold for new gene
-    function get_ratio_threshold(expect_dict, row)
+    function get_ratio_threshold(expect_dict, row; type="allele_ratio")
         if row.db_name in keys(expect_dict)
-            @info "Applying allele_freq threshold $(expect_dict[row.db_name]) for $(row.db_name)"
+            @info "Applying $type >= $(expect_dict[row.db_name]) for $(row.db_name)"
             return expect_dict[row.db_name]
         elseif row.gene in keys(expect_dict)
-            @info "Applying allele_freq threshold $(expect_dict[row.gene]) for $(row.db_name)"
+            @info "Applying $type >= $(expect_dict[row.gene]) for $(row.db_name)"
             return expect_dict[row.gene]
         else
-            return 0 # Return ratio if not in expect_dict
+            return 0  # Return ratio if not in expect_dict
         end
     end
 
@@ -239,6 +239,7 @@ module immunediscover
                 end
                 gene = parsed_args["exact"]["gene"]
                 expect = parsed_args["exact"]["expect"]
+                deletion = parsed_args["exact"]["deletion"]
 
                 # Load expect if provided
                 expect_df = DataFrame(name=[], ratio=[])
@@ -251,9 +252,18 @@ module immunediscover
                 end
                 expect_dict = Dict(zip(expect_df.name, expect_df.ratio))
 
+                # Load deletions if provided
+                deletion_df = DataFrame(name=[], ratio=[])
+                if deletion !== nothing
+                    deletion_df = CSV.read(deletion, DataFrame, delim='\t')
+                    @assert all([name in names(deletion_df) for name in ["name","ratio"]]) "File must contain following columns: name, ratio"
+                end
+                if nrow(deletion_df) > 0
+                    @info "Using deletion_df file with $(nrow(expect_df)) entries"
+                end
+                deletion_df = Dict(zip(deletion_df.name, deletion_df.ratio))
+
                 raw = parsed_args["exact"]["raw"]
-                min_allele_count_freq = parsed_args["exact"]["min-allele-count-freq"]
-                min_gene_count_freq = parsed_args["exact"]["min-gene-count-freq"]
                 locus = parsed_args["exact"]["locus"]
                 counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect_dict=expect_dict, affix=affix, rss=rss, N=top, raw=raw)
                 sort!(counts_df, [:case, :db_name])
@@ -291,16 +301,15 @@ module immunediscover
                 end
 
                 # Frequencies
-                counts_df[:,:allele_count_freq] = counts_df.count ./ counts_df.case_count
-                counts_df[:,:gene_count_freq] = counts_df.gene_count ./ counts_df.case_count
+                counts_df[:,:allele_case_freq] = counts_df.count ./ counts_df.case_count
+                counts_df[:,:gene_case_freq] = counts_df.gene_count ./ counts_df.case_count
                 # Median ratios
-                counts_df[:,:allele_count_medratio] = counts_df.count ./ counts_df.median_case_count
-                counts_df[:,:gene_count_medratio] = counts_df.gene_count ./ counts_df.median_case_count
+                counts_df[:,:allele_case_medratio] = counts_df.count ./ counts_df.median_case_count
+                counts_df[:,:gene_case_medratio] = counts_df.gene_count ./ counts_df.median_case_count
 
                 transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
-                filter!(x->(x.allele_freq >= get_ratio_threshold(expect_dict, x)), counts_df)
-                @info "Filtering alleles with count frequency >= $min_allele_count_freq and gene frequency >= $min_gene_count_freq"
-                filter!(x->(x.allele_count_freq >= min_allele_count_freq) & (x.gene_count_freq >= min_gene_count_freq), counts_df)
+                filter!(x->(x.allele_freq >= get_ratio_threshold(expect_dict, x, type="allele_freq")), counts_df)
+                filter!(x->(x.gene_case_freq >= get_ratio_threshold(deletion_df, x, type="gene_case_freq")), counts_df)
 
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 # Compute refgene ratios
