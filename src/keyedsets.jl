@@ -43,9 +43,54 @@ module keyedsets
     Base.iterate(ks::KeyedSet, state...) = iterate(keys(ks.data), state...)
 
     # Set operations
-    Base.union(ks1::KeyedSet, ks2::KeyedSet) = KeyedSet(merge(ks1.data, ks2.data))
-    Base.intersect(ks1::KeyedSet, ks2::KeyedSet) = KeyedSet(Dict(k => ks1.data[k] for k in keys(ks1.data) if k in keys(ks2.data)))
-    Base.setdiff(ks1::KeyedSet, ks2::KeyedSet) = KeyedSet(Dict(k => v for (k, v) in ks1.data if !(k in keys(ks2.data))))
+    #Base.union(ks1::KeyedSet, ks2::KeyedSet) = KeyedSet(merge(ks1.data, ks2.data))
+    #Base.intersect(ks1::KeyedSet, ks2::KeyedSet) = KeyedSet(Dict(k => ks1.data[k] for k in keys(ks1.data) if k in keys(ks2.data)))
+    #Base.setdiff(ks1::KeyedSet, ks2::KeyedSet) = KeyedSet(Dict(k => v for (k, v) in ks1.data if !(k in keys(ks2.data))))
+    function Base.union(ks1::KeyedSet, ks2::KeyedSet)
+        result = KeyedSet(copy(ks1.data))
+        for (k, v2) in ks2.data
+            if haskey(result.data, k)
+                v1 = result.data[k]
+                if v1 != v2
+                    @info "Key $k exists in both sets with different names. Using name '$(v1)' from the first set instead of '$(v2)' from the second set."
+                end
+            else
+                result.data[k] = v2
+            end
+        end
+        return result
+    end
+    function Base.intersect(ks1::KeyedSet, ks2::KeyedSet)
+        result = KeyedSet()
+        for (k, v1) in ks1.data
+            if haskey(ks2.data, k)
+                v2 = ks2.data[k]
+                if v1 == v2
+                    push!(result, (k, v1))
+                else
+                    @info "Sequence with key $k is identical but has different names: $(v1) in set 1, $(v2) in set 2"
+                    push!(result, (k, v1))
+                end
+            end
+        end
+        return result
+    end
+    function Base.setdiff(ks1::KeyedSet, ks2::KeyedSet)
+        result = KeyedSet()
+        for (k1, v1) in ks1.data
+            if !haskey(ks2.data, k1)
+                push!(result, (k1, v1))
+                # Check if the name exists in ks2 with a different key
+                for (k2, v2) in ks2.data
+                    if v1 == v2
+                        @info "Sequence with key $k1 and name $v1 in the first set is different but has the same name as sequence with key $k2 in the second set."
+                        break
+                    end
+                end
+            end
+        end
+        return result
+    end
 
     # Equality
     Base.:(==)(ks1::KeyedSet, ks2::KeyedSet) = keys(ks1.data) == keys(ks2.data)
