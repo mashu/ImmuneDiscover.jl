@@ -15,36 +15,33 @@ module demultiplex
         indices = CSV.File(indices_path)
         @assert all(string.(eachindex(first(indices))) .== ["forward_index","reverse_index","case"]) "File must contain following columns forward_index, reverse_index, case"
         @info "Loaded $(length(indices)) indices"
-
         records = []
         fastq_writers = Dict{String, FASTX.FASTQ.Writer}()
 
         total = 0
         short = 0
 
+        pattern = [(forward = Regex(i.forward_index), reverse = Regex(i.reverse_index), case = i.case,) for i in indices]
+
         # Processing callback
         data.process_fastq(fastq_path) do record
             name, genomic_sequence = identifier(record), string(sequence(record))
 
-            @inbounds for i in eachindex(indices)
-                forward = indices[i].forward_index
-                reverse = indices[i].reverse_index
-                case = indices[i].case
-
-                if startswith(genomic_sequence, forward) && endswith(genomic_sequence, reverse)
+            @inbounds for i in eachindex(pattern)
+                if startswith(genomic_sequence, pattern[i].forward) && endswith(genomic_sequence, pattern[i].reverse)
                     if length(genomic_sequence) < min_length
                         short += 1
                         continue
                     end
 
-                    push!(records, (i, case, name, genomic_sequence))
+                    push!(records, (i, pattern[i].case, name, genomic_sequence))
 
                     if save_fastq_files
                         dir_path = "$(fastq_path)_split"
                         isdir(dir_path) || mkpath(dir_path)
 
-                        fastq_writer = get!(fastq_writers, case) do
-                            io_stream = open(joinpath(dir_path, "$(case).fastq"), "w")
+                        fastq_writer = get!(fastq_writers, pattern[i].case) do
+                            io_stream = open(joinpath(dir_path, "$(pattern[i].case).fastq"), "w")
                             FASTX.FASTQ.Writer(io_stream)
                         end
 

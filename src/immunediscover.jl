@@ -43,7 +43,7 @@ module immunediscover
 
     """
         concatenate_columns(row, col_names)
-    
+
     Helper function to concatenate content from columns
     """
     function concatenate_columns(row, col_names)
@@ -82,7 +82,7 @@ module immunediscover
 
     """
         real_main(args=[])
-    
+
     Main function for Julia
     """
     function real_main(args=[])
@@ -178,7 +178,7 @@ module immunediscover
                         @info "Extending provided D gene sequences by 20 nucleotides on each side from most common genomic pattern"
                         nameDs = filter(x->occursin(r"^IGHD[0-9].*", x[1]), DB)
                         demux = blast.load_csv(parsed_args["blast"]["input"])
-                        extended_Ds = accumulate_Ds(nameDs, demux, ext_size=parsed_args["blast"]["extend"])                    
+                        extended_Ds = accumulate_Ds(nameDs, demux, ext_size=parsed_args["blast"]["extend"])
                         save_Ds(extended_Ds, ext_fasta_path)
                         @info "Using $ext_fasta_path for BLAST"
                     else
@@ -281,19 +281,19 @@ module immunediscover
                     gene_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
                     return DataFrame(gene_count = fill(gene_count, nrow(group)))
                 end
-                
+
                 transform!(groupby(counts_df, [:well, :case])) do group
                     filtered_group = filter(row -> startswith(row.db_name, locus), group)
                     case_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
                     return DataFrame(case_count = fill(case_count, nrow(group)))
                 end
-                
+
                 transform!(groupby(counts_df, [:well, :case, :gene])) do group
                     filtered_group = filter(row -> startswith(row.db_name, locus), group)
                     median_gene_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
                     return DataFrame(median_gene_count = fill(median_gene_count, nrow(group)))
                 end
-                
+
                 transform!(groupby(counts_df, [:well, :case])) do group
                     filtered_group = filter(row -> startswith(row.db_name, locus), group)
                     median_case_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
@@ -412,7 +412,7 @@ module immunediscover
                 filter!(x->x.ratio >= parsed_args["pattern"]["minfreq"], final)
                 # Filter pseudo genes
                 patterns.filter_and_report!(final, blacklist)
- 
+
                 CSV.write(output, final, compress=true, delim='\t')
                 @info "Pattern search data saved in compressed $output file"
             end
@@ -565,7 +565,7 @@ module immunediscover
 
     """
         julia_main(args=[])::Cint
-    
+
     Entry point C call for main function for Julia
     """
     function julia_main()::Cint

@@ -290,7 +290,7 @@ module cli
         "fasta"
             help = "FASTA file with query alleles"
             required = true
-        "output"    
+        "output"
             help = "TSV file to save ouput"
             required = true
         "-f", "--minratio"
