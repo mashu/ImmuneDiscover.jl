@@ -92,6 +92,7 @@ module immunediscover
                 @info "Demultiplexing"
                 table, stats = immunediscover.demultiplex.demux(parsed_args["demultiplex"]["fastq"],
                                                          parsed_args["demultiplex"]["indices"],
+                                                         parsed_args["demultiplex"]["forwardarrayindex"],
                                                          min_length=parsed_args["demultiplex"]["length"],
                                                          save_fastq_files=parsed_args["demultiplex"]["split"])
                 logfile = "$(parsed_args["demultiplex"]["output"]).log"

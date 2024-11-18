@@ -107,6 +107,10 @@ module cli
             "-s", "--split"
                 help = "Split FASTQ files per case"
                 action = :store_true
+            "-f", "--forwardarrayindex"
+                help = "Forward array index to use for demultiplexing"
+                arg_type = String
+                default = ""
         end
 
         @add_arg_table! s["diff"] begin

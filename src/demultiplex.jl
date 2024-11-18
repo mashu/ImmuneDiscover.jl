@@ -7,11 +7,11 @@ module demultiplex
     using .data
 
     """
-        demux(fastq_path, indices_path; min_length=0, save_fastq_files=false)
+        demux(fastq_path, indices_path, array_index=""; min_length=0, save_fastq_files=false)
 
     Function to demultiplex plate with indices using double barcoding
     """
-    function demux(fastq_path, indices_path; min_length=0, save_fastq_files=false)
+    function demux(fastq_path, indices_path, array_index=""; min_length=0, save_fastq_files=false)
         indices = CSV.File(indices_path)
         @assert all(string.(eachindex(first(indices))) .== ["forward_index","reverse_index","case"]) "File must contain following columns forward_index, reverse_index, case"
         @info "Loaded $(length(indices)) indices"
@@ -21,7 +21,15 @@ module demultiplex
         total = 0
         short = 0
 
-        pattern = [(forward = Regex(i.forward_index), reverse = Regex(i.reverse_index), case = i.case,) for i in indices]
+        pattern = if !isempty(array_index)
+            [(forward = Regex(string("^.{2}", array_index, ".{24}", i.forward_index)),
+              reverse = Regex(i.reverse_index),
+              case = i.case,) for i in indices]
+        else
+            [(forward = Regex(i.forward_index),
+              reverse = Regex(i.reverse_index),
+              case = i.case,) for i in indices]
+        end
 
         # Processing callback
         data.process_fastq(fastq_path) do record
