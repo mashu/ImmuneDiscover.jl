@@ -119,7 +119,7 @@ module blast
         end
         return singleton
     end
-    
+
     function save_Ds(extended_Ds, fasta_path)
         open(fasta_path, "w") do io
             for (name, sequence) in extended_Ds
@@ -158,7 +158,7 @@ module blast
         db_p = Vector{Tuple{String, String}}()
         if pseudo != ""
             for (name, seq) in read_fasta(pseudo)
-                push!(db_p, ("P"*name, seq)) 
+                push!(db_p, ("P"*name, seq))
             end
         end
         for (name, seq) in read_fasta(db_fasta)
@@ -171,6 +171,7 @@ module blast
 
         # Save query sequences to a FASTA file
         df = load_csv(tsv_path)
+        @info "Read $(nrow(df)) rows from $tsv_path file before BLAST assignment"
         query_fasta = replace_extension(tsv_path, "fasta")
         blast_tsv = replace_extension(tsv_path, "blast")
 
@@ -195,15 +196,17 @@ module blast
 
         # Read the BLAST results
         blast = CSV.File(blast_tsv*".gz", delim='\t') |> DataFrame
-
+        @info "BLASTn results read from $(blast_tsv).gz: $(nrow(blast)) rows"
         # Rename the columns
         rename!(blast, [:qseqid, :sseqid, :pident, :length, :mismatch, :gapopen, :qstart, :qend, :sstart, :send, :evalue, :bitscore, :sstrand, :qseq])
 
         # Discard pseudo genes
         filter!(x->!startswith(x.sseqid, "P"), blast)
 
+        @info "BLASTn results after filtering pseudo genes: $(nrow(blast)) rows"
         # Filter the results
         filter!(x->x.mismatch <= max_dist, blast)
+        @info "BLASTn results after filtering mismatches: $(nrow(blast)) rows"
 
         # Add the well and case columns
         read_name = Dict([(r.name,(r.well, r.case)) for r in eachrow(df)])
@@ -211,7 +214,9 @@ module blast
         blast[:,:case] = [read_name[x.qseqid][2] for x in eachrow(blast)]
 
         # Count the number of matches
-        clusters = combine(groupby(filter(x->x.mismatch .<= max_dist, blast), [:well, :case, :sseqid, :qseq,:mismatch]), :qseqid => length => :count)
+        clusters = combine(groupby(filter(x->x.mismatch .<= max_dist, blast), [:well, :case, :sseqid, :qseq, :mismatch]), :qseqid => length => :count)
+
+        @info "Clusters after grouping by well, case, sseqid, qseq, mismatch: $(nrow(clusters)) rows"
 
         # Add the gene column
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
@@ -224,9 +229,11 @@ module blast
 
         # Filter the results
         filter!(x->x.count >= min_count, clusters_sorted)
+        @info "Clusters after filtering by count: $(nrow(clusters_sorted)) rows"
         filter!(x->x.frequency >= min_frequency, clusters_sorted)
+        @info "Clusters after filtering by frequency: $(nrow(clusters_sorted)) rows"
         filter!(x->length(x.qseq) >= min_length, clusters_sorted)
-
+        @info "Clusters after filtering by minimum length: $(nrow(clusters_sorted)) rows"
         # Save the results
         return clusters_sorted
     end
