@@ -153,7 +153,7 @@ module blast
 
     Peform assignments and discovery of alleles based on BLAST results
     """
-    function blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, pseudo="", args="")
+    function blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, pseudo="", args="", verbose=false)
         # Alter db_fasta
         db_p = Vector{Tuple{String, String}}()
         if pseudo != ""
@@ -204,10 +204,17 @@ module blast
         filter!(x->!startswith(x.sseqid, "P"), blast)
 
         @info "BLASTn results after filtering pseudo genes: $(nrow(blast)) rows"
+        if verbose
+            @info "Saving BLAST results after filtering pseudo genes to $(blast_tsv)-pseudo.tsv"
+            CSV.write(blast_tsv*"-pseudo.tsv", blast)
+        end
         # Filter the results
         filter!(x->x.mismatch <= max_dist, blast)
         @info "BLASTn results after filtering mismatches: $(nrow(blast)) rows"
-
+        if verbose
+            @info "Saving BLAST results after filtering mismatches to $(blast_tsv)-mismatch.tsv"
+            CSV.write(blast_tsv*"-mismatch.tsv", blast)
+        end
         # Add the well and case columns
         read_name = Dict([(r.name,(r.well, r.case)) for r in eachrow(df)])
         blast[:,:well] = [read_name[x.qseqid][1] for x in eachrow(blast)]
@@ -217,7 +224,10 @@ module blast
         clusters = combine(groupby(filter(x->x.mismatch .<= max_dist, blast), [:well, :case, :sseqid, :qseq, :mismatch]), :qseqid => length => :count)
 
         @info "Clusters after grouping by well, case, sseqid, qseq, mismatch: $(nrow(clusters)) rows"
-
+        if verbose
+            @info "Saving clusters to $(blast_tsv)-clusters.tsv"
+            CSV.write(blast_tsv*"-clusters.tsv", clusters)
+        end
         # Add the gene column
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
 
@@ -230,10 +240,22 @@ module blast
         # Filter the results
         filter!(x->x.count >= min_count, clusters_sorted)
         @info "Clusters after filtering by count: $(nrow(clusters_sorted)) rows"
+        if verbose
+            @info "Saving clusters after filtering by count to $(blast_tsv)-clusters-filtered-count.tsv"
+            CSV.write(blast_tsv*"-clusters-filtered-count.tsv", clusters_sorted)
+        end
         filter!(x->x.frequency >= min_frequency, clusters_sorted)
         @info "Clusters after filtering by frequency: $(nrow(clusters_sorted)) rows"
+        if verbose
+            @info "Saving clusters after filtering by frequency to $(blast_tsv)-clusters-filtered-freq.tsv"
+            CSV.write(blast_tsv*"-clusters-filtered-freq.tsv", clusters_sorted)
+        end
         filter!(x->length(x.qseq) >= min_length, clusters_sorted)
         @info "Clusters after filtering by minimum length: $(nrow(clusters_sorted)) rows"
+        if verbose
+            @info "Saving clusters after filtering by minimum length to $(blast_tsv)-clusters-filtered-minlen.tsv"
+            CSV.write(blast_tsv*"-clusters-filtered-minlen.tsv", clusters_sorted)
+        end
         # Save the results
         return clusters_sorted
     end

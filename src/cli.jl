@@ -285,6 +285,9 @@ module cli
             default = 20
             arg_type = Int
             range_tester = (x->x >= 0)
+        "-v", "--verbose"
+            help = "Print verbose output and save intermediate files"
+            action = :store_true
         end
 
         @add_arg_table! s["exact"] begin
