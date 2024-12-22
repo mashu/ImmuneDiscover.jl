@@ -274,7 +274,7 @@ module cli
         "-a", "--args"
             help = "Additional arguments to pass to blastn"
             arg_type = String
-            default = "-task blastn"
+            default = "-task blastn -subject_besthit -num_alignments 20 -max_target_seqs 2"
         "-g", "--gene"
             default = "V"
             range_tester = (x->x ∈ genes)

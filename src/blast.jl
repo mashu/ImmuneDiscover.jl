@@ -71,7 +71,7 @@ module blast
         output_format::String = "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sstrand qseq", args="")
         nthreads = Threads.nthreads()
         makeblastdb_cmd = `makeblastdb -in $database -dbtype nucl -parse_seqids`
-        blastn_cmd = `blastn $(split(args)) -subject_besthit -num_alignments 1 -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $output_format`
+        blastn_cmd = `blastn $(split(args)) -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $output_format`
         run(makeblastdb_cmd)
         run(blastn_cmd)
     end
