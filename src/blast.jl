@@ -6,6 +6,7 @@ module blast
     using BioAlignments
     include("data.jl")
     export blast_discover, save_to_fasta, accumulate_Ds, save_Ds
+    const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "evalue", "bitscore", "sstrand", "qseq"]
 
     """
         load_fasta(filepath::String) -> Vector{Tuple{String, String}}
@@ -76,7 +77,7 @@ module blast
     - `output_format::String`: Output format (e.g., "6" for tabular).
     """
     function blastn(query_file::String, database::String, output_file::String;
-        output_format::String = "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore sstrand qseq", args="")
+        output_format::String = "6 $(join(columns, ' '))", args="")
         nthreads = Threads.nthreads()
         makeblastdb_cmd = `makeblastdb -in $database -dbtype nucl -parse_seqids`
         blastn_cmd = `blastn $(split(args)) -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $output_format`
@@ -242,13 +243,10 @@ module blast
         rm(combined_db_fasta)
 
         # Read the BLAST results
-        blast = CSV.File(blast_tsv*".gz", delim='\t') |> DataFrame
+        blast = CSV.File(blast_tsv*".gz", delim='\t', header=columns) |> DataFrame
         @info "BLASTn results read from $(blast_tsv).gz: $(nrow(blast)) rows"
-        # Rename the columns
-        rename!(blast, [:qseqid, :sseqid, :pident, :length, :mismatch, :gapopen, :qstart, :qend, :sstart, :send, :evalue, :bitscore, :sstrand, :qseq])
         # Remove gaps from the query sequence
-        blast.qseq = replace.(blast.qseq, "-" => "")
-
+        transform!(blast, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
         # Discard pseudo genes
         filter!(x->!startswith(x.sseqid, "P"), blast)
 
