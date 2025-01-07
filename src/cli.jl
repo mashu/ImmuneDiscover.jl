@@ -275,6 +275,9 @@ module cli
             help = "Additional arguments to pass to blastn"
             arg_type = String
             default = "-task blastn -subject_besthit -num_alignments 20 -max_target_seqs 2"
+        "-o",  "--overwrite"
+            help = "Overwrite existing files (i.e BLAST cache)"
+            action = :store_true
         "-g", "--gene"
             default = "V"
             range_tester = (x->x ∈ genes)

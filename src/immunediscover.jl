@@ -174,6 +174,7 @@ module immunediscover
                 fasta_path = parsed_args["blast"]["fasta"]
                 DB = load_fasta(fasta_path, validate=false)
                 verbose = parsed_args["blast"]["verbose"]
+                overwrite = parsed_args["blast"]["overwrite"]
                 if parsed_args["blast"]["gene"] == "D"
                     ext_fasta_path = blast.replace_extension(fasta_path,"fasta"; tag="-extended")
                     if !isfile(ext_fasta_path)
@@ -191,7 +192,7 @@ module immunediscover
                 # Run discovery
                 blast_clusters = blast_discover(parsed_args["blast"]["input"], fasta_path,
                 max_dist=parsed_args["blast"]["maxdist"], min_count=parsed_args["blast"]["mincount"], min_frequency=parsed_args["blast"]["minfreq"], pseudo=parsed_args["blast"]["pseudo"],
-                min_length=parsed_args["blast"]["length"], args=parsed_args["blast"]["args"], verbose=verbose)
+                min_length=parsed_args["blast"]["length"], args=parsed_args["blast"]["args"], verbose=verbose, overwrite=overwrite)
                 # Correct D core with an alignment
                 if parsed_args["blast"]["gene"] == "D"
                     @info "Re-aligning D core and renaming alleles for D genes"

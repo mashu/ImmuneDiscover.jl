@@ -153,7 +153,7 @@ module blast
 
     Peform assignments and discovery of alleles based on BLAST results
     """
-    function blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, pseudo="", args="", verbose=false)
+    function blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, pseudo="", args="", verbose=false, overwrite=false)
         # Alter db_fasta
         db_p = Vector{Tuple{String, String}}()
         if pseudo != ""
@@ -180,14 +180,14 @@ module blast
         save_to_fasta(query_sequences, query_fasta)
 
         # If file does not exist run blast
-        if !isfile(blast_tsv*".gz")
+        if isfile(blast_tsv*".gz") && !overwrite
+            @info "BLASTn results already exist $(blast_tsv).gz. Skipping BLASTn."
+        else
             @info "Running BLASTn. This may take a while."
             # Run BLAST
             blastn(query_fasta, combined_db_fasta, blast_tsv, args=args)
             # Compress the BLAST results
             run(`gzip -f $blast_tsv`)
-        else
-            @info "BLASTn results already exist $(blast_tsv).gz. Skipping BLASTn."
         end
 
         # Remove fasta reads file
