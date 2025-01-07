@@ -148,12 +148,50 @@ module blast
         return aligned_query[pos], distance
     end
 
+    function verify_blastn_version(min_version::VersionNumber, max_version::VersionNumber)
+        try
+            # Run blastn to get version info
+            cmd_output = read(`blastn -version`, String)
+
+            # Extract version number from output
+            # Typical output looks like: "blastn: 2.13.0+"
+            version_match = match(r"blastn:\s+(\d+\.\d+\.\d+)", cmd_output)
+
+            if isnothing(version_match)
+                return (false, "Could not parse blastn version")
+            end
+
+            current_version = VersionNumber(version_match[1])
+
+            if min_version ≤ current_version ≤ max_version
+                return (true, "blastn version $current_version is within acceptable range")
+            else
+                return (false, "blastn version $current_version is outside acceptable range ($min_version - $max_version)")
+            end
+
+        catch e
+            if isa(e, SystemError)
+                return (false, "blastn command not found in PATH")
+            else
+                return (false, "Error checking blastn version: $(string(e))")
+            end
+        end
+    end
+
     """
         blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1)
 
     Peform assignments and discovery of alleles based on BLAST results
     """
     function blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, pseudo="", args="", verbose=false, overwrite=false)
+        min_ver = v"2.15.0"
+        max_ver = v"2.16.0"
+        is_valid, message = verify_blastn_version(min_ver, max_ver)
+        @info message
+        if !is_valid
+            @warn "Please install BLAST version $min_ver - $max_ver"
+            exit(1)
+        end
         # Alter db_fasta
         db_p = Vector{Tuple{String, String}}()
         if pseudo != ""
