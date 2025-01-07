@@ -58,6 +58,14 @@ module blast
             end
         end
     end
+
+    function time_command(cmd::Cmd)
+        start_time = time()
+        run(cmd)
+        elapsed = time() - start_time
+        return elapsed
+    end
+
     """
     Performs a BLASTn search using the specified query and database, then saves the results in the specified output format.
 
@@ -73,7 +81,8 @@ module blast
         makeblastdb_cmd = `makeblastdb -in $database -dbtype nucl -parse_seqids`
         blastn_cmd = `blastn $(split(args)) -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $output_format`
         run(makeblastdb_cmd)
-        run(blastn_cmd)
+        elapsed = time_command(blastn_cmd)
+        @info "BLASTn search completed in $(elapsed) seconds."
     end
 
     """
