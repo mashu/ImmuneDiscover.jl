@@ -177,8 +177,8 @@ module immunediscover
                 overwrite = parsed_args["blast"]["overwrite"]
                 if parsed_args["blast"]["gene"] == "D"
                     ext_fasta_path = blast.replace_extension(fasta_path,"fasta"; tag="-extended")
-                    if !isfile(ext_fasta_path)
-                        @info "Extending provided D gene sequences by 20 nucleotides on each side from most common genomic pattern"
+                    if !isfile(ext_fasta_path) || overwrite
+                        @info "Extending provided D gene sequences by n nucleotides on each side from most common genomic pattern"
                         nameDs = filter(x->occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
                         demux = blast.load_csv(parsed_args["blast"]["input"])
                         extended_Ds = accumulate_Ds(nameDs, demux, ext_size=parsed_args["blast"]["extend"])
