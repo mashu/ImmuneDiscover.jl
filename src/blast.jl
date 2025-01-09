@@ -97,12 +97,11 @@ module blast
         return first(splitext) * tag * '.' * new_extension
     end
 
-    function accumulate_Ds(nameDs, dmux; ext_size=20)
+    function accumulate_Ds(nameDs, dmux; forward_extension=20, reverse_extension=20)
         singleton = Vector{Tuple{String, String, String, String}}()
         for (name, sequence) in nameDs
             prefix = Accumulator{String,Int}()
             suffix = Accumulator{String,Int}()
-            offset = ext_size
             for i in eachrow(dmux)
                 pos = findfirst(sequence, i.genomic_sequence)
                 genomic_sequence = i.genomic_sequence
@@ -111,11 +110,11 @@ module blast
                 end
                 start = minimum(pos)
                 stop = maximum(pos)
-                if start-offset < 1 || stop+offset > length(i.genomic_sequence)
+                if start-forward_extension < 1 || stop+reverse_extension > length(i.genomic_sequence)
                     continue
                 end
-                pre = genomic_sequence[start-offset:start-1]
-                suf = genomic_sequence[stop+1:stop+offset]
+                pre = genomic_sequence[start-forward_extension:start-1]
+                suf = genomic_sequence[stop+1:stop+reverse_extension]
                 push!(prefix, pre)
                 push!(suffix, suf)
             end

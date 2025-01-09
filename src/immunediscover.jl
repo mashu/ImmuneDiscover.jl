@@ -182,7 +182,9 @@ module immunediscover
                         @info "Extending provided D gene sequences by n nucleotides on each side from most common genomic pattern"
                         nameDs = filter(x->occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
                         demux = blast.load_csv(parsed_args["blast"]["input"])
-                        extended_Ds = accumulate_Ds(nameDs, demux, ext_size=parsed_args["blast"]["extend"])
+                        forward_extension = parsed_args["blast"]["forward"]
+                        reverse_extension = parsed_args["blast"]["reverse"]
+                        extended_Ds = accumulate_Ds(nameDs, demux, forward_extension=forward_extension, reverse_extension=reverse_extension)
                         affixes = save_Ds(extended_Ds, ext_fasta_path)
                         @info "Using $ext_fasta_path for BLAST"
                     else
