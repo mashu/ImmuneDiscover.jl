@@ -315,6 +315,9 @@ module blast
         # Read the BLAST results
         blast = CSV.File(blast_tsv*".gz", delim='\t', header=columns) |> DataFrame
         @info "BLASTn results read from $(blast_tsv).gz: $(nrow(blast)) rows"
+        # Take best hits from BLAST based on coverage, identity, and bitscore
+        blast = combine(groupby(blast, :qseqid), x -> first(sort(x, [:pident, :qcovhsp, :qcovs, :bitscore], rev=true)))
+        @info "BLASTn results after taking best hits: $(nrow(blast)) rows"
         # Remove gaps from the query sequence
         transform!(blast, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
         # Discard pseudo genes
