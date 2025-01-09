@@ -175,6 +175,7 @@ module immunediscover
                 DB = load_fasta(fasta_path, validate=false)
                 verbose = parsed_args["blast"]["verbose"]
                 overwrite = parsed_args["blast"]["overwrite"]
+                affixes = nothing
                 if parsed_args["blast"]["gene"] == "D"
                     ext_fasta_path = blast.replace_extension(fasta_path,"fasta"; tag="-extended")
                     if !isfile(ext_fasta_path) || overwrite
@@ -182,7 +183,7 @@ module immunediscover
                         nameDs = filter(x->occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
                         demux = blast.load_csv(parsed_args["blast"]["input"])
                         extended_Ds = accumulate_Ds(nameDs, demux, ext_size=parsed_args["blast"]["extend"])
-                        save_Ds(extended_Ds, ext_fasta_path)
+                        affixes = save_Ds(extended_Ds, ext_fasta_path)
                         @info "Using $ext_fasta_path for BLAST"
                     else
                         @info "Using $ext_fasta_path for BLAST as it already exists"
@@ -193,12 +194,17 @@ module immunediscover
                 blast_clusters = blast_discover(parsed_args["blast"]["input"], fasta_path,
                 max_dist=parsed_args["blast"]["maxdist"], min_count=parsed_args["blast"]["mincount"], min_frequency=parsed_args["blast"]["minfreq"], pseudo=parsed_args["blast"]["pseudo"],
                 min_length=parsed_args["blast"]["length"], args=parsed_args["blast"]["args"], verbose=verbose, overwrite=overwrite)
+                # Add collected affixes if not added yet
+                if (affixes !== nothing) && (!any(occursin.("prefix", names(blast_clusters))))
+                    @info "Using affixes to trim extended sequences"
+                    leftjoin!(blast_clusters, DataFrame(affixes, [:sseqid, :prefix, :suffix]), on=:sseqid)
+                end
                 # Correct D core with an alignment
                 if parsed_args["blast"]["gene"] == "D"
-                    @info "Re-aligning D core and renaming alleles for D genes"
+                    @info "Re-aligning core and renaming alleles"
                     DBdict = Dict(DB)
                     transform!(blast_clusters, :sseqid => ByRow(x->DBdict[String(x)]) => :db_seq)
-                    transform!(blast_clusters, [:qseq, :db_seq] => ByRow((qseq, db_seq) -> blast.semilocal_alignment(String(qseq), String(db_seq))) => [:aln_qseq, :aln_mismatch])
+                    transform!(blast_clusters, [:qseq, :prefix, :suffix, :db_seq] => ByRow((qseq, prefix, suffix, db_seq) -> blast.trim_and_align_sequence(String(qseq), String(prefix), String(suffix), String(db_seq))) => [:aln_qseq, :aln_mismatch])
                     # Apply again distance based filtler for Ds after the core has been re-aligned and we know the number of mismatches in the core
                     filter!(x->x.aln_mismatch <= parsed_args["blast"]["maxdist"], blast_clusters)
                     # Compute new name for all rows where distance != 0 based on column closest

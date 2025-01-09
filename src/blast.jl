@@ -4,6 +4,7 @@ module blast
     using FASTX
     using DataStructures
     using BioAlignments
+    using BioSequences
     include("data.jl")
     export blast_discover, save_to_fasta, accumulate_Ds, save_Ds
     const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "evalue", "bitscore", "sstrand", "qseq"]
@@ -97,7 +98,7 @@ module blast
     end
 
     function accumulate_Ds(nameDs, dmux; ext_size=20)
-        singleton = Vector{Tuple{String, String}}()
+        singleton = Vector{Tuple{String, String, String, String}}()
         for (name, sequence) in nameDs
             prefix = Accumulator{String,Int}()
             suffix = Accumulator{String,Int}()
@@ -125,20 +126,22 @@ module blast
             common_prefix, common_prefix_count = last(sort(collect(prefix),by=x->x[2]))
             common_suffix, common_suffix_count = last(sort(collect(suffix),by=x->x[2]))
             println("Extending $name with top $common_prefix ($common_prefix_count) prefixes and $common_suffix ($common_suffix_count) suffixes")
-            push!(singleton, (name, "$(common_prefix)$sequence$(common_suffix)"))
+            push!(singleton, (name, "$(common_prefix)$sequence$(common_suffix)", "$common_prefix","$common_suffix"))
         end
         return singleton
     end
 
     function save_Ds(extended_Ds, fasta_path)
+        base_affixes = Vector{Tuple{String, String, String}}()
         open(fasta_path, "w") do io
-            for (name, sequence) in extended_Ds
+            for (name, sequence, prefix, suffix) in extended_Ds
                 record = ">$name\n$sequence\n"
                 write(io, record)
+                push!(base_affixes, (name, prefix, suffix))
             end
         end
+        return base_affixes
     end
-
 
     # Helper funciton to remove BLAST gaps before re-aligning
     nogaps(s) = replace(s,'-'=>"")
@@ -156,6 +159,74 @@ module blast
         end
         distance = sum([x != y for (x,y) in zip(aligned_query[pos], aligned_reference[pos])])
         return aligned_query[pos], distance
+    end
+
+    function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String)
+        nogaps(s) = replace(s, '-' => "")
+
+        # Convert strings to DNA sequences
+        query_dna = BioSequences.LongDNA{4}(query)
+        prefix_dna = BioSequences.LongDNA{4}(prefix)
+        suffix_dna = BioSequences.LongDNA{4}(suffix)
+        reference_dna = BioSequences.LongDNA{4}(reference)
+
+        # Define search regions
+        template_prefix_length = length(prefix_dna) * 2
+        template_suffix_length = length(suffix_dna) * 2
+
+        # Ensure query is long enough for trimming
+        if length(query_dna) < (template_prefix_length + template_suffix_length)
+            error("Query sequence too short for trimming")
+        end
+
+        # Extract template regions
+        template_prefix = query_dna[1:template_prefix_length]
+        template_suffix = query_dna[end-template_suffix_length+1:end]
+
+        # Setup alignment models
+        trim_scoremodel = AffineGapScoreModel(EDNAFULL, gap_open=-5, gap_extend=-1)
+        ref_scoremodel = AffineGapScoreModel(EDNAFULL, gap_open=-20, gap_extend=-1)
+
+        # Perform trim alignments
+        aln_prefix = pairalign(SemiGlobalAlignment(), prefix_dna, template_prefix, trim_scoremodel)
+        aln_suffix = pairalign(SemiGlobalAlignment(), suffix_dna, template_suffix, trim_scoremodel)
+
+        # Get alignments
+        prefix_aln = alignment(aln_prefix)
+        suffix_aln = alignment(aln_suffix)
+
+        # Convert alignments to strings and find trim positions
+        prefix_str = join(first.(collect(prefix_aln)))
+        suffix_str = join(first.(collect(suffix_aln)))
+
+        prefix_end = findfirst('-', prefix_str)
+        suffix_start = findlast('-', suffix_str)
+
+        # Handle cases where no trim positions are found
+        if isnothing(prefix_end) || isnothing(suffix_start)
+            error("Could not find valid trim positions")
+        end
+
+        # Perform trimming
+        if prefix_end > 1 && suffix_start < length(suffix_str)
+            query_trimmed = query_dna[prefix_end:end-template_suffix_length+suffix_start]
+        else
+            error("Invalid trim positions")
+        end
+
+        # Ensure trimmed sequence is not empty
+        if length(query_trimmed) == 0
+            error("Trimming resulted in empty sequence")
+        end
+
+        # Perform reference alignment
+        ref_aln = pairalign(SemiGlobalAlignment(), reference_dna, query_trimmed, ref_scoremodel)
+        ref_alignment = alignment(ref_aln)
+
+        # Calculate Hamming distance between aligned sequences
+        distance = count(pair -> pair[1] != pair[2], ref_alignment)
+
+        return String(query_trimmed), distance
     end
 
     function verify_blastn_version(min_version::VersionNumber, max_version::VersionNumber)
