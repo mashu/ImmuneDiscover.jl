@@ -179,7 +179,7 @@ module simulate
     Generate input FASTA file with mutated sequences, reference FASTA, and novel FASTA.
     Also generates indices.tsv with barcodes for two donors.
     """
-    function generate_fasta_with_mutations(input_fasta::String, indices_tsv::String, reference_fasta::String="reference.fasta", novel_fasta::String="novel.fasta")
+    function generate_fasta_with_mutations(input_fasta::String, indices_tsv::String, reference_fasta::String="reference.fasta", novel_fasta::String="novel.fasta"; mutation_lengths = [0, 1, 3, 6])
         # First generate the barcode indices file
         indices = generate_barcode_indices(indices_tsv)
 
@@ -198,7 +198,6 @@ module simulate
         mutation_types = [:mid_insert, :mid_delete, :mid_substitute,
                          :five_insert, :five_delete, :five_substitute,
                          :three_insert, :three_delete, :three_substitute]
-        mutation_lengths = [1, 3, 6]  # Specific mutation lengths
 
         # Add signals to reference sequence to calculate padding
         base_with_signals = string(LEADER_SIGNAL, ref_seq, RSS_SIGNAL)
@@ -225,8 +224,11 @@ module simulate
             for mutation_type in mutation_types
                 for mutation_length in mutation_lengths
                     # First generate single mutated sequence and save to novel.fasta
-                    mutated_seq, mut_type, mut_len = apply_mutation(ref_seq, mutation_type, mutation_length)
-                    novel_name = "novel_$(mut_type)_$(mut_len)nt"
+                    mutated_seq, mut_type, mut_len = ref_seq, "nothing", 0
+                    if mutation_length > 0
+                        mutated_seq, mut_type, mut_len = apply_mutation(ref_seq, mutation_type, mutation_length)
+                    end
+                    novel_name = "seq_$(mut_type)_$(mut_len)nt"
                     novel_name_hash = unique_name(novel_name, mutated_seq)
                     push!(novel_records, FASTARecord(novel_name_hash, mutated_seq))
 

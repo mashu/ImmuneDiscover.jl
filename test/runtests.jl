@@ -15,6 +15,7 @@ using immunediscover.hamming
 using immunediscover.patterns
 using immunediscover.heptamer
 using immunediscover.keyedsets
+using immunediscover.blast
 
 # Initialize a dictionary to track test outcomes
 test_outcomes = Dict(
@@ -128,7 +129,7 @@ test_outcomes = Dict(
         # Test basic properties
         @test length(ref_db) == 1  # Should have one reference sequence
         @test nrow(indices_df) == 2  # Should have two donors
-        @test length(novel_db) == 54  # 9 mutation types × 3 lengths × 2 donors
+        @test length(novel_db) == 72  # 9 mutation types × 3 lengths × 2 donors + 34 reference sequences
 
         # Test indices structure with clear error messages
         col_names = names(indices_df)
