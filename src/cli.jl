@@ -263,7 +263,7 @@ module cli
             arg_type = Int
         "-d", "--maxdist"
             help = "Maximum distance allowed for alleles"
-            default = 10
+            default = 20
             arg_type = Int
             range_tester = (x->x >= 0)
         "-l", "--length"
@@ -274,7 +274,7 @@ module cli
         "-a", "--args"
             help = "Additional arguments to pass to blastn"
             arg_type = String
-            default = "-task blastn-short -subject_besthit -num_alignments 5 -qcov_hsp_perc 1"
+            default = "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
         "-o",  "--overwrite"
             help = "Overwrite existing files (i.e BLAST cache)"
             action = :store_true
