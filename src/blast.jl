@@ -160,6 +160,32 @@ module blast
         return aligned_query[pos], distance
     end
 
+
+    function trim_sequence(query::LongDNA{4}, prefix::LongDNA{4}, suffix::LongDNA{4},
+        scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1))
+        # Trim prefix
+        prefix_aln = alignment(pairalign(SemiGlobalAlignment(), prefix, query, scoremodel))
+        prefix_pairs = collect(prefix_aln)
+        aligned_prefix = first.(prefix_pairs)
+        aligned_query = last.(prefix_pairs)
+        core_start = findfirst(x -> x == DNA_Gap, aligned_prefix)
+        partial_query = LongDNA{4}(join(aligned_query[core_start:end]))
+
+        # Trim suffix
+        suffix_aln = alignment(pairalign(SemiGlobalAlignment(), suffix, partial_query, scoremodel))
+        suffix_pairs = collect(suffix_aln)
+        aligned_suffix = first.(suffix_pairs)
+        aligned_query = last.(suffix_pairs)
+        core_end = findlast(x -> x == DNA_Gap, aligned_suffix)
+
+        return LongDNA{4}(join(aligned_query[1:core_end]))
+    end
+
+    function compute_edit_distance(query::String, reference::String)
+       aln = pairalign(LevenshteinDistance(), reference, query)
+       return score(aln)
+    end
+
     function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String)
         nogaps(s) = replace(s, '-' => "")
 
@@ -167,65 +193,11 @@ module blast
         query_dna = BioSequences.LongDNA{4}(query)
         prefix_dna = BioSequences.LongDNA{4}(prefix)
         suffix_dna = BioSequences.LongDNA{4}(suffix)
-        reference_dna = BioSequences.LongDNA{4}(reference)
 
-        # Define search regions
-        template_prefix_length = length(prefix_dna) * 2
-        template_suffix_length = length(suffix_dna) * 2
+        trimmed = string(trim_sequence(query_dna, prefix_dna, suffix_dna))
+        distance = compute_edit_distance(trimmed, reference)
 
-        # Ensure query is long enough for trimming
-        if length(query_dna) < (template_prefix_length + template_suffix_length)
-            error("Query sequence too short for trimming")
-        end
-
-        # Extract template regions
-        template_prefix = query_dna[1:template_prefix_length]
-        template_suffix = query_dna[end-template_suffix_length+1:end]
-
-        # Setup alignment models
-        trim_scoremodel = AffineGapScoreModel(EDNAFULL, gap_open=-5, gap_extend=-1)
-        ref_scoremodel = AffineGapScoreModel(EDNAFULL, gap_open=-20, gap_extend=-1)
-
-        # Perform trim alignments
-        aln_prefix = pairalign(SemiGlobalAlignment(), prefix_dna, template_prefix, trim_scoremodel)
-        aln_suffix = pairalign(SemiGlobalAlignment(), suffix_dna, template_suffix, trim_scoremodel)
-
-        # Get alignments
-        prefix_aln = alignment(aln_prefix)
-        suffix_aln = alignment(aln_suffix)
-
-        # Convert alignments to strings and find trim positions
-        prefix_str = join(first.(collect(prefix_aln)))
-        suffix_str = join(first.(collect(suffix_aln)))
-
-        prefix_end = findfirst('-', prefix_str)
-        suffix_start = findlast('-', suffix_str)
-
-        # Handle cases where no trim positions are found
-        if isnothing(prefix_end) || isnothing(suffix_start)
-            error("Could not find valid trim positions")
-        end
-
-        # Perform trimming
-        if prefix_end > 1 && suffix_start < length(suffix_str)
-            query_trimmed = query_dna[prefix_end:end-template_suffix_length+suffix_start]
-        else
-            error("Invalid trim positions")
-        end
-
-        # Ensure trimmed sequence is not empty
-        if length(query_trimmed) == 0
-            error("Trimming resulted in empty sequence")
-        end
-
-        # Perform reference alignment
-        ref_aln = pairalign(SemiGlobalAlignment(), reference_dna, query_trimmed, ref_scoremodel)
-        ref_alignment = alignment(ref_aln)
-
-        # Calculate Hamming distance between aligned sequences
-        distance = count(pair -> pair[1] != pair[2], ref_alignment)
-
-        return String(query_trimmed), distance
+        return String(trimmed), distance
     end
 
     function verify_blastn_version(min_version::VersionNumber, max_version::VersionNumber)
