@@ -193,11 +193,14 @@ module blast
         query_dna = BioSequences.LongDNA{4}(query)
         prefix_dna = BioSequences.LongDNA{4}(prefix)
         suffix_dna = BioSequences.LongDNA{4}(suffix)
-
-        trimmed = string(trim_sequence(query_dna, prefix_dna, suffix_dna))
+        # @info "query: $query"
+        # @info "prefix: $prefix"
+        # @info "suffix: $suffix"
+        # @info "reference: $reference"
+        trimmed = nogaps(string(trim_sequence(query_dna, prefix_dna, suffix_dna)))
         distance = compute_edit_distance(trimmed, reference)
 
-        return String(trimmed), distance
+        return trimmed, distance
     end
 
     function verify_blastn_version(min_version::VersionNumber, max_version::VersionNumber)
@@ -287,6 +290,10 @@ module blast
         # Read the BLAST results
         blast = CSV.File(blast_tsv*".gz", delim='\t', header=columns) |> DataFrame
         @info "BLASTn results read from $(blast_tsv).gz: $(nrow(blast)) rows"
+        if nrow(blast) == 0
+            @error "No BLASTn results found (wrong BLAST parameters?). Exiting."
+            exit(1)
+        end
         # Take best hits from BLAST based on coverage, identity, and bitscore
         blast = combine(groupby(blast, :qseqid), x -> first(sort(x, [:pident, :qcovhsp, :qcovs, :bitscore], rev=true)))
         @info "BLASTn results after taking best hits: $(nrow(blast)) rows"
