@@ -172,6 +172,7 @@ module immunediscover
             if get(parsed_args,"%COMMAND%","") == "blast"
                 @info "Discovery with BLAST assignments"
                 fasta_path = parsed_args["blast"]["fasta"]
+                affixes_path = parsed_args["blast"]["fasta"]*".affixes"
                 DB = load_fasta(fasta_path, validate=false)
                 verbose = parsed_args["blast"]["verbose"]
                 overwrite = parsed_args["blast"]["overwrite"]
@@ -186,6 +187,8 @@ module immunediscover
                         reverse_extension = parsed_args["blast"]["reverse"]
                         extended_Ds = accumulate_Ds(nameDs, demux, forward_extension=forward_extension, reverse_extension=reverse_extension)
                         affixes = save_Ds(extended_Ds, ext_fasta_path)
+                        CSV.write(affixes_path, DataFrame(affixes, [:name, :prefix, :suffix]), delim='\t')
+                        @info "Saved affixes in $affixes_path"
                         @info "Using $ext_fasta_path for BLAST"
                     else
                         @info "Using $ext_fasta_path for BLAST as it already exists"
@@ -196,6 +199,11 @@ module immunediscover
                 blast_clusters = blast_discover(parsed_args["blast"]["input"], fasta_path,
                 max_dist=parsed_args["blast"]["maxdist"], min_count=parsed_args["blast"]["mincount"], min_frequency=parsed_args["blast"]["minfreq"], pseudo=parsed_args["blast"]["pseudo"],
                 min_length=parsed_args["blast"]["length"], args=parsed_args["blast"]["args"], verbose=verbose, overwrite=overwrite)
+                if isfile(affixes_path)
+                    @info "Loading affixes from $affixes_path"
+                    affixes = Tuple.(collect.(eachrow(CSV.read(affixes_path, DataFrame, delim='\t'))))
+                    @info "Loaded $(length(affixes)) affixes"
+                end
                 # Add collected affixes if not added yet
                 if (affixes !== nothing) && (!any(occursin.("prefix", names(blast_clusters))))
                     @info "Using affixes to trim extended sequences"
