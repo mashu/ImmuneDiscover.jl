@@ -215,6 +215,8 @@ module immunediscover
                     DBdict = Dict(DB)
                     transform!(blast_clusters, :sseqid => ByRow(x->DBdict[String(x)]) => :db_seq)
                     transform!(blast_clusters, [:qseq, :prefix, :suffix, :db_seq] => ByRow((qseq, prefix, suffix, db_seq) -> blast.trim_and_align_sequence(String(qseq), String(prefix), String(suffix), String(db_seq))) => [:aln_qseq, :aln_mismatch])
+                    # Skip ones with negative distance (failed alignment of affix)
+                    filter!(x->x.aln_mismatch >= 0, blast_clusters)
                     # Apply again distance based filtler for Ds after the core has been re-aligned and we know the number of mismatches in the core
                     filter!(x->x.aln_mismatch <= parsed_args["blast"]["maxdist"], blast_clusters)
                     # Compute new name for all rows where distance != 0 based on column closest

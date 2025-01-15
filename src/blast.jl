@@ -160,24 +160,67 @@ module blast
         return aligned_query[pos], distance
     end
 
+    function calculate_alignment_quality(pairs)
+        # Find the first and last non-gap positions in the affix (first of each pair)
+        affix_start = findfirst(p -> first(p) != DNA_Gap, pairs)
+        affix_end = findlast(p -> first(p) != DNA_Gap, pairs)
+
+        if affix_start === nothing || affix_end === nothing
+            @warn "No non-gapped region found in affix"
+            return 0.0
+        end
+
+        # Only consider the region where the affix aligns (no gaps in affix)
+        aligned_region = pairs[affix_start:affix_end]
+
+        # Count matches in the aligned region
+        matches = sum(first.(aligned_region) .== last.(aligned_region))
+        total = length(aligned_region)
+
+        return matches / total
+    end
 
     function trim_sequence(query::LongDNA{4}, prefix::LongDNA{4}, suffix::LongDNA{4},
-        scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1))
+        scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1); min_quality=0.75)
         # Trim prefix
         prefix_aln = alignment(pairalign(SemiGlobalAlignment(), prefix, query, scoremodel))
         prefix_pairs = collect(prefix_aln)
+
+        # Check prefix alignment quality
+        prefix_quality = calculate_alignment_quality(prefix_pairs)
+        if prefix_quality < min_quality # Hardcoded threshold for poor quality
+            @warn "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))%) - skipping"
+            return nothing
+        end
+
         aligned_prefix = first.(prefix_pairs)
         aligned_query = last.(prefix_pairs)
         core_start = findfirst(x -> x == DNA_Gap, aligned_prefix)
+
+        if core_start === nothing
+            @warn "No gap found in prefix alignment"
+            return nothing
+        end
+
         partial_query = LongDNA{4}(join(aligned_query[core_start:end]))
 
         # Trim suffix
         suffix_aln = alignment(pairalign(SemiGlobalAlignment(), suffix, partial_query, scoremodel))
         suffix_pairs = collect(suffix_aln)
+
+         # Check suffix alignment quality
+        suffix_quality = calculate_alignment_quality(suffix_pairs)
+        if suffix_quality < min_quality
+            @warn "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))%) - skipping"
+            return nothing
+        end
         aligned_suffix = first.(suffix_pairs)
         aligned_query = last.(suffix_pairs)
         core_end = findlast(x -> x == DNA_Gap, aligned_suffix)
-
+        if core_end === nothing
+            @warn "No gap found in suffix alignment"
+            return nothing
+        end
         return LongDNA{4}(join(aligned_query[1:core_end]))
     end
 
@@ -197,7 +240,12 @@ module blast
         # @info "prefix: $prefix"
         # @info "suffix: $suffix"
         # @info "reference: $reference"
-        trimmed = nogaps(string(trim_sequence(query_dna, prefix_dna, suffix_dna)))
+        trimmed_seq = string(trim_sequence(query_dna, prefix_dna, suffix_dna))
+         # If trimming failed, return empty sequence and negative distance
+        if trimmed_seq === nothing
+            return "", -1
+        end
+        trimmed = nogaps(trimmed_seq)
         distance = compute_edit_distance(trimmed, reference)
 
         return trimmed, distance
