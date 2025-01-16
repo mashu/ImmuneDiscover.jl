@@ -36,7 +36,7 @@ module bwa
                 alns = filter(x->x.score == max_score, alns)
                 descriptions = map(x->description(x, aligner), alns)
 
-                index = map(x->occursin(chromosome_name, x) && occursin(tag, x), descriptions)
+                index = map(x->occursin(chromosome_name, x) && occursin(Regex(tag), x), descriptions)
                 match = descriptions[index]
                 nomatch = descriptions[.!index]
 

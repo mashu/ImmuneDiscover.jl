@@ -621,8 +621,8 @@ module cli
             nargs = '*'  # Accepts zero or more values
             arg_type = String
         "-t", "--tag"
-            help = "Tag to filter by"
-            default = "Primary Assembly"
+            help = "Regex to filter valid descriptions of chromosomes"
+            default = "(.*Primary Assembly.*)|(.*alternate locus.*)"
             arg_type = String
         end
 
