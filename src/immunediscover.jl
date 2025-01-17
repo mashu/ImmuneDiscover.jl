@@ -176,6 +176,7 @@ module immunediscover
                 DB = load_fasta(fasta_path, validate=false)
                 verbose = parsed_args["blast"]["verbose"]
                 overwrite = parsed_args["blast"]["overwrite"]
+                minquality = parsed_args["blast"]["minquality"]
                 affixes = nothing
                 if parsed_args["blast"]["gene"] == "D"
                     ext_fasta_path = blast.replace_extension(fasta_path,"fasta"; tag="-extended")
@@ -214,7 +215,7 @@ module immunediscover
                     @info "Re-aligning core and renaming alleles"
                     DBdict = Dict(DB)
                     transform!(blast_clusters, :sseqid => ByRow(x->DBdict[String(x)]) => :db_seq)
-                    transform!(blast_clusters, [:qseq, :prefix, :suffix, :db_seq] => ByRow((qseq, prefix, suffix, db_seq) -> blast.trim_and_align_sequence(String(qseq), String(prefix), String(suffix), String(db_seq))) => [:aln_qseq, :aln_mismatch])
+                    transform!(blast_clusters, [:qseq, :prefix, :suffix, :db_seq] => ByRow((qseq, prefix, suffix, db_seq) -> blast.trim_and_align_sequence(String(qseq), String(prefix), String(suffix), String(db_seq), min_quality=minquality)) => [:aln_qseq, :aln_mismatch])
                     # Skip ones with negative distance (failed alignment of affix)
                     filter!(x->x.aln_mismatch >= 0, blast_clusters)
                     # Apply again distance based filtler for Ds after the core has been re-aligned and we know the number of mismatches in the core
@@ -230,7 +231,6 @@ module immunediscover
                 @info "Saving discovered sequences after BLAST in compressed $output file"
                 CSV.write(output, blast_clusters, compress=true, delim='\t')
             end
-
             if get(parsed_args,"%COMMAND%","") == "exact"
                 @info "Exact search"
                 limit = parsed_args["exact"]["limit"]

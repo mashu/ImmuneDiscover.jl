@@ -145,21 +145,6 @@ module blast
     # Helper funciton to remove BLAST gaps before re-aligning
     nogaps(s) = replace(s,'-'=>"")
 
-    function semilocal_alignment(query::String, reference::String)
-        scoremodel = AffineGapScoreModel(EDNAFULL, gap_open=-20, gap_extend=-1)
-        aln = alignment(pairalign(SemiGlobalAlignment(), nogaps(reference), nogaps(query), scoremodel))
-        aligned_reference = last(split(string(aln.a)))
-        aligned_query = last(split(string(aln.b)))
-        m = match(r"[^-]+.*[^-]+", aligned_reference)
-        pos = findfirst(m.match, aligned_reference)
-        if maximum(pos) > length(aligned_query)
-            @warn "Skipping outside of read result\n\t$aligned_query\n\t$aligned_reference"
-            return "", -1
-        end
-        distance = sum([x != y for (x,y) in zip(aligned_query[pos], aligned_reference[pos])])
-        return aligned_query[pos], distance
-    end
-
     function calculate_alignment_quality(pairs)
         # Find the first and last non-gap positions in the affix (first of each pair)
         affix_start = findfirst(p -> first(p) != DNA_Gap, pairs)
@@ -229,18 +214,15 @@ module blast
        return score(aln)
     end
 
-    function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String)
+    function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String; min_quality=0.75)
         nogaps(s) = replace(s, '-' => "")
 
         # Convert strings to DNA sequences
         query_dna = BioSequences.LongDNA{4}(query)
         prefix_dna = BioSequences.LongDNA{4}(prefix)
         suffix_dna = BioSequences.LongDNA{4}(suffix)
-        # @info "query: $query"
-        # @info "prefix: $prefix"
-        # @info "suffix: $suffix"
-        # @info "reference: $reference"
-        trimmed_seq = string(trim_sequence(query_dna, prefix_dna, suffix_dna))
+
+        trimmed_seq = string(trim_sequence(query_dna, prefix_dna, suffix_dna, min_quality=min_quality))
          # If trimming failed, return empty sequence and negative distance
         if trimmed_seq === nothing
             return "", -1

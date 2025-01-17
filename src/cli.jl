@@ -298,6 +298,11 @@ module cli
             default = 20
             arg_type = Int
             range_tester = (x->x >= 0)
+        "-q", "--minquality"
+            help = "Minimum quality of the trimming alignment. Affixes with lower quality will drop the candidate."
+            default = 0.75
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "-v", "--verbose"
             help = "Print verbose output and save intermediate files"
             action = :store_true
