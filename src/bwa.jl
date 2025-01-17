@@ -50,9 +50,13 @@ module bwa
                 end
             end
         end
+        discarded = Vector{String}()
         for ((genome_file, name, chr),n) in discard
             @info "Discarded $name matching $chr in $genome_file (total $n)"
+            push!(discarded, name)
         end
+        CSV.write("/tmp/discarded.tsv", DataFrame(name=discarded), delim='\t')
+        @info "Discarded sequence names written to /tmp/discarded.tsv"
         return result, position
     end
 
