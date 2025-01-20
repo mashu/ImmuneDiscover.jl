@@ -178,6 +178,22 @@ module immunediscover
                 overwrite = parsed_args["blast"]["overwrite"]
                 minquality = parsed_args["blast"]["minquality"]
                 affixes = nothing
+                # Add pseudo genes if provided
+                pseudo = parsed_args["blast"]["pseudo"]
+                db_p = Vector{Tuple{String, String}}()
+                if pseudo != ""
+                    for (name, seq) in blast.read_fasta(pseudo)
+                        push!(db_p, ("P"*name, seq))
+                    end
+                end
+                for (name, seq) in blast.read_fasta(fasta_path)
+                    push!(db_p, (name, seq))
+                end
+
+                # Write the combined database to a FASTA file
+                fasta_path = blast.replace_extension(fasta_path, "fasta", tag="-combined")
+                blast.save_to_fasta(db_p, fasta_path)
+
                 if parsed_args["blast"]["gene"] == "D"
                     ext_fasta_path = blast.replace_extension(fasta_path,"fasta"; tag="-extended")
                     if !isfile(ext_fasta_path) || overwrite
@@ -198,7 +214,7 @@ module immunediscover
                 end
                 # Run discovery
                 blast_clusters = blast_discover(parsed_args["blast"]["input"], fasta_path,
-                max_dist=parsed_args["blast"]["maxdist"], min_count=parsed_args["blast"]["mincount"], min_frequency=parsed_args["blast"]["minfreq"], pseudo=parsed_args["blast"]["pseudo"],
+                max_dist=parsed_args["blast"]["maxdist"], min_count=parsed_args["blast"]["mincount"], min_frequency=parsed_args["blast"]["minfreq"],
                 min_length=parsed_args["blast"]["length"], args=parsed_args["blast"]["args"], verbose=verbose, overwrite=overwrite)
                 if isfile(affixes_path)
                     @info "Loading affixes from $affixes_path"
@@ -215,7 +231,7 @@ module immunediscover
                     @info "Re-aligning core and renaming alleles"
                     DBdict = Dict(DB)
                     transform!(blast_clusters, :sseqid => ByRow(x->DBdict[String(x)]) => :db_seq)
-                    transform!(blast_clusters, [:qseq, :prefix, :suffix, :db_seq] => ByRow((qseq, prefix, suffix, db_seq) -> blast.trim_and_align_sequence(String(qseq), String(prefix), String(suffix), String(db_seq), min_quality=minquality)) => [:aln_qseq, :aln_mismatch])
+                    transform!(blast_clusters, [:qseq, :prefix, :suffix, :db_seq, :sseqid] => ByRow((qseq, prefix, suffix, db_seq, sseqid) -> blast.trim_and_align_sequence(String(qseq), String(prefix), String(suffix), String(db_seq), min_quality=minquality, sseqid=sseqid)) => [:aln_qseq, :aln_mismatch])
                     # Skip ones with negative distance (failed alignment of affix)
                     filter!(x->x.aln_mismatch >= 0, blast_clusters)
                     # Apply again distance based filtler for Ds after the core has been re-aligned and we know the number of mismatches in the core

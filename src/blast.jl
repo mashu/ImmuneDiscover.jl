@@ -166,7 +166,7 @@ module blast
     end
 
     function trim_sequence(query::LongDNA{4}, prefix::LongDNA{4}, suffix::LongDNA{4},
-        scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1); min_quality=0.75)
+        scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1); min_quality=0.75, sseqid)
         # Trim prefix
         prefix_aln = alignment(pairalign(SemiGlobalAlignment(), prefix, query, scoremodel))
         prefix_pairs = collect(prefix_aln)
@@ -174,7 +174,7 @@ module blast
         # Check prefix alignment quality
         prefix_quality = calculate_alignment_quality(prefix_pairs)
         if prefix_quality < min_quality # Hardcoded threshold for poor quality
-            @warn "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))%) - skipping"
+            @warn "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))%) - skipping not trimmed $sseqid of length $(length(query)): $query prefix: $prefix"
             return nothing
         end
 
@@ -183,7 +183,7 @@ module blast
         core_start = findfirst(x -> x == DNA_Gap, aligned_prefix)
 
         if core_start === nothing
-            @warn "No gap found in prefix alignment"
+            @error "No gap found in prefix alignment"
             return nothing
         end
 
@@ -196,14 +196,14 @@ module blast
          # Check suffix alignment quality
         suffix_quality = calculate_alignment_quality(suffix_pairs)
         if suffix_quality < min_quality
-            @warn "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))%) - skipping"
+            @warn "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))%) - skipping not trimmed $sseqid of length $(length(query)): $query suffix: $suffix"
             return nothing
         end
         aligned_suffix = first.(suffix_pairs)
         aligned_query = last.(suffix_pairs)
         core_end = findlast(x -> x == DNA_Gap, aligned_suffix)
         if core_end === nothing
-            @warn "No gap found in suffix alignment"
+            @error "No gap found in suffix alignment"
             return nothing
         end
         return LongDNA{4}(join(aligned_query[1:core_end]))
@@ -214,7 +214,7 @@ module blast
        return score(aln)
     end
 
-    function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String; min_quality=0.75)
+    function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String; min_quality=0.75, sseqid="")
         nogaps(s) = replace(s, '-' => "")
 
         # Convert strings to DNA sequences
@@ -222,7 +222,7 @@ module blast
         prefix_dna = BioSequences.LongDNA{4}(prefix)
         suffix_dna = BioSequences.LongDNA{4}(suffix)
 
-        trimmed_seq = string(trim_sequence(query_dna, prefix_dna, suffix_dna, min_quality=min_quality))
+        trimmed_seq = string(trim_sequence(query_dna, prefix_dna, suffix_dna, min_quality=min_quality, sseqid=sseqid))
          # If trimming failed, return empty sequence and negative distance
         if trimmed_seq === nothing
             return "", -1
@@ -268,7 +268,7 @@ module blast
 
     Peform assignments and discovery of alleles based on BLAST results
     """
-    function blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, pseudo="", args="", verbose=false, overwrite=false)
+    function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, args="", verbose=false, overwrite=false)
         min_ver = v"2.15.0"
         max_ver = v"2.16.0"
         is_valid, message = verify_blastn_version(min_ver, max_ver)
@@ -277,20 +277,6 @@ module blast
             @warn "Please install BLAST version $min_ver - $max_ver"
             exit(1)
         end
-        # Alter db_fasta
-        db_p = Vector{Tuple{String, String}}()
-        if pseudo != ""
-            for (name, seq) in read_fasta(pseudo)
-                push!(db_p, ("P"*name, seq))
-            end
-        end
-        for (name, seq) in read_fasta(db_fasta)
-            push!(db_p, (name, seq))
-        end
-
-        # Write the combined database to a FASTA file
-        combined_db_fasta = replace_extension(db_fasta, "fasta", tag="-combined")
-        save_to_fasta(db_p, combined_db_fasta)
 
         # Save query sequences to a FASTA file
         df = load_csv(tsv_path)
@@ -315,7 +301,6 @@ module blast
 
         # Remove fasta reads file
         rm(query_fasta)
-        rm(combined_db_fasta)
 
         # Read the BLAST results
         blast = CSV.File(blast_tsv*".gz", delim='\t', header=columns) |> DataFrame
