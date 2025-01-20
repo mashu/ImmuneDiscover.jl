@@ -6,6 +6,8 @@ module bwa
     import FASTX.description
     using ProgressMeter
     using DataStructures
+    using DataFrames
+    using CSV
 
     function description(aln::BurrowsWheelerAligner.LibBWA.mem_aln_t, aligner::BurrowsWheelerAligner.Aligner)
         anns = BurrowsWheelerAligner.LibBWA.unsafe_load(aligner.index.bns).anns
