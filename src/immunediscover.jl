@@ -216,10 +216,9 @@ module immunediscover
                     ext_fasta_path = blast.replace_extension(combined_fasta_path, "fasta", tag="-extended")
                     if !isfile(ext_fasta_path) || overwrite
                         @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
-                        name_id = filter(x -> occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
                         demux = blast.load_csv(parsed_args["blast"]["input"])
 
-                        extended = accumulate_affixes(name_id, demux,
+                        extended = accumulate_affixes(DB, demux,
                             forward_extension=forward_extension,
                             reverse_extension=reverse_extension)
 
