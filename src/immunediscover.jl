@@ -183,6 +183,13 @@ module immunediscover
                 minquality = parsed_args["blast"]["minquality"]
                 forward_extension = parsed_args["blast"]["forward"]
                 reverse_extension = parsed_args["blast"]["reverse"]
+                # Arbitrary choice what is short, but it's just a warning
+                if (forward_extension < 7) && (forward_extension > 0)
+                    @warn "Forward extension $forward_extension is short and may lead to false positives due to problem with ambigous trimming alignment - you've been warned!"
+                end
+                if (reverse_extension < 7) && (reverse_extension > 0)
+                    @warn "Reverse extension $reverse_extension is short and may lead to false positives due to problem with ambigous trimming alignment - you've been warned!"
+                end
 
                 # Process pseudo genes if provided
                 db_p = Vector{Tuple{String, String}}()
