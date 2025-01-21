@@ -209,11 +209,11 @@ module immunediscover
                     name_id = filter(x -> occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
                     demux = blast.load_csv(parsed_args["blast"]["input"])
 
-                    extended = accumulate_Ds(name_id, demux,
+                    extended = accumulate_affixes(name_id, demux,
                         forward_extension=forward_extension,
                         reverse_extension=reverse_extension)
 
-                    affixes = save_Ds(extended, ext_fasta_path)
+                    affixes = save_extended(extended, ext_fasta_path)
                     CSV.write(affixes_path, DataFrame(affixes, [:name, :prefix, :suffix]), delim='\t')
                     @info "Saved affixes in $affixes_path"
                 else
@@ -271,7 +271,7 @@ module immunediscover
 
                 # Save results
                 output = cli.always_gz(parsed_args["blast"]["output"])
-                @info "Saving discovered D gene sequences in compressed $output file"
+                @info "Saving discovered gene sequences in compressed $output file"
                 CSV.write(output, blast_clusters, compress=true, delim='\t')
             end
 

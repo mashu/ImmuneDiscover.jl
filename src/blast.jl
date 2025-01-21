@@ -6,7 +6,7 @@ module blast
     using BioAlignments
     using BioSequences
     include("data.jl")
-    export blast_discover, save_to_fasta, accumulate_Ds, save_Ds
+    export blast_discover, save_to_fasta, accumulate_affixes, save_extended
     const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "evalue", "bitscore", "sstrand", "qseq"]
 
     """
@@ -97,7 +97,7 @@ module blast
         return first(splitext) * tag * '.' * new_extension
     end
 
-    function accumulate_Ds(nameDs, dmux; forward_extension=20, reverse_extension=20)
+    function accumulate_affixes(nameDs, dmux; forward_extension=20, reverse_extension=20)
         singleton = Vector{Tuple{String, String, String, String}}()
         for (name, sequence) in nameDs
             prefix = Accumulator{String,Int}()
@@ -130,7 +130,7 @@ module blast
         return singleton
     end
 
-    function save_Ds(extended_Ds, fasta_path)
+    function save_extended(extended_Ds, fasta_path)
         base_affixes = Vector{Tuple{String, String, String}}()
         open(fasta_path, "w") do io
             for (name, sequence, prefix, suffix) in extended_Ds
