@@ -283,11 +283,6 @@ module cli
             range_tester = (x->x ∈ genes)
             arg_type = String
             help = "gene; must be one of " * join(genes, ", ", " or ")
-        "-e", "--extend"
-            help = "How much to extend"
-            default = 20
-            arg_type = Int
-            range_tester = (x->x >= 0)
         "--forward"
             help = "Forward extension length"
             default = 20
