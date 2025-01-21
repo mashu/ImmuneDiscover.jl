@@ -202,22 +202,33 @@ module immunediscover
                 combined_fasta_path = blast.replace_extension(fasta_path, "fasta", tag="-combined")
                 blast.save_to_fasta(db_p, combined_fasta_path)
 
-                # Extend gene sequences
-                ext_fasta_path = blast.replace_extension(combined_fasta_path, "fasta", tag="-extended")
-                if !isfile(ext_fasta_path) || overwrite
-                    @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
-                    name_id = filter(x -> occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
-                    demux = blast.load_csv(parsed_args["blast"]["input"])
+                # Handle sequence extension based on extension parameters
+                if forward_extension == 0 && reverse_extension == 0
+                    # If no extension is needed, use the combined fasta directly
+                    ext_fasta_path = combined_fasta_path
+                    @info "No sequence extension requested, using original sequences"
 
-                    extended = accumulate_affixes(name_id, demux,
-                        forward_extension=forward_extension,
-                        reverse_extension=reverse_extension)
-
-                    affixes = save_extended(extended, ext_fasta_path)
-                    CSV.write(affixes_path, DataFrame(affixes, [:name, :prefix, :suffix]), delim='\t')
-                    @info "Saved affixes in $affixes_path"
+                    # Create empty affixes file for consistency
+                    empty_affixes = [(name="", prefix="", suffix="")]
+                    CSV.write(affixes_path, DataFrame(empty_affixes), delim='\t')
                 else
-                    @info "Using existing extended sequences from $ext_fasta_path"
+                    # Extend gene sequences if either extension is non-zero
+                    ext_fasta_path = blast.replace_extension(combined_fasta_path, "fasta", tag="-extended")
+                    if !isfile(ext_fasta_path) || overwrite
+                        @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
+                        name_id = filter(x -> occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
+                        demux = blast.load_csv(parsed_args["blast"]["input"])
+
+                        extended = accumulate_affixes(name_id, demux,
+                            forward_extension=forward_extension,
+                            reverse_extension=reverse_extension)
+
+                        affixes = save_extended(extended, ext_fasta_path)
+                        CSV.write(affixes_path, DataFrame(affixes, [:name, :prefix, :suffix]), delim='\t')
+                        @info "Saved affixes in $affixes_path"
+                    else
+                        @info "Using existing extended sequences from $ext_fasta_path"
+                    end
                 end
 
                 # Run BLAST discovery
@@ -233,28 +244,45 @@ module immunediscover
                     overwrite=overwrite
                 )
 
-                # Process affixes
-                if isfile(affixes_path)
-                    @info "Loading affixes from $affixes_path"
-                    affixes = Tuple.(collect.(eachrow(CSV.read(affixes_path, DataFrame, delim='\t'))))
+                # Process affixes only if extensions were used
+                if forward_extension != 0 || reverse_extension != 0
+                    if isfile(affixes_path)
+                        @info "Loading affixes from $affixes_path"
+                        affixes = Tuple.(collect.(eachrow(CSV.read(affixes_path, DataFrame, delim='\t'))))
 
+                        if !any(occursin.("prefix", names(blast_clusters)))
+                            @info "Using affixes to trim extended sequences"
+                            affixes_df = DataFrame(affixes, [:sseqid, :prefix, :suffix])
+                            leftjoin!(blast_clusters, affixes_df, on=:sseqid)
+
+                            # Replace missing values with empty strings
+                            blast_clusters.prefix = coalesce.(blast_clusters.prefix, "")
+                            blast_clusters.suffix = coalesce.(blast_clusters.suffix, "")
+                        end
+                    end
+                else
+                    # Add empty prefix/suffix columns when no extension was used
                     if !any(occursin.("prefix", names(blast_clusters)))
-                        @info "Using affixes to trim extended sequences"
-                        leftjoin!(blast_clusters, DataFrame(affixes, [:sseqid, :prefix, :suffix]), on=:sseqid)
+                        blast_clusters.prefix .= ""
+                        blast_clusters.suffix .= ""
                     end
                 end
 
                 # Re-align and process gene cores
                 @info "Re-aligning gene cores and processing alleles"
                 DBdict = Dict(DB)
-                transform!(blast_clusters, :sseqid => ByRow(x -> DBdict[String(x)]) => :db_seq)
+                transform!(blast_clusters, :sseqid => ByRow(x -> DBdict[coalesce(String(x), "")]) => :db_seq)
 
                 transform!(blast_clusters,
                     [:qseq, :prefix, :suffix, :db_seq, :sseqid] =>
                     ByRow((qseq, prefix, suffix, db_seq, sseqid) ->
                         blast.trim_and_align_sequence(
-                            String(qseq), String(prefix), String(suffix),
-                            String(db_seq), min_quality=minquality, sseqid=sseqid
+                            coalesce(String(qseq), ""),
+                            coalesce(String(prefix), ""),
+                            coalesce(String(suffix), ""),
+                            coalesce(String(db_seq), ""),
+                            min_quality=minquality,
+                            sseqid=coalesce(String(sseqid), "")
                         )
                     ) => [:aln_qseq, :aln_mismatch]
                 )

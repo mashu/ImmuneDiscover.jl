@@ -97,35 +97,84 @@ module blast
         return first(splitext) * tag * '.' * new_extension
     end
 
-    function accumulate_affixes(nameDs, dmux; forward_extension=20, reverse_extension=20)
+    function accumulate_affixes(alleles, dmux; forward_extension=20, reverse_extension=20)
         singleton = Vector{Tuple{String, String, String, String}}()
-        for (name, sequence) in nameDs
+        for (name, sequence) in alleles
             prefix = Accumulator{String,Int}()
             suffix = Accumulator{String,Int}()
+
             for i in eachrow(dmux)
                 pos = findfirst(sequence, i.genomic_sequence)
                 genomic_sequence = i.genomic_sequence
                 if pos === nothing
                     continue
                 end
+
                 start = minimum(pos)
                 stop = maximum(pos)
-                if start-forward_extension < 1 || stop+reverse_extension > length(i.genomic_sequence)
+
+                # Handle forward extension
+                if forward_extension > 0
+                    if start-forward_extension < 1
+                        continue
+                    end
+                    pre = genomic_sequence[start-forward_extension:start-1]
+                    push!(prefix, pre)
+                else
+                    # Use empty string for zero forward extension
+                    push!(prefix, "")
+                end
+
+                # Handle reverse extension
+                if reverse_extension > 0
+                    if stop+reverse_extension > length(i.genomic_sequence)
+                        continue
+                    end
+                    suf = genomic_sequence[stop+1:stop+reverse_extension]
+                    push!(suffix, suf)
+                else
+                    # Use empty string for zero reverse extension
+                    push!(suffix, "")
+                end
+            end
+
+            # Handle prefix collection
+            common_prefix = ""
+            common_prefix_count = 0
+            if forward_extension > 0
+                if isempty(prefix)
+                    @warn "No common prefix for $name"
                     continue
                 end
-                pre = genomic_sequence[start-forward_extension:start-1]
-                suf = genomic_sequence[stop+1:stop+reverse_extension]
-                push!(prefix, pre)
-                push!(suffix, suf)
+                common_prefix, common_prefix_count = last(sort(collect(prefix), by=x->x[2]))
             end
-            if length(prefix) == 0 || length(suffix) == 0
-                @warn "No common prefix or suffix for $name"
-                continue
+
+            # Handle suffix collection
+            common_suffix = ""
+            common_suffix_count = 0
+            if reverse_extension > 0
+                if isempty(suffix)
+                    @warn "No common suffix for $name"
+                    continue
+                end
+                common_suffix, common_suffix_count = last(sort(collect(suffix), by=x->x[2]))
             end
-            common_prefix, common_prefix_count = last(sort(collect(prefix),by=x->x[2]))
-            common_suffix, common_suffix_count = last(sort(collect(suffix),by=x->x[2]))
-            println("Extending $name with top $common_prefix ($common_prefix_count) prefixes and $common_suffix ($common_suffix_count) suffixes")
-            push!(singleton, (name, "$(common_prefix)$sequence$(common_suffix)", "$common_prefix","$common_suffix"))
+
+            # Print extension info only if there are actual extensions
+            if forward_extension > 0 || reverse_extension > 0
+                extension_info = []
+                if forward_extension > 0
+                    push!(extension_info, "prefix $common_prefix ($common_prefix_count)")
+                end
+                if reverse_extension > 0
+                    push!(extension_info, "suffix $common_suffix ($common_suffix_count)")
+                end
+                println("Extending $name with " * join(extension_info, " and "))
+            end
+
+            # Construct the extended sequence
+            extended_sequence = string(common_prefix, sequence, common_suffix)
+            push!(singleton, (name, extended_sequence, common_prefix, common_suffix))
         end
         return singleton
     end
@@ -167,46 +216,57 @@ module blast
 
     function trim_sequence(query::LongDNA{4}, prefix::LongDNA{4}, suffix::LongDNA{4},
         scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1); min_quality=0.75, sseqid)
-        # Trim prefix
-        prefix_aln = alignment(pairalign(SemiGlobalAlignment(), prefix, query, scoremodel))
-        prefix_pairs = collect(prefix_aln)
 
-        # Check prefix alignment quality
-        prefix_quality = calculate_alignment_quality(prefix_pairs)
-        if prefix_quality < min_quality # Hardcoded threshold for poor quality
-            @warn "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))%) - skipping not trimmed $sseqid of length $(length(query)): $query prefix: $prefix"
-            return nothing
+        partial_query = query
+
+        # Only trim prefix if it has length
+        if length(prefix) > 0
+            # Trim prefix
+            prefix_aln = alignment(pairalign(SemiGlobalAlignment(), prefix, query, scoremodel))
+            prefix_pairs = collect(prefix_aln)
+
+            # Check prefix alignment quality
+            prefix_quality = calculate_alignment_quality(prefix_pairs)
+            if prefix_quality < min_quality # Hardcoded threshold for poor quality
+                @warn "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))%) - skipping not trimmed $sseqid of length $(length(query)): $query prefix: $prefix"
+                return nothing
+            end
+
+            aligned_prefix = first.(prefix_pairs)
+            aligned_query = last.(prefix_pairs)
+            core_start = findfirst(x -> x == DNA_Gap, aligned_prefix)
+
+            if core_start === nothing
+                @error "No gap found in prefix alignment"
+                return nothing
+            end
+
+            partial_query = LongDNA{4}(join(aligned_query[core_start:end]))
         end
 
-        aligned_prefix = first.(prefix_pairs)
-        aligned_query = last.(prefix_pairs)
-        core_start = findfirst(x -> x == DNA_Gap, aligned_prefix)
+        # Only trim suffix if it has length
+        if length(suffix) > 0
+            # Trim suffix
+            suffix_aln = alignment(pairalign(SemiGlobalAlignment(), suffix, partial_query, scoremodel))
+            suffix_pairs = collect(suffix_aln)
 
-        if core_start === nothing
-            @error "No gap found in prefix alignment"
-            return nothing
+            # Check suffix alignment quality
+            suffix_quality = calculate_alignment_quality(suffix_pairs)
+            if suffix_quality < min_quality
+                @warn "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))%) - skipping not trimmed $sseqid of length $(length(query)): $query suffix: $suffix"
+                return nothing
+            end
+            aligned_suffix = first.(suffix_pairs)
+            aligned_query = last.(suffix_pairs)
+            core_end = findlast(x -> x == DNA_Gap, aligned_suffix)
+            if core_end === nothing
+                @error "No gap found in suffix alignment"
+                return nothing
+            end
+            partial_query = LongDNA{4}(join(aligned_query[1:core_end]))
         end
 
-        partial_query = LongDNA{4}(join(aligned_query[core_start:end]))
-
-        # Trim suffix
-        suffix_aln = alignment(pairalign(SemiGlobalAlignment(), suffix, partial_query, scoremodel))
-        suffix_pairs = collect(suffix_aln)
-
-         # Check suffix alignment quality
-        suffix_quality = calculate_alignment_quality(suffix_pairs)
-        if suffix_quality < min_quality
-            @warn "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))%) - skipping not trimmed $sseqid of length $(length(query)): $query suffix: $suffix"
-            return nothing
-        end
-        aligned_suffix = first.(suffix_pairs)
-        aligned_query = last.(suffix_pairs)
-        core_end = findlast(x -> x == DNA_Gap, aligned_suffix)
-        if core_end === nothing
-            @error "No gap found in suffix alignment"
-            return nothing
-        end
-        return LongDNA{4}(join(aligned_query[1:core_end]))
+        return partial_query
     end
 
     function compute_edit_distance(query::String, reference::String)
