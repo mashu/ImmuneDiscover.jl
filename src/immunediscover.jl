@@ -169,84 +169,112 @@ module immunediscover
                 @info "Trimmed data saved in compressed $output file"
             end
 
-            if get(parsed_args,"%COMMAND%","") == "blast"
+            if get(parsed_args, "%COMMAND%", "") == "blast"
                 @info "Discovery with BLAST assignments"
+
+                # Load paths and parameters
                 fasta_path = parsed_args["blast"]["fasta"]
-                affixes_path = parsed_args["blast"]["fasta"]*".affixes"
+                affixes_path = fasta_path * ".affixes"
                 DB = load_fasta(fasta_path, validate=false)
+
+                # Parameters
                 verbose = parsed_args["blast"]["verbose"]
                 overwrite = parsed_args["blast"]["overwrite"]
                 minquality = parsed_args["blast"]["minquality"]
-                affixes = nothing
-                # Add pseudo genes if provided
-                pseudo = parsed_args["blast"]["pseudo"]
+                forward_extension = parsed_args["blast"]["forward"]
+                reverse_extension = parsed_args["blast"]["reverse"]
+
+                # Process pseudo genes if provided
                 db_p = Vector{Tuple{String, String}}()
-                if pseudo != ""
+                pseudo = parsed_args["blast"]["pseudo"]
+                if !isempty(pseudo)
                     for (name, seq) in blast.read_fasta(pseudo)
                         push!(db_p, ("P"*name, seq))
                     end
                 end
+
+                # Add regular genes
                 for (name, seq) in blast.read_fasta(fasta_path)
                     push!(db_p, (name, seq))
                 end
 
-                # Write the combined database to a FASTA file
-                fasta_path = blast.replace_extension(fasta_path, "fasta", tag="-combined")
-                blast.save_to_fasta(db_p, fasta_path)
+                # Save combined database
+                combined_fasta_path = blast.replace_extension(fasta_path, "fasta", tag="-combined")
+                blast.save_to_fasta(db_p, combined_fasta_path)
 
-                if parsed_args["blast"]["gene"] == "D"
-                    ext_fasta_path = blast.replace_extension(fasta_path,"fasta"; tag="-extended")
-                    if !isfile(ext_fasta_path) || overwrite
-                        @info "Extending provided D gene sequences by n nucleotides on each side from most common genomic pattern"
-                        nameDs = filter(x->occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
-                        demux = blast.load_csv(parsed_args["blast"]["input"])
-                        forward_extension = parsed_args["blast"]["forward"]
-                        reverse_extension = parsed_args["blast"]["reverse"]
-                        extended_Ds = accumulate_Ds(nameDs, demux, forward_extension=forward_extension, reverse_extension=reverse_extension)
-                        affixes = save_Ds(extended_Ds, ext_fasta_path)
-                        CSV.write(affixes_path, DataFrame(affixes, [:name, :prefix, :suffix]), delim='\t')
-                        @info "Saved affixes in $affixes_path"
-                        @info "Using $ext_fasta_path for BLAST"
-                    else
-                        @info "Using $ext_fasta_path for BLAST as it already exists"
-                    end
-                    fasta_path = ext_fasta_path
+                # Extend gene sequences
+                ext_fasta_path = blast.replace_extension(combined_fasta_path, "fasta", tag="-extended")
+                if !isfile(ext_fasta_path) || overwrite
+                    @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
+                    name_id = filter(x -> occursin(r"^IGH[VDJ][0-9].*", x[1]), DB)
+                    demux = blast.load_csv(parsed_args["blast"]["input"])
+
+                    extended = accumulate_Ds(name_id, demux,
+                        forward_extension=forward_extension,
+                        reverse_extension=reverse_extension)
+
+                    affixes = save_Ds(extended, ext_fasta_path)
+                    CSV.write(affixes_path, DataFrame(affixes, [:name, :prefix, :suffix]), delim='\t')
+                    @info "Saved affixes in $affixes_path"
+                else
+                    @info "Using existing extended sequences from $ext_fasta_path"
                 end
-                # Run discovery
-                blast_clusters = blast_discover(parsed_args["blast"]["input"], fasta_path,
-                max_dist=parsed_args["blast"]["maxdist"], min_count=parsed_args["blast"]["mincount"], min_frequency=parsed_args["blast"]["minfreq"],
-                min_length=parsed_args["blast"]["length"], args=parsed_args["blast"]["args"], verbose=verbose, overwrite=overwrite)
+
+                # Run BLAST discovery
+                blast_clusters = blast_discover(
+                    parsed_args["blast"]["input"],
+                    ext_fasta_path,
+                    max_dist=parsed_args["blast"]["maxdist"],
+                    min_count=parsed_args["blast"]["mincount"],
+                    min_frequency=parsed_args["blast"]["minfreq"],
+                    min_length=parsed_args["blast"]["length"],
+                    args=parsed_args["blast"]["args"],
+                    verbose=verbose,
+                    overwrite=overwrite
+                )
+
+                # Process affixes
                 if isfile(affixes_path)
                     @info "Loading affixes from $affixes_path"
                     affixes = Tuple.(collect.(eachrow(CSV.read(affixes_path, DataFrame, delim='\t'))))
-                    @info "Loaded $(length(affixes)) affixes"
+
+                    if !any(occursin.("prefix", names(blast_clusters)))
+                        @info "Using affixes to trim extended sequences"
+                        leftjoin!(blast_clusters, DataFrame(affixes, [:sseqid, :prefix, :suffix]), on=:sseqid)
+                    end
                 end
-                # Add collected affixes if not added yet
-                if (affixes !== nothing) && (!any(occursin.("prefix", names(blast_clusters))))
-                    @info "Using affixes to trim extended sequences"
-                    leftjoin!(blast_clusters, DataFrame(affixes, [:sseqid, :prefix, :suffix]), on=:sseqid)
-                end
-                # Correct D core with an alignment
-                if parsed_args["blast"]["gene"] == "D"
-                    @info "Re-aligning core and renaming alleles"
-                    DBdict = Dict(DB)
-                    transform!(blast_clusters, :sseqid => ByRow(x->DBdict[String(x)]) => :db_seq)
-                    transform!(blast_clusters, [:qseq, :prefix, :suffix, :db_seq, :sseqid] => ByRow((qseq, prefix, suffix, db_seq, sseqid) -> blast.trim_and_align_sequence(String(qseq), String(prefix), String(suffix), String(db_seq), min_quality=minquality, sseqid=sseqid)) => [:aln_qseq, :aln_mismatch])
-                    # Skip ones with negative distance (failed alignment of affix)
-                    filter!(x->x.aln_mismatch >= 0, blast_clusters)
-                    # Apply again distance based filtler for Ds after the core has been re-aligned and we know the number of mismatches in the core
-                    filter!(x->x.aln_mismatch <= parsed_args["blast"]["maxdist"], blast_clusters)
-                    # Compute new name for all rows where distance != 0 based on column closest
-                    blast_clusters[:, :allele_name] = map(x->(x.aln_mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.aln_qseq)*" Novel", eachrow(blast_clusters))
-                else
-                    @info "Renaming alleles for V or J genes"
-                    # Compute new name for all rows where distance != 0 based on column closest
-                    blast_clusters[:, :allele_name] = map(x->(x.mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.qseq)*" Novel", eachrow(blast_clusters))
-                end
+
+                # Re-align and process gene cores
+                @info "Re-aligning gene cores and processing alleles"
+                DBdict = Dict(DB)
+                transform!(blast_clusters, :sseqid => ByRow(x -> DBdict[String(x)]) => :db_seq)
+
+                transform!(blast_clusters,
+                    [:qseq, :prefix, :suffix, :db_seq, :sseqid] =>
+                    ByRow((qseq, prefix, suffix, db_seq, sseqid) ->
+                        blast.trim_and_align_sequence(
+                            String(qseq), String(prefix), String(suffix),
+                            String(db_seq), min_quality=minquality, sseqid=sseqid
+                        )
+                    ) => [:aln_qseq, :aln_mismatch]
+                )
+
+                # Filter results
+                filter!(x -> x.aln_mismatch >= 0, blast_clusters) # Drop failed trimmings
+                filter!(x -> x.aln_mismatch <= parsed_args["blast"]["maxdist"], blast_clusters)
+
+                # Generate allele names
+                blast_clusters[:, :allele_name] = map(
+                    x -> (x.aln_mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.aln_qseq)*" Novel",
+                    eachrow(blast_clusters)
+                )
+
+                # Save results
                 output = cli.always_gz(parsed_args["blast"]["output"])
-                @info "Saving discovered sequences after BLAST in compressed $output file"
+                @info "Saving discovered D gene sequences in compressed $output file"
                 CSV.write(output, blast_clusters, compress=true, delim='\t')
             end
+
             if get(parsed_args,"%COMMAND%","") == "exact"
                 @info "Exact search"
                 limit = parsed_args["exact"]["limit"]
