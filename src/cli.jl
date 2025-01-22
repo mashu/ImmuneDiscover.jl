@@ -1,10 +1,96 @@
 module cli
     using ArgParse
-    export parse_commandline
+    export parse_commandline, apply_blast_presets!, show_blast_presets, show_blast_params
+    export BLAST_PRESETS
     import ArgParse.parse_item
     using ArgParse: @add_arg_table!
     using Logging
     using Dates
+
+    const BLAST_PRESETS = Dict(
+        "V" => Dict(
+            "forward" => 12,
+            "reverse" => 12,
+            "minfreq" => 0.1,
+            "length" => 290,
+            "maxdist" => 10,
+            "mincount" => 10,
+            "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
+        ),
+        "D" => Dict(
+            "forward" => 0,
+            "reverse" => 0,
+            "minfreq" => 0.2,
+            "length" => 10,
+            "maxdist" => 10,
+            "mincount" => 10,
+            "args" => "-task blastn-short -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
+        ),
+        "J" => Dict(
+            "forward" => 12,
+            "reverse" => 12,
+            "minfreq" => 0.1,
+            "length" => 10,
+            "maxdist" => 10,
+            "mincount" => 10,
+            "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
+        )
+    )
+
+    function show_blast_presets()
+        println("BLAST Presets:")
+        for (gene, settings) in BLAST_PRESETS
+            println("\n$gene gene settings:")
+            for (param, value) in settings
+                println("  --$param = $value")
+            end
+        end
+    end
+
+    function show_blast_params(args)
+        if args["%COMMAND%"] == "blast"
+            gene = args["blast"]["gene"]
+            if haskey(BLAST_PRESETS, gene)
+                preset = BLAST_PRESETS[gene]
+                println("BLAST Preset for $gene gene:")
+                for (param, value) in preset
+                    println("  --$param = $(args["blast"][param])")
+                end
+            end
+        end
+    end
+
+    function get_default_value(param)
+        defaults = Dict(
+            "forward" => 20,
+            "reverse" => 20,
+            "minfreq" => 0.1,
+            "length" => 290,
+            "maxdist" => 20,
+            "mincount" => 5,
+            "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
+        )
+        return get(defaults, param, nothing)
+    end
+
+    function apply_blast_presets!(parsed_args)
+        if parsed_args["%COMMAND%"] == "blast"
+            gene = parsed_args["blast"]["gene"]
+            if haskey(BLAST_PRESETS, gene)
+                preset = BLAST_PRESETS[gene]
+
+                # Only apply preset if argument wasn't explicitly provided
+                for (key, value) in preset
+                    if !haskey(parsed_args["blast"], key) ||
+                       parsed_args["blast"][key] === nothing ||
+                       parsed_args["blast"][key] == get_default_value(key)
+                        parsed_args["blast"][key] = value
+                    end
+                end
+            end
+        end
+        return parsed_args
+    end
 
     function get_latest_git_tag()
 	    return strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0 `, String))
@@ -279,10 +365,12 @@ module cli
             help = "Overwrite existing files (i.e BLAST cache)"
             action = :store_true
         "-g", "--gene"
-            default = "V"
-            range_tester = (x->x ∈ genes)
+            help = "Use gene preset parameters for V, D, or J analysis (can be overridden by explicit parameters)"
             arg_type = String
-            help = "gene; must be one of " * join(genes, ", ", " or ")
+            range_tester = (x->x ∈ keys(BLAST_PRESETS))
+        "-G", "--show-presets"
+            help = "Show preset parameters for V, D, and J analysis"
+            action = :store_true
         "--forward"
             help = "Forward extension length"
             default = 20

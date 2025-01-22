@@ -170,6 +170,18 @@ module immunediscover
             end
 
             if get(parsed_args, "%COMMAND%", "") == "blast"
+                parsed_args = apply_blast_presets!(parsed_args)
+                gene = parsed_args["blast"]["gene"]
+                if haskey(BLAST_PRESETS, gene)
+                    @info "Initial $gene preset parameters (can be overridden by command line arguments):"
+                    for (param, value) in BLAST_PRESETS[gene]
+                        @info "  --$param = $value"
+                    end
+                end
+                @info "Running with the following parameters:"
+                for (param, value) in parsed_args["blast"]
+                    @info "  --$param = $value"
+                end
                 @info "Discovery with BLAST assignments"
 
                 # Load paths and parameters
