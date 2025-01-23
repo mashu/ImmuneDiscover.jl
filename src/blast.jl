@@ -323,6 +323,15 @@ module blast
         end
     end
 
+    function edge(qseq, read)
+        m = findfirst(qseq, read)
+        if isnothing(m)
+            return missing, missing
+        end
+        five_prime, three_prime = extrema(m)
+        return five_prime, length(read)-three_prime
+    end
+
     """
         blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1)
 
@@ -343,6 +352,13 @@ module blast
         @info "Read $(nrow(df)) rows from $tsv_path file before BLAST assignment"
         query_fasta = replace_extension(tsv_path, "fasta")
         blast_tsv = replace_extension(tsv_path, "blast")
+        unique_df = unique(df, :name)
+        @info "Unique reads: $(nrow(unique_df))"
+        if nrow(df) != nrow(unique_df)
+            @error "Duplicated names found in the input demultiplex file. Using unique ones but this is likely user error!"
+        end
+        # If there are duplicated names, use the unique ones
+        df = unique_df
 
         # Save the genomic sequences to a FASTA file
         query_sequences = collect.(eachrow(select_columns(df, [:well, :case, :name, :genomic_sequence])))
@@ -371,6 +387,11 @@ module blast
         end
         # Take best hits from BLAST based on coverage, identity, and bitscore
         blast = combine(groupby(blast, :qseqid), x -> first(sort(x, [:pident, :qcovhsp, :qcovs, :bitscore], rev=true)))
+
+        # Add edge information as well as original genomic sequence
+        leftjoin!(blast, df, on=:qseqid => :name)
+        transform!(blast, [:qseq, :genomic_sequence] => ByRow(edge) => [:five_prime_edge, :three_prime_edge])
+
         @info "BLASTn results after taking best hits: $(nrow(blast)) rows"
         # Remove gaps from the query sequence
         transform!(blast, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
