@@ -25,6 +25,7 @@ module cli
             "maxdist" => 10,
             "mincount" => 10,
             "args" => "-task blastn-short -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
+            #"args" => "-task blastn -word_size 7 -evalue 100 -penalty -2 -reward 1 -dust no -soft_masking false -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
         ),
         "J" => Dict(
             "forward" => 12,
@@ -97,6 +98,7 @@ module cli
     end
 
     const SOFTWARE_VERSION = get_latest_git_tag()
+    const SOFTWARE_GIT_HASH = strip(read(`git -C $(@__DIR__) rev-parse HEAD`, String))
 
     """
         always_gz(file_path)
@@ -119,10 +121,10 @@ module cli
     function parse_commandline(args)
         s = ArgParseSettings("Tool for processing immune NGS data",
                             commands_are_required = true,
-                            version = "$SOFTWARE_VERSION",
+                            version = "$SOFTWARE_VERSION (git $SOFTWARE_GIT_HASH)",
                             add_version = true,
                             usage = "usage: immunediscover <command> [-h|--help]",
-                            epilog = "GKHLab, $SOFTWARE_VERSION")
+                            epilog = "GKHLab, $SOFTWARE_VERSION (git $SOFTWARE_GIT_HASH)")
         @add_arg_table! s begin
             "demultiplex"
                 help = "Demultiplex plate library"
