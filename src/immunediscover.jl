@@ -195,6 +195,7 @@ module immunediscover
                 minquality = parsed_args["blast"]["minquality"]
                 forward_extension = parsed_args["blast"]["forward"]
                 reverse_extension = parsed_args["blast"]["reverse"]
+
                 # Arbitrary choice what is short, but it's just a warning
                 if (forward_extension < 7) && (forward_extension > 0)
                     @warn "Forward extension $forward_extension is short and may lead to false positives due to problem with ambigous trimming alignment - you've been warned!"
@@ -257,6 +258,8 @@ module immunediscover
                     min_count=parsed_args["blast"]["mincount"],
                     min_frequency=parsed_args["blast"]["minfreq"],
                     min_length=parsed_args["blast"]["length"],
+                    min_edge=parsed_args["blast"]["edge"],
+                    min_scov=parsed_args["blast"]["subjectcov"],
                     args=parsed_args["blast"]["args"],
                     verbose=verbose,
                     overwrite=overwrite
@@ -286,7 +289,7 @@ module immunediscover
                     end
                 end
 
-                # Re-align and process gene cores
+                # Re-align and process gene coress
                 @info "Re-aligning gene cores and processing alleles"
                 DBdict = Dict(DB)
                 transform!(blast_clusters, :sseqid => ByRow(x -> DBdict[coalesce(String(x), "")]) => :db_seq)

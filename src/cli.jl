@@ -345,6 +345,11 @@ module cli
             default = 0.1
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-s", "--subjectcov"
+            help = "Minimum subject (database) coverage"
+            default = 0.1
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "-c", "--mincount"
             help = "Minimum cluster size"
             default = 5
@@ -359,6 +364,11 @@ module cli
             default = 290
             arg_type = Int
             range_tester = (x->x >= 1)
+        "-e", "--edge"
+            help = "Minimum number of nucleotides required between target gene and end of the read"
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
         "-a", "--args"
             help = "Additional arguments to pass to blastn"
             arg_type = String

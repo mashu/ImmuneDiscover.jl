@@ -7,7 +7,7 @@ module blast
     using BioSequences
     include("data.jl")
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended
-    const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "evalue", "bitscore", "sstrand", "qseq"]
+    const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "qlen", "slen", "evalue", "bitscore", "sstrand", "qseq"]
 
     """
         load_fasta(filepath::String) -> Vector{Tuple{String, String}}
@@ -324,7 +324,7 @@ module blast
     end
 
     function edge(qseq, read)
-        m = findfirst(qseq, read)
+        m = findfirst(nogaps(qseq), read)
         if isnothing(m)
             return missing, missing
         end
@@ -337,7 +337,7 @@ module blast
 
     Peform assignments and discovery of alleles based on BLAST results
     """
-    function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, args="", verbose=false, overwrite=false)
+    function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
         min_ver = v"2.15.0"
         max_ver = v"2.16.0"
         is_valid, message = verify_blastn_version(min_ver, max_ver)
@@ -385,6 +385,7 @@ module blast
             @error "No BLASTn results found (wrong BLAST parameters?). Exiting."
             exit(1)
         end
+
         # Take best hits from BLAST based on coverage, identity, and bitscore
         blast = combine(groupby(blast, :qseqid), x -> first(sort(x, [:pident, :qcovhsp, :qcovs, :bitscore], rev=true)))
 
@@ -393,6 +394,15 @@ module blast
         transform!(blast, [:qseq, :genomic_sequence] => ByRow(edge) => [:five_prime_edge, :three_prime_edge])
 
         @info "BLASTn results after taking best hits: $(nrow(blast)) rows"
+        # Filter out targets too close to edge
+        filter!(x->x.five_prime_edge > min_edge && x.three_prime_edge > min_edge, blast)
+        @info "BLASTn results after filtering edge > $min_edge: $(nrow(blast)) rows"
+
+        # Add subject coverage to detect truncations
+        transform!(blast, [:length, :slen] => ByRow((len, slen) -> len/slen) => :scov)
+        filter!(x->x.scov > min_scov, blast)
+        @info "BLASTn results after filtering subject (database) coverage > $min_scov: $(nrow(blast)) rows"
+
         # Remove gaps from the query sequence
         transform!(blast, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
         # Discard pseudo genes
@@ -405,7 +415,7 @@ module blast
         end
         # Filter the results
         filter!(x->x.mismatch <= max_dist, blast)
-        @info "BLASTn results after filtering mismatches: $(nrow(blast)) rows"
+        @info "BLASTn results after filtering mismatches <= $max_dist: $(nrow(blast)) rows"
         if verbose
             @info "Saving BLAST results after filtering mismatches to $(blast_tsv)-mismatch.tsv"
             CSV.write(blast_tsv*"-mismatch.tsv", blast)
@@ -434,19 +444,19 @@ module blast
 
         # Filter the results
         filter!(x->x.count >= min_count, clusters_sorted)
-        @info "Clusters after filtering by count: $(nrow(clusters_sorted)) rows"
+        @info "Clusters after filtering by count >= $min_count: $(nrow(clusters_sorted)) rows"
         if verbose
             @info "Saving clusters after filtering by count to $(blast_tsv)-clusters-filtered-count.tsv"
             CSV.write(blast_tsv*"-clusters-filtered-count.tsv", clusters_sorted)
         end
         filter!(x->x.frequency >= min_frequency, clusters_sorted)
-        @info "Clusters after filtering by frequency: $(nrow(clusters_sorted)) rows"
+        @info "Clusters after filtering by frequency >= $min_frequency: $(nrow(clusters_sorted)) rows"
         if verbose
             @info "Saving clusters after filtering by frequency to $(blast_tsv)-clusters-filtered-freq.tsv"
             CSV.write(blast_tsv*"-clusters-filtered-freq.tsv", clusters_sorted)
         end
         filter!(x->length(x.qseq) >= min_length, clusters_sorted)
-        @info "Clusters after filtering by minimum length: $(nrow(clusters_sorted)) rows"
+        @info "Clusters after filtering by minimum length >= $min_length: $(nrow(clusters_sorted)) rows"
         if verbose
             @info "Saving clusters after filtering by minimum length to $(blast_tsv)-clusters-filtered-minlen.tsv"
             CSV.write(blast_tsv*"-clusters-filtered-minlen.tsv", clusters_sorted)
