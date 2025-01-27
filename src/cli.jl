@@ -399,8 +399,8 @@ module cli
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "-i", "--isin"
-            help = "Drop sequences that are substrings of known alleles"
-            action = :store_true
+            help = "Keep sequences that are substrings of known alleles"
+            action = :store_false
         "-v", "--verbose"
             help = "Print verbose output and save intermediate files"
             action = :store_true
