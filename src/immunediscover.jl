@@ -36,10 +36,21 @@ module immunediscover
     using UnicodePlots
     using Glob
     using Statistics
+    using DataStructures
 
     export load_fasta, blast_discover
 
     const TRUST_MINCOUNT = 5
+
+    mutable struct AlignmentStats
+        total_attempts::Int
+        prefix_failures::Int
+        suffix_failures::Int
+        successful_trims::DefaultDict{String, Vector{String}}
+        failed_genes::DefaultDict{String, Vector{String}}
+    end
+
+    AlignmentStats() = AlignmentStats(0, 0, 0, DefaultDict{String, Vector{String}}(Vector{String}), DefaultDict{String, Vector{String}}(Vector{String}))
 
     """
         concatenate_columns(row, col_names)
@@ -291,6 +302,7 @@ module immunediscover
                 DBdict = Dict(DB)
                 transform!(blast_clusters, :sseqid => ByRow(x -> DBdict[coalesce(String(x), "")]) => :db_seq)
 
+                stats = AlignmentStats()
                 transform!(blast_clusters,
                     [:qseq, :prefix, :suffix, :db_seq, :sseqid] =>
                     ByRow((qseq, prefix, suffix, db_seq, sseqid) ->
@@ -299,11 +311,22 @@ module immunediscover
                             coalesce(String(prefix), ""),
                             coalesce(String(suffix), ""),
                             coalesce(String(db_seq), ""),
+                            stats,
                             min_quality=minquality,
                             sseqid=coalesce(String(sseqid), "")
                         )
                     ) => [:aln_qseq, :aln_mismatch]
                 )
+                # Info
+                for (gene, failures) in sort(collect(stats.failed_genes))
+                    if !isempty(failures)
+                        failure_counts = counter(failures)
+                        for (reason, count) in sort(collect(failure_counts), by=x->x[2], rev=true)
+                            trimmed_count = length(stats.successful_trims[gene])
+                            @warn "Cluster for $gene: $count out of $trimmed_count sequences: $reason"
+                        end
+                    end
+                end
                 # Create lookup dict from sequence to allele ID
                 seq_to_id = Dict(seq => id for (id, seq) in DBdict)
 
@@ -317,7 +340,12 @@ module immunediscover
                 end) => :isin_db)
 
                 # Filter out truncated substrings of known alleles called incorrectly as novel
-                filter!(x ->!(x.isin_db && x.aln_mismatch > 0), blast_clusters)
+                if parsed_args["blast"]["isin"]
+                    @info "Filtering out truncated substrings of known alleles"
+                    truncation = filter(x -> (x.isin_db && x.aln_mismatch > 0), blast_clusters)
+                    @info "Found $(nrow(truncation)) truncated substrings"
+                    filter!(x -> !(x.isin_db && x.aln_mismatch > 0), blast_clusters)
+                end
 
                 # Compute trimmed counts and frequencies
                 transform!(groupby(blast_clusters, [:well, :case, :aln_qseq]), :full_count => sum => :count)

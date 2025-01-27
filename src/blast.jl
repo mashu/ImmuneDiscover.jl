@@ -237,17 +237,18 @@ module blast
         return LongDNA{4}(filter(nt -> nt != DNA_Gap, query))
     end
 
-    function trim_sequence(query::LongDNA{4}, prefix::LongDNA{4}, suffix::LongDNA{4},
+    function trim_sequence(query::LongDNA{4}, prefix::LongDNA{4}, suffix::LongDNA{4}, stats,
         scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1);
         min_quality=0.75, sseqid="")
 
         # Input validation
         if length(query) == 0
-            @warn "Empty query sequence"
+            push!(stats.failed_genes[sseqid], "Empty query sequence")
             return nothing
         end
 
         partial_query = query
+        stats.total_attempts += 1
 
         # Only trim prefix if it has length
         if length(prefix) > 0
@@ -255,7 +256,8 @@ module blast
             prefix_aln_result = safe_pairalign(prefix, query, scoremodel)
 
             if prefix_aln_result === nothing
-                @warn "Prefix alignment failed for sequence $sseqid"
+                push!(stats.failed_genes[sseqid], "Prefix alignment failed")
+                stats.prefix_failures += 1
                 return nothing
             end
 
@@ -265,7 +267,8 @@ module blast
             # Check prefix alignment quality
             prefix_quality = calculate_alignment_quality(prefix_pairs)
             if prefix_quality < min_quality
-                @warn "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))%) - skipping not trimmed $sseqid"
+                push!(stats.failed_genes[sseqid], "Poor prefix quality ($(round(prefix_quality * 100, digits=1))%)")
+                stats.prefix_failures += 1
                 return nothing
             end
 
@@ -274,36 +277,37 @@ module blast
             core_start = findfirst(x -> x == DNA_Gap, aligned_prefix)
 
             if core_start === nothing
-                @warn "No gap found in prefix alignment for $sseqid"
+                push!(stats.failed_genes[sseqid], "No gap in prefix")
+                stats.prefix_failures += 1
                 return nothing
             end
 
-            # Safely extract the subsequence
             try
                 partial_query = remove_gaps(LongDNA{4}(join(aligned_query[core_start:end])))
             catch e
-                @warn "Error extracting prefix-trimmed sequence for $sseqid: $e"
+                push!(stats.failed_genes[sseqid], "Error in prefix trim")
+                stats.prefix_failures += 1
                 return nothing
             end
         end
 
         # Only trim suffix if it has length
         if length(suffix) > 0
-            # Perform safe alignment
             suffix_aln_result = safe_pairalign(suffix, partial_query, scoremodel)
 
             if suffix_aln_result === nothing
-                @warn "Suffix alignment failed for sequence $sseqid"
+                push!(stats.failed_genes[sseqid], "Suffix alignment failed")
+                stats.suffix_failures += 1
                 return nothing
             end
 
             suffix_aln = alignment(suffix_aln_result)
             suffix_pairs = collect(suffix_aln)
 
-            # Check suffix alignment quality
             suffix_quality = calculate_alignment_quality(suffix_pairs)
             if suffix_quality < min_quality
-                @warn "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))%) - skipping not trimmed $sseqid"
+                push!(stats.failed_genes[sseqid], "Poor suffix quality ($(round(suffix_quality * 100, digits=1))%)")
+                stats.suffix_failures += 1
                 return nothing
             end
 
@@ -312,19 +316,21 @@ module blast
             core_end = findlast(x -> x == DNA_Gap, aligned_suffix)
 
             if core_end === nothing
-                @warn "No gap found in suffix alignment for $sseqid"
+                push!(stats.failed_genes[sseqid], "No gap in suffix")
+                stats.suffix_failures += 1
                 return nothing
             end
 
-            # Safely extract the subsequence
             try
                 partial_query = remove_gaps(LongDNA{4}(join(aligned_query[1:core_end])))
             catch e
-                @warn "Error extracting suffix-trimmed sequence for $sseqid: $e"
+                push!(stats.failed_genes[sseqid], "Error in suffix trim")
+                stats.suffix_failures += 1
                 return nothing
             end
         end
 
+        push!(stats.successful_trims[sseqid], "Trimmed successfully")
         return partial_query
     end
 
@@ -333,7 +339,7 @@ module blast
        return score(aln)
     end
 
-    function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String; min_quality=0.75, sseqid="")
+    function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String, stats; min_quality=0.75, sseqid="")
         nogaps(s) = replace(s, '-' => "")
 
         # Convert strings to DNA sequences
@@ -341,7 +347,7 @@ module blast
         prefix_dna = BioSequences.LongDNA{4}(prefix)
         suffix_dna = BioSequences.LongDNA{4}(suffix)
 
-        trimmed_seq = string(trim_sequence(query_dna, prefix_dna, suffix_dna, min_quality=min_quality, sseqid=sseqid))
+        trimmed_seq = string(trim_sequence(query_dna, prefix_dna, suffix_dna, stats, min_quality=min_quality, sseqid=sseqid))
          # If trimming failed, return empty sequence and negative distance
         if trimmed_seq === nothing
             return "", -1
