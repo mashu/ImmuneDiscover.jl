@@ -208,7 +208,6 @@ module blast
         affix_end = findlast(p -> first(p) != DNA_Gap, pairs)
 
         if affix_start === nothing || affix_end === nothing
-            @warn "No non-gapped region found in affix"
             return 0.0
         end
 
@@ -222,21 +221,51 @@ module blast
         return matches / total
     end
 
+    function safe_pairalign(seq1::LongDNA{4}, seq2::LongDNA{4}, scoremodel::AffineGapScoreModel)
+        try
+            return pairalign(SemiGlobalAlignment(), seq1, seq2, scoremodel)
+        catch e
+            if isa(e, BoundsError)
+                @warn "Alignment failed due to bounds error with sequences: \nseq1: $seq1\nseq2: $seq2"
+                return nothing
+            end
+            rethrow(e)
+        end
+    end
+
+    function remove_gaps(query::LongDNA{4})::LongDNA{4}
+        return LongDNA{4}(filter(nt -> nt != DNA_Gap, query))
+    end
+
     function trim_sequence(query::LongDNA{4}, prefix::LongDNA{4}, suffix::LongDNA{4},
-        scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1); min_quality=0.75, sseqid)
+        scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1);
+        min_quality=0.75, sseqid="")
+
+        # Input validation
+        if length(query) == 0
+            @warn "Empty query sequence"
+            return nothing
+        end
 
         partial_query = query
 
         # Only trim prefix if it has length
         if length(prefix) > 0
-            # Trim prefix
-            prefix_aln = alignment(pairalign(SemiGlobalAlignment(), prefix, query, scoremodel))
+            # Perform safe alignment
+            prefix_aln_result = safe_pairalign(prefix, query, scoremodel)
+
+            if prefix_aln_result === nothing
+                @warn "Prefix alignment failed for sequence $sseqid"
+                return nothing
+            end
+
+            prefix_aln = alignment(prefix_aln_result)
             prefix_pairs = collect(prefix_aln)
 
             # Check prefix alignment quality
             prefix_quality = calculate_alignment_quality(prefix_pairs)
-            if prefix_quality < min_quality # Hardcoded threshold for poor quality
-                @warn "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))%) - skipping not trimmed $sseqid of length $(length(query)): $query prefix: $prefix"
+            if prefix_quality < min_quality
+                @warn "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))%) - skipping not trimmed $sseqid"
                 return nothing
             end
 
@@ -245,33 +274,55 @@ module blast
             core_start = findfirst(x -> x == DNA_Gap, aligned_prefix)
 
             if core_start === nothing
-                @error "No gap found in prefix alignment"
+                @warn "No gap found in prefix alignment for $sseqid"
                 return nothing
             end
 
-            partial_query = LongDNA{4}(join(aligned_query[core_start:end]))
+            # Safely extract the subsequence
+            try
+                partial_query = remove_gaps(LongDNA{4}(join(aligned_query[core_start:end])))
+            catch e
+                @warn "Error extracting prefix-trimmed sequence for $sseqid: $e"
+                return nothing
+            end
         end
 
         # Only trim suffix if it has length
         if length(suffix) > 0
-            # Trim suffix
-            suffix_aln = alignment(pairalign(SemiGlobalAlignment(), suffix, partial_query, scoremodel))
+            # Perform safe alignment
+            suffix_aln_result = safe_pairalign(suffix, partial_query, scoremodel)
+
+            if suffix_aln_result === nothing
+                @warn "Suffix alignment failed for sequence $sseqid"
+                return nothing
+            end
+
+            suffix_aln = alignment(suffix_aln_result)
             suffix_pairs = collect(suffix_aln)
 
             # Check suffix alignment quality
             suffix_quality = calculate_alignment_quality(suffix_pairs)
             if suffix_quality < min_quality
-                @warn "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))%) - skipping not trimmed $sseqid of length $(length(query)): $query suffix: $suffix"
+                @warn "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))%) - skipping not trimmed $sseqid"
                 return nothing
             end
+
             aligned_suffix = first.(suffix_pairs)
             aligned_query = last.(suffix_pairs)
             core_end = findlast(x -> x == DNA_Gap, aligned_suffix)
+
             if core_end === nothing
-                @error "No gap found in suffix alignment"
+                @warn "No gap found in suffix alignment for $sseqid"
                 return nothing
             end
-            partial_query = LongDNA{4}(join(aligned_query[1:core_end]))
+
+            # Safely extract the subsequence
+            try
+                partial_query = remove_gaps(LongDNA{4}(join(aligned_query[1:core_end])))
+            catch e
+                @warn "Error extracting suffix-trimmed sequence for $sseqid: $e"
+                return nothing
+            end
         end
 
         return partial_query
@@ -343,7 +394,7 @@ module blast
     """
     Peform assignments and discovery of alleles based on BLAST results
     """
-    function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_fullcount=5, min_fullfrequency=0.1, min_length=290, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
+    function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
         min_ver = v"2.15.0"
         max_ver = v"2.16.0"
         is_valid, message = verify_blastn_version(min_ver, max_ver)
@@ -434,7 +485,7 @@ module blast
             CSV.write(blast_tsv*"-clusters.tsv", clusters)
         end
 
-        # Filter the results
+        # Mandatory filter to reduce the number of clusters by maximum distance
         filter!(x->x.mismatch <= max_dist, clusters)
         @info "BLASTn results after filtering mismatches <= $max_dist: $(nrow(clusters)) rows"
         if verbose
@@ -451,25 +502,6 @@ module blast
         # Sort the results
         clusters_sorted = sort(clusters, [:well,:case, :sseqid], rev=false)
 
-        # Filter the results
-        filter!(x->x.full_count >= min_fullcount, clusters_sorted)
-        @info "Clusters after filtering by full count >= $min_fullcount: $(nrow(clusters_sorted)) rows"
-        if verbose
-            @info "Saving clusters after filtering by full_count to $(blast_tsv)-clusters-filtered-fullcount.tsv"
-            CSV.write(blast_tsv*"-clusters-filtered-fullcount.tsv", clusters_sorted)
-        end
-        filter!(x->x.full_frequency >= min_fullfrequency, clusters_sorted)
-        @info "Clusters after filtering by full frequency >= $min_fullfrequency: $(nrow(clusters_sorted)) rows"
-        if verbose
-            @info "Saving clusters after filtering by full frequency to $(blast_tsv)-clusters-filtered-fullfreq.tsv"
-            CSV.write(blast_tsv*"-clusters-filtered-fullfreq.tsv", clusters_sorted)
-        end
-        filter!(x->length(x.qseq) >= min_length, clusters_sorted)
-        @info "Clusters after filtering by minimum length >= $min_length: $(nrow(clusters_sorted)) rows"
-        if verbose
-            @info "Saving clusters after filtering by minimum length to $(blast_tsv)-clusters-filtered-minlen.tsv"
-            CSV.write(blast_tsv*"-clusters-filtered-minlen.tsv", clusters_sorted)
-        end
         # Save the results
         return clusters_sorted
     end

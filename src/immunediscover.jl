@@ -255,9 +255,6 @@ module immunediscover
                     parsed_args["blast"]["input"],
                     ext_fasta_path,
                     max_dist=parsed_args["blast"]["maxdist"],
-                    min_fullcount=parsed_args["blast"]["minfullcount"],
-                    min_fullfrequency=parsed_args["blast"]["minfullfreq"],
-                    min_length=parsed_args["blast"]["length"],
                     min_edge=parsed_args["blast"]["edge"],
                     min_scov=parsed_args["blast"]["subjectcov"],
                     args=parsed_args["blast"]["args"],
@@ -307,15 +304,47 @@ module immunediscover
                         )
                     ) => [:aln_qseq, :aln_mismatch]
                 )
+                # Create lookup dict from sequence to allele ID
+                seq_to_id = Dict(seq => id for (id, seq) in DBdict)
+
+                # Helper funciton to remove BLAST gaps before re-aligning
+                nogaps(s) = replace(s,'-'=>"")
+
+                # Add column checking if aligned sequence exists in DB
+                transform!(blast_clusters, :aln_qseq => ByRow(seq -> begin
+                    query_seq = coalesce(nogaps(String(seq)), "")
+                    any(db_seq -> occursin(query_seq, db_seq), keys(seq_to_id))
+                end) => :isin_db)
+
+                # Filter out truncated substrings of known alleles called incorrectly as novel
+                filter!(x ->!(x.isin_db && x.aln_mismatch > 0), blast_clusters)
+
                 # Compute trimmed counts and frequencies
                 transform!(groupby(blast_clusters, [:well, :case, :aln_qseq]), :full_count => sum => :count)
                 transform!(groupby(blast_clusters, [:well, :case, :gene]), :count => (x -> x ./ maximum(x)) => :frequency)
 
-                # Create lookup dict from sequence to allele ID
-                seq_to_id = Dict(seq => id for (id, seq) in DBdict)
-
-                # Add column checking if aligned sequence exists in DB
-                transform!(blast_clusters, :aln_qseq => ByRow(seq -> !isempty(get(seq_to_id, coalesce(String(seq), ""), ""))) => :isin_db)
+                # Optional filters
+                min_fullcount = parsed_args["blast"]["minfullcount"]
+                min_fullfrequency = parsed_args["blast"]["minfullfreq"]
+                min_length = parsed_args["blast"]["length"]
+                filter!(x->x.full_count >= min_fullcount, blast_clusters)
+                @info "Clusters after filtering by full count >= $min_fullcount: $(nrow(blast_clusters)) rows"
+                if verbose
+                    @info "Saving clusters after filtering by full_count to $(blast_tsv)-clusters-filtered-fullcount.tsv"
+                    CSV.write(blast_tsv*"-clusters-filtered-fullcount.tsv", blast_clusters)
+                end
+                filter!(x->x.full_frequency >= min_fullfrequency, blast_clusters)
+                @info "Clusters after filtering by full frequency >= $min_fullfrequency: $(nrow(blast_clusters)) rows"
+                if verbose
+                    @info "Saving clusters after filtering by full frequency to $(blast_tsv)-clusters-filtered-fullfreq.tsv"
+                    CSV.write(blast_tsv*"-clusters-filtered-fullfreq.tsv", blast_clusters)
+                end
+                filter!(x->length(x.qseq) >= min_length, blast_clusters)
+                @info "Clusters after filtering by minimum length >= $min_length: $(nrow(blast_clusters)) rows"
+                if verbose
+                    @info "Saving clusters after filtering by minimum length to $(blast_tsv)-clusters-filtered-minlen.tsv"
+                    CSV.write(blast_tsv*"-clusters-filtered-minlen.tsv", blast_clusters)
+                end
 
                 # Filter results
                 filter!(x -> x.aln_mismatch >= 0, blast_clusters) # Drop failed trimmings
