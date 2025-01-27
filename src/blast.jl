@@ -5,6 +5,7 @@ module blast
     using DataStructures
     using BioAlignments
     using BioSequences
+    using Folds
     include("data.jl")
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended
     const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "qlen", "slen", "evalue", "bitscore", "sstrand", "qseq"]
@@ -98,69 +99,65 @@ module blast
     end
 
     function accumulate_affixes(alleles, dmux; forward_extension=20, reverse_extension=20)
-        singleton = Vector{Tuple{String, String, String, String}}()
+        # Group alleles by gene
+        gene_groups = Dict{String, Vector{Tuple{String,String}}}()
         for (name, sequence) in alleles
+            gene = split(name, '*')[1]
+            if !haskey(gene_groups, gene)
+                gene_groups[gene] = Vector{Tuple{String,String}}()
+            end
+            push!(gene_groups[gene], (name, sequence))
+        end
+
+        # Process genes in parallel using Folds.map
+        results = Folds.map(collect(gene_groups)) do (gene, gene_alleles)
             prefix = Accumulator{String,Int}()
             suffix = Accumulator{String,Int}()
 
-            for i in eachrow(dmux)
-                pos = findfirst(sequence, i.genomic_sequence)
-                genomic_sequence = i.genomic_sequence
-                if pos === nothing
-                    continue
-                end
-
-                start = minimum(pos)
-                stop = maximum(pos)
-
-                # Handle forward extension
-                if forward_extension > 0
-                    if start-forward_extension < 1
+            # Accumulate affixes for all alleles of this gene
+            for (name, sequence) in gene_alleles
+                for i in eachrow(dmux)
+                    pos = findfirst(sequence, i.genomic_sequence)
+                    if pos === nothing
                         continue
                     end
-                    pre = genomic_sequence[start-forward_extension:start-1]
-                    push!(prefix, pre)
-                else
-                    # Use empty string for zero forward extension
-                    push!(prefix, "")
-                end
 
-                # Handle reverse extension
-                if reverse_extension > 0
-                    if stop+reverse_extension > length(i.genomic_sequence)
-                        continue
+                    start = minimum(pos)
+                    stop = maximum(pos)
+
+                    # Handle forward extension
+                    if forward_extension > 0
+                        if start-forward_extension < 1
+                            continue
+                        end
+                        pre = @view(i.genomic_sequence[start-forward_extension:start-1])
+                        push!(prefix, String(pre))
+                    else
+                        push!(prefix, "")
                     end
-                    suf = genomic_sequence[stop+1:stop+reverse_extension]
-                    push!(suffix, suf)
-                else
-                    # Use empty string for zero reverse extension
-                    push!(suffix, "")
+
+                    # Handle reverse extension
+                    if reverse_extension > 0
+                        if stop+reverse_extension > length(i.genomic_sequence)
+                            continue
+                        end
+                        suf = @view(i.genomic_sequence[stop+1:stop+reverse_extension])
+                        push!(suffix, String(suf))
+                    else
+                        push!(suffix, "")
+                    end
                 end
             end
 
-            # Handle prefix collection
-            common_prefix = ""
-            common_prefix_count = 0
-            if forward_extension > 0
-                if isempty(prefix)
-                    @warn "No common prefix for $name"
-                    continue
-                end
-                common_prefix, common_prefix_count = last(sort(collect(prefix), by=x->x[2]))
+            # Find most common prefix and suffix for this gene
+            if isempty(prefix) || isempty(suffix)
+                @warn "Gene $gene has no flanking sequences found in any of its $(length(gene_alleles)) alleles!"
+                return (gene, "", "", 0, 0)
             end
 
-            # Handle suffix collection
-            common_suffix = ""
-            common_suffix_count = 0
-            if reverse_extension > 0
-                if isempty(suffix)
-                    @warn "No common suffix for $name"
-                    continue
-                end
-                common_suffix, common_suffix_count = last(sort(collect(suffix), by=x->x[2]))
-            end
+            common_prefix, common_prefix_count = last(sort(collect(prefix), by=x->x[2]))
+            common_suffix, common_suffix_count = last(sort(collect(suffix), by=x->x[2]))
 
-            # Print extension info only if there are actual extensions
             if forward_extension > 0 || reverse_extension > 0
                 extension_info = []
                 if forward_extension > 0
@@ -169,13 +166,24 @@ module blast
                 if reverse_extension > 0
                     push!(extension_info, "suffix $common_suffix ($common_suffix_count)")
                 end
-                println("Extending $name with " * join(extension_info, " and "))
+                @info "Extending gene $gene with " * join(extension_info, " and ")
             end
 
-            # Construct the extended sequence
-            extended_sequence = string(common_prefix, sequence, common_suffix)
-            push!(singleton, (name, extended_sequence, common_prefix, common_suffix))
+            return (gene, common_prefix, common_suffix, common_prefix_count, common_suffix_count)
         end
+
+        # Process results and create final output
+        singleton = Vector{Tuple{String, String, String, String}}()
+
+        # Apply extensions to ALL alleles using the gene's affixes
+        for (gene, common_prefix, common_suffix, prefix_count, suffix_count) in results
+            # Apply extensions to all alleles of this gene
+            for (name, sequence) in gene_groups[gene]
+                extended_sequence = string(common_prefix, sequence, common_suffix)
+                push!(singleton, (name, extended_sequence, common_prefix, common_suffix))
+            end
+        end
+
         return singleton
     end
 
@@ -333,11 +341,9 @@ module blast
     end
 
     """
-        blast_discover(tsv_path, db_fasta; max_dist=10, min_count=5, min_frequency=0.1)
-
     Peform assignments and discovery of alleles based on BLAST results
     """
-    function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_count=5, min_frequency=0.1, min_length=290, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
+    function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_fullcount=5, min_fullfrequency=0.1, min_length=290, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
         min_ver = v"2.15.0"
         max_ver = v"2.16.0"
         is_valid, message = verify_blastn_version(min_ver, max_ver)
@@ -405,55 +411,58 @@ module blast
 
         # Remove gaps from the query sequence
         transform!(blast, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
+
         # Discard pseudo genes
         filter!(x->!startswith(x.sseqid, "P"), blast)
-
         @info "BLASTn results after filtering pseudo genes: $(nrow(blast)) rows"
         if verbose
             @info "Saving BLAST results after filtering pseudo genes to $(blast_tsv)-pseudo.tsv"
             CSV.write(blast_tsv*"-pseudo.tsv", blast)
         end
-        # Filter the results
-        filter!(x->x.mismatch <= max_dist, blast)
-        @info "BLASTn results after filtering mismatches <= $max_dist: $(nrow(blast)) rows"
-        if verbose
-            @info "Saving BLAST results after filtering mismatches to $(blast_tsv)-mismatch.tsv"
-            CSV.write(blast_tsv*"-mismatch.tsv", blast)
-        end
+
         # Add the well and case columns
         read_name = Dict([(r.name,(r.well, r.case)) for r in eachrow(df)])
         blast[:,:well] = [read_name[x.qseqid][1] for x in eachrow(blast)]
         blast[:,:case] = [read_name[x.qseqid][2] for x in eachrow(blast)]
 
         # Count the number of matches
-        clusters = combine(groupby(filter(x->x.mismatch .<= max_dist, blast), [:well, :case, :sseqid, :qseq, :mismatch]), :qseqid => length => :count)
+        clusters = combine(groupby(blast, [:well, :case, :sseqid, :qseq, :mismatch]), :qseqid => length => :full_count)
 
         @info "Clusters after grouping by well, case, sseqid, qseq, mismatch: $(nrow(clusters)) rows"
         if verbose
             @info "Saving clusters to $(blast_tsv)-clusters.tsv"
             CSV.write(blast_tsv*"-clusters.tsv", clusters)
         end
+
+        # Filter the results
+        filter!(x->x.mismatch <= max_dist, clusters)
+        @info "BLASTn results after filtering mismatches <= $max_dist: $(nrow(clusters)) rows"
+        if verbose
+            @info "Saving BLAST results after filtering mismatches to $(blast_tsv)-clusters-mismatch.tsv"
+            CSV.write(blast_tsv*"-clusters-mismatch.tsv", clusters)
+        end
+
         # Add the gene column
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
 
         # Compute the frequency of each gene in each well and case
-        transform!(groupby(clusters, [:well, :case, :gene]), :count => (x -> x ./ maximum(x)) => :frequency)
+        transform!(groupby(clusters, [:well, :case, :gene]), :full_count => (x -> x ./ maximum(x)) => :full_frequency)
 
         # Sort the results
         clusters_sorted = sort(clusters, [:well,:case, :sseqid], rev=false)
 
         # Filter the results
-        filter!(x->x.count >= min_count, clusters_sorted)
-        @info "Clusters after filtering by count >= $min_count: $(nrow(clusters_sorted)) rows"
+        filter!(x->x.full_count >= min_fullcount, clusters_sorted)
+        @info "Clusters after filtering by full count >= $min_fullcount: $(nrow(clusters_sorted)) rows"
         if verbose
-            @info "Saving clusters after filtering by count to $(blast_tsv)-clusters-filtered-count.tsv"
-            CSV.write(blast_tsv*"-clusters-filtered-count.tsv", clusters_sorted)
+            @info "Saving clusters after filtering by full_count to $(blast_tsv)-clusters-filtered-fullcount.tsv"
+            CSV.write(blast_tsv*"-clusters-filtered-fullcount.tsv", clusters_sorted)
         end
-        filter!(x->x.frequency >= min_frequency, clusters_sorted)
-        @info "Clusters after filtering by frequency >= $min_frequency: $(nrow(clusters_sorted)) rows"
+        filter!(x->x.full_frequency >= min_fullfrequency, clusters_sorted)
+        @info "Clusters after filtering by full frequency >= $min_fullfrequency: $(nrow(clusters_sorted)) rows"
         if verbose
-            @info "Saving clusters after filtering by frequency to $(blast_tsv)-clusters-filtered-freq.tsv"
-            CSV.write(blast_tsv*"-clusters-filtered-freq.tsv", clusters_sorted)
+            @info "Saving clusters after filtering by full frequency to $(blast_tsv)-clusters-filtered-fullfreq.tsv"
+            CSV.write(blast_tsv*"-clusters-filtered-fullfreq.tsv", clusters_sorted)
         end
         filter!(x->length(x.qseq) >= min_length, clusters_sorted)
         @info "Clusters after filtering by minimum length >= $min_length: $(nrow(clusters_sorted)) rows"

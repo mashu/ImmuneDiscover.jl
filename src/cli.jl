@@ -11,29 +11,29 @@ module cli
         "V" => Dict(
             "forward" => 12,
             "reverse" => 12,
-            "minfreq" => 0.1,
+            "minfullfreq" => 0.1,
             "length" => 290,
             "maxdist" => 10,
-            "mincount" => 10,
+            "minfullcount" => 10,
             "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
         ),
         "D" => Dict(
             "forward" => 0,
             "reverse" => 0,
-            "minfreq" => 0.2,
+            "minfullfreq" => 0.2,
             "length" => 10,
             "maxdist" => 10,
-            "mincount" => 10,
+            "minfullcount" => 10,
             "args" => "-task blastn-short -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
             #"args" => "-task blastn -word_size 7 -evalue 100 -penalty -2 -reward 1 -dust no -soft_masking false -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
         ),
         "J" => Dict(
             "forward" => 12,
             "reverse" => 12,
-            "minfreq" => 0.1,
+            "minfullfreq" => 0.1,
             "length" => 10,
             "maxdist" => 10,
-            "mincount" => 10,
+            "minfullcount" => 10,
             "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
         )
     )
@@ -340,7 +340,11 @@ module cli
             help = "FASTA file with pseudo-genes"
             arg_type = String
             default = ""
-        "-f", "--minfreq"
+        "-c", "--minfullcount"
+            help = "Minimum full cluster size"
+            default = 5
+            arg_type = Int
+        "-f", "--minfullfreq"
             help = "Minimum allelic ratio applied within each gene group"
             default = 0.1
             arg_type = Float64
@@ -350,10 +354,6 @@ module cli
             default = 0.1
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-c", "--mincount"
-            help = "Minimum cluster size"
-            default = 5
-            arg_type = Int
         "-d", "--maxdist"
             help = "Maximum distance allowed for alleles"
             default = 20

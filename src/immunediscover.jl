@@ -255,8 +255,8 @@ module immunediscover
                     parsed_args["blast"]["input"],
                     ext_fasta_path,
                     max_dist=parsed_args["blast"]["maxdist"],
-                    min_count=parsed_args["blast"]["mincount"],
-                    min_frequency=parsed_args["blast"]["minfreq"],
+                    min_fullcount=parsed_args["blast"]["minfullcount"],
+                    min_fullfrequency=parsed_args["blast"]["minfullfreq"],
                     min_length=parsed_args["blast"]["length"],
                     min_edge=parsed_args["blast"]["edge"],
                     min_scov=parsed_args["blast"]["subjectcov"],
@@ -307,6 +307,15 @@ module immunediscover
                         )
                     ) => [:aln_qseq, :aln_mismatch]
                 )
+                # Compute trimmed counts and frequencies
+                transform!(groupby(blast_clusters, [:well, :case, :aln_qseq]), :full_count => sum => :count)
+                transform!(groupby(blast_clusters, [:well, :case, :gene]), :count => (x -> x ./ maximum(x)) => :frequency)
+
+                # Create lookup dict from sequence to allele ID
+                seq_to_id = Dict(seq => id for (id, seq) in DBdict)
+
+                # Add column checking if aligned sequence exists in DB
+                transform!(blast_clusters, :aln_qseq => ByRow(seq -> !isempty(get(seq_to_id, coalesce(String(seq), ""), ""))) => :isin_db)
 
                 # Filter results
                 filter!(x -> x.aln_mismatch >= 0, blast_clusters) # Drop failed trimmings
