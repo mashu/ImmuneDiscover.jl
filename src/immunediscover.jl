@@ -392,6 +392,7 @@ module immunediscover
 
             if get(parsed_args,"%COMMAND%","") == "exact"
                 @info "Exact search"
+                extension = parsed_args["exact"]["extension"]
                 limit = parsed_args["exact"]["limit"]
                 refgenes = parsed_args["exact"]["refgene"]
                 if length(refgenes) > 0
@@ -411,9 +412,15 @@ module immunediscover
 
                 top = parsed_args["exact"]["top"]
                 affix = parsed_args["exact"]["affix"]
-                rss = split(parsed_args["exact"]["rss"], ',')
-                validate_types(rss)
-                @info "Extract RSS: $(join(rss,','))"
+                local rss
+                if extension !== nothing
+                    @info "Using extension mode with length $extension instead of RSS elements"
+                    rss = String[]  # Empty RSS when using extension
+                else
+                    rss = split(parsed_args["exact"]["rss"], ',')
+                    validate_types(rss)
+                    @info "Extract RSS: $(join(rss,','))"
+                end
                 if top != 1
                     @info "Uncollapsed mode enabled; at most $top full records will be returned."
                 end
@@ -445,7 +452,7 @@ module immunediscover
 
                 raw = parsed_args["exact"]["raw"]
                 locus = parsed_args["exact"]["locus"]
-                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect_dict=expect_dict, affix=affix, rss=rss, N=top, raw=raw)
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect_dict=expect_dict, affix=affix, rss=rss, extension=extension, N=top, raw=raw)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     if nrow(counts_df) > 0

@@ -42,7 +42,7 @@ module exact
 
     Extract flanking sequences from genomic sequence
     """
-    function extract_flanking(genomic_sequence::String, range::Tuple{Int, Int}, gene_type::String, n::Int)
+    function extract_flanking(genomic_sequence::String, range::Tuple{Int, Int}, gene_type::String, n::Int, extension::Union{Int,Nothing}=nothing)
         # Ensure range is valid
         start_pos, end_pos = range
         if start_pos < 1 || end_pos > length(genomic_sequence) || start_pos > end_pos
@@ -50,6 +50,25 @@ module exact
         end
 
         sequence = genomic_sequence[start_pos:end_pos]
+
+        if extension !== nothing
+            if gene_type == "V"
+                prefix = start_pos > n ? genomic_sequence[(start_pos - n):(start_pos - 1)] : genomic_sequence[1:(start_pos - 1)]
+                extension_seq = genomic_sequence[end_pos + 1:min(end_pos + extension, length(genomic_sequence))]
+                return (prefix=prefix, sequence=sequence, suffix=extension_seq)
+            elseif gene_type == "J"
+                extension_seq = genomic_sequence[max(1, start_pos - extension):(start_pos - 1)]
+                suffix = genomic_sequence[end_pos + 1:min(end_pos + n, length(genomic_sequence))]
+                return (prefix=extension_seq, sequence=sequence, suffix=suffix)
+            elseif gene_type == "D"
+                prefix = genomic_sequence[max(1, start_pos - extension):(start_pos - 1)]
+                suffix = genomic_sequence[end_pos + 1:min(end_pos + extension, length(genomic_sequence))]
+                return (prefix=prefix, sequence=sequence, suffix=suffix)
+            else
+                error("Invalid gene type")
+            end
+        end
+
         if gene_type == "V"
             prefix = start_pos > n ? genomic_sequence[(start_pos - n):(start_pos - 1)] : genomic_sequence[1:(start_pos - 1)]
             heptamer = genomic_sequence[end_pos + 1:min(end_pos + 7, length(genomic_sequence))]
@@ -110,7 +129,7 @@ module exact
         rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=14, rss=["heptamer", "spacer", "nonamer"], N=10, raw=nothing, expect_dict=Dict{String,Float64}())
+    function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=13, rss=["heptamer", "spacer", "nonamer"], extension=nothing, N=10, raw=nothing, expect_dict=Dict{String,Float64}())
         @info "Using mincount: $mincount, minratio: $minratio for genes: $gene"
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
@@ -122,8 +141,13 @@ module exact
             @inbounds for (name, seq) in query
                 match = findfirst(seq, row.genomic_sequence)
                 if match !== nothing
-                    flanks = extract_flanking(row.genomic_sequence, (minimum(match), maximum(match)), gene, affix)
-                    filtered_flanks = gene == "V" ? filter_tuple_by_types(rss, "prefix", tuple_data = flanks) : gene == "J" ? filter_tuple_by_types(rss, "suffix", tuple_data = flanks) : flanks
+                    flanks = extract_flanking(row.genomic_sequence, (minimum(match), maximum(match)), gene, affix, extension)
+                    local filtered_flanks
+                    if extension !== nothing
+                        filtered_flanks = flanks
+                    else
+                        filtered_flanks = gene == "V" ? filter_tuple_by_types(rss, "prefix", tuple_data = flanks) : gene == "J" ? filter_tuple_by_types(rss, "suffix", tuple_data = flanks) : flanks
+                    end
                     meta = (well=string(well), case=string(case), db_name=string(name))
                     push!(matches, merge(meta, filtered_flanks))
                 end
@@ -174,7 +198,7 @@ module exact
     function transform_counts(group_df, name; count_col=:count)
         # Find the row where the name matches
         ref_row = filter(row -> startswith(row.db_name, name), group_df)
-        
+
         # Check if the reference row is found
         ref_count = 1
         well, case = first(map(r->(r.well, r.case), eachrow(unique(group_df, [:well,:case]))))
@@ -185,10 +209,10 @@ module exact
             ref_count = ref_row.count
         end
         new_name = "$(count_col)_$(first(split(name,'*')))_ratio"
-    
+
         # Calculate the ratio and add it as a new column
         group_df[!, new_name] = group_df[:, count_col] ./ ref_count
-    
+
         return group_df
     end
 
@@ -203,6 +227,6 @@ module exact
         transformed_df = reduce(vcat, transformed)
         return transformed_df
     end
-    
+
     export grouped_ratios, transform_counts
 end

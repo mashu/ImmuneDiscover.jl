@@ -430,6 +430,9 @@ module cli
             help = "Comma-separated list of rss fragments: heptamer, spacer, nonamer"
             default = "heptamer"
             arg_type = String
+        "--extension"
+            help = "Length of extension on RSS side instead of RSS elements"
+            arg_type = Int
         "--raw"
             help = "Unfiltered exact search results for diagnostics"
             arg_type = String
@@ -444,7 +447,7 @@ module cli
         "-a", "--affix"
             help = "Number of bases to extract from the non-RSS side of the sequence"
             arg_type = Int
-            default = 14
+            default = 13
             range_tester = (x->x >= 1)
         "-t", "--top"
             help = "Saves at most N records of flank and sequence."
