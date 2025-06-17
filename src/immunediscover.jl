@@ -427,6 +427,8 @@ module immunediscover
                 gene = parsed_args["exact"]["gene"]
                 expect = parsed_args["exact"]["expect"]
                 deletion = parsed_args["exact"]["deletion"]
+                min_allele_case_medratio = parsed_args["exact"]["min-allele-mratio"]
+                min_gene_case_medratio = parsed_args["exact"]["min-gene-mratio"]
 
                 # Load expect if provided
                 expect_df = DataFrame(name=[], ratio=[])
@@ -463,40 +465,64 @@ module immunediscover
                 end
                 # Add gene count frequency (aggregation with alleles starting with locus only)
                 @info "Excluding genes not starting with $locus for correct allele and gene count frequency calculation"
+
+                # Calculate gene counts per well/case/gene
                 transform!(groupby(counts_df, [:well, :case, :gene])) do group
                     filtered_group = filter(row -> startswith(row.db_name, locus), group)
                     gene_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
                     return DataFrame(gene_count = fill(gene_count, nrow(group)))
                 end
 
+                # Calculate total counts per well/case
                 transform!(groupby(counts_df, [:well, :case])) do group
                     filtered_group = filter(row -> startswith(row.db_name, locus), group)
                     case_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
                     return DataFrame(case_count = fill(case_count, nrow(group)))
                 end
 
-                transform!(groupby(counts_df, [:well, :case, :gene])) do group
+                # Calculate median count per gene across ALL cases
+                transform!(groupby(counts_df, [:gene])) do group
                     filtered_group = filter(row -> startswith(row.db_name, locus), group)
-                    median_gene_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
-                    return DataFrame(median_gene_count = fill(median_gene_count, nrow(group)))
+                    cross_case_median_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
+                    return DataFrame(cross_case_median_count = fill(cross_case_median_count, nrow(group)))
                 end
 
-                transform!(groupby(counts_df, [:well, :case])) do group
+                # Calculate median gene_count for each gene across all cases
+                transform!(groupby(counts_df, [:gene])) do group
                     filtered_group = filter(row -> startswith(row.db_name, locus), group)
-                    median_case_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
-                    return DataFrame(median_case_count = fill(median_case_count, nrow(group)))
+                    cross_case_median_gene_count = isempty(filtered_group) ? 0 : median(filtered_group.gene_count)
+                    return DataFrame(cross_case_median_gene_count = fill(cross_case_median_gene_count, nrow(group)))
                 end
 
-                # Frequencies
+                # Calculate median allele count for each allele (db_name) across all cases
+                transform!(groupby(counts_df, [:db_name])) do group
+                    filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                    cross_case_median_allele_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
+                    return DataFrame(cross_case_median_allele_count = fill(cross_case_median_allele_count, nrow(group)))
+                end
+
+                # Frequencies within a case
                 counts_df[:,:allele_case_freq] = counts_df.count ./ counts_df.case_count
                 counts_df[:,:gene_case_freq] = counts_df.gene_count ./ counts_df.case_count
-                # Median ratios
-                counts_df[:,:allele_case_medratio] = counts_df.count ./ counts_df.median_case_count
-                counts_df[:,:gene_case_medratio] = counts_df.gene_count ./ counts_df.median_case_count
 
+                # Ratios compared to cross-case medians (for detecting outliers across cases)
+                counts_df[:,:allele_to_cross_case_median_ratio] = counts_df.count ./ counts_df.cross_case_median_allele_count
+                counts_df[:,:gene_to_cross_case_median_ratio] = counts_df.gene_count ./ counts_df.cross_case_median_gene_count
+
+                # Calculate allele frequency within gene (per case)
                 transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
-                filter!(x->(x.allele_freq >= get_ratio_threshold(expect_dict, x, type="allele_freq")), counts_df)
-                filter!(x->(x.gene_case_freq >= get_ratio_threshold(deletion_df, x, type="gene_case_freq")), counts_df)
+
+                # Apply original filters
+                filter!(x -> (x.allele_freq >= get_ratio_threshold(expect_dict, x, type="allele_freq")), counts_df)
+                filter!(x -> (x.gene_case_freq >= get_ratio_threshold(deletion_df, x, type="gene_case_freq")), counts_df)
+
+                # Use the existing min-allele-mratio and min-gene-mratio parameters for cross-case comparisons
+                min_allele_cross_case_ratio = parsed_args["exact"]["min-allele-mratio"]
+                min_gene_cross_case_ratio = parsed_args["exact"]["min-gene-mratio"]
+
+                # Filter out alleles/genes that are much lower than expected across all cases
+                filter!(x -> (x.allele_to_cross_case_median_ratio >= min_allele_cross_case_ratio), counts_df)
+                filter!(x -> (x.gene_to_cross_case_median_ratio >= min_gene_cross_case_ratio), counts_df)
 
                 output = cli.always_gz(parsed_args["exact"]["output"])
                 # Compute refgene ratios

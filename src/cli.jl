@@ -426,6 +426,16 @@ module cli
             default = 5
             arg_type = Int
             range_tester = (x->x >= 1)
+        "--min-allele-mratio"
+            help = "Minimum allelic ratio applied within each gene group for the allele against median"
+            default = 0.05
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0))
+        "--min-gene-mratio"
+            help = "Minimum allelic ratio applied within each gene group for the gene against median"
+            default = 0.05
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0))
         "--rss"
             help = "Comma-separated list of rss fragments: heptamer, spacer, nonamer"
             default = "heptamer"
