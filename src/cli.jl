@@ -61,18 +61,7 @@ module cli
         end
     end
 
-    function get_default_value(param)
-        defaults = Dict(
-            "forward" => 20,
-            "reverse" => 20,
-            "minfreq" => 0.1,
-            "length" => 290,
-            "maxdist" => 20,
-            "mincount" => 5,
-            "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
-        )
-        return get(defaults, param, nothing)
-    end
+
 
     function apply_blast_presets!(parsed_args)
         if parsed_args["%COMMAND%"] == "blast"
@@ -80,11 +69,11 @@ module cli
             if haskey(BLAST_PRESETS, gene)
                 preset = BLAST_PRESETS[gene]
 
-                # Only apply preset if argument wasn't explicitly provided
+                # Only apply preset if argument wasn't explicitly provided on command line
                 for (key, value) in preset
-                    if !haskey(parsed_args["blast"], key) ||
-                       parsed_args["blast"][key] === nothing ||
-                       parsed_args["blast"][key] == get_default_value(key)
+                    # Check if the parameter was explicitly provided on command line
+                    # If it's not in the args dict or is null, use preset
+                    if !haskey(parsed_args["blast"], key) || parsed_args["blast"][key] === nothing
                         parsed_args["blast"][key] = value
                     end
                 end
