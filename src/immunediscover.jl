@@ -206,6 +206,8 @@ module immunediscover
                 minquality = parsed_args["blast"]["minquality"]
                 forward_extension = parsed_args["blast"]["forward"]
                 reverse_extension = parsed_args["blast"]["reverse"]
+                keep_failed = parsed_args["blast"]["keep-failed"]
+                min_corecov = parsed_args["blast"]["min-corecov"]
 
                 # Arbitrary choice what is short, but it's just a warning
                 if (forward_extension < 7) && (forward_extension > 0)
@@ -317,6 +319,25 @@ module immunediscover
                         )
                     ) => [:aln_qseq, :aln_mismatch]
                 )
+
+                # Drop failed/empty alignments by default (prevents "nothing" strings)
+                if !keep_failed
+                    before = nrow(blast_clusters)
+                    filter!(x -> !ismissing(x.aln_qseq) && (x.aln_qseq != "") && (x.aln_qseq != "nothing") && x.aln_mismatch >= 0, blast_clusters)
+                    @info "Dropped $(before - nrow(blast_clusters)) rows with failed/empty alignments"
+                end
+
+                # Core coverage filter to suppress short local matches
+                transform!(blast_clusters, [:aln_qseq, :db_seq] => ByRow((aq, ds) -> begin
+                    aq_s = coalesce(String(aq), "")
+                    ds_s = coalesce(String(ds), "")
+                    if isempty(aq_s) || isempty(ds_s)
+                        0.0
+                    else
+                        length(aq_s) / length(ds_s)
+                    end
+                end) => :corecov)
+                filter!(x -> x.corecov >= min_corecov, blast_clusters)
                 # Info
                 for (gene, failures) in sort(collect(stats.failed_genes))
                     if !isempty(failures)
@@ -375,7 +396,9 @@ module immunediscover
                 end
 
                 # Filter results
-                filter!(x -> x.aln_mismatch >= 0, blast_clusters) # Drop failed trimmings
+                if !keep_failed
+                    filter!(x -> x.aln_mismatch >= 0, blast_clusters) # Drop failed trimmings
+                end
                 filter!(x -> x.aln_mismatch <= parsed_args["blast"]["maxdist"], blast_clusters)
 
                 # Generate allele names

@@ -390,6 +390,14 @@ module cli
         "-i", "--isin"
             help = "Keep sequences that are substrings of known alleles"
             action = :store_false
+        "--keep-failed"
+            help = "Keep rows where trimming failed (aln_qseq empty). By default such rows are dropped."
+            action = :store_true
+        "--min-corecov"
+            help = "Minimum ratio length(aln_qseq)/length(db_seq) after trimming"
+            default = 0.6
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "-v", "--verbose"
             help = "Print verbose output and save intermediate files"
             action = :store_true

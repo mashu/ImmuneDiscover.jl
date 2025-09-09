@@ -347,12 +347,12 @@ module blast
         prefix_dna = BioSequences.LongDNA{4}(prefix)
         suffix_dna = BioSequences.LongDNA{4}(suffix)
 
-        trimmed_seq = string(trim_sequence(query_dna, prefix_dna, suffix_dna, stats, min_quality=min_quality, sseqid=sseqid))
-         # If trimming failed, return empty sequence and negative distance
-        if trimmed_seq === nothing
+        trimmed_dna = trim_sequence(query_dna, prefix_dna, suffix_dna, stats, min_quality=min_quality, sseqid=sseqid)
+        # If trimming failed, return empty sequence and negative distance
+        if trimmed_dna === nothing
             return "", -1
         end
-        trimmed = nogaps(trimmed_seq)
+        trimmed = nogaps(String(trimmed_dna))
         distance = compute_edit_distance(trimmed, reference)
 
         return trimmed, distance
