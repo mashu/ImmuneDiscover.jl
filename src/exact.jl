@@ -76,15 +76,15 @@ module exact
             nonamer = genomic_sequence[end_pos + 31:min(end_pos + 39, length(genomic_sequence))]
             return (prefix=prefix, sequence=sequence, heptamer=heptamer, spacer=spacer, nonamer=nonamer)
         elseif gene_type == "J"
-            nonamer = genomic_sequence[max(1, start_pos - 9):(start_pos - 1)]
-            spacer = genomic_sequence[max(1, start_pos - 32):max(1, start_pos - 10)]
-            heptamer = genomic_sequence[max(1, start_pos - 40):max(1, start_pos - 34)]
+            heptamer = genomic_sequence[max(1, start_pos - 7):(start_pos - 1)]
+            spacer = genomic_sequence[max(1, start_pos - 30):max(1, start_pos - 8)]
+            nonamer = genomic_sequence[max(1, start_pos - 39):max(1, start_pos - 31)]
             suffix = genomic_sequence[end_pos + 1:min(end_pos + n, length(genomic_sequence))]
             return (nonamer=nonamer, spacer=spacer, heptamer=heptamer, suffix=suffix, sequence=sequence)
         elseif gene_type == "D"
-            pre_nonamer = genomic_sequence[max(1, start_pos - 9):(start_pos - 1)]
-            pre_spacer = genomic_sequence[max(1, start_pos - 21):max(1, start_pos - 10)]
-            pre_heptamer = genomic_sequence[max(1, start_pos - 28):max(1, start_pos - 22)]
+            pre_heptamer = genomic_sequence[max(1, start_pos - 7):(start_pos - 1)]
+            pre_spacer = genomic_sequence[max(1, start_pos - 19):max(1, start_pos - 8)]
+            pre_nonamer = genomic_sequence[max(1, start_pos - 28):max(1, start_pos - 20)]
             post_heptamer = genomic_sequence[end_pos + 1:min(end_pos + 7, length(genomic_sequence))]
             post_spacer = genomic_sequence[end_pos + 8:min(end_pos + 19, length(genomic_sequence))]
             post_nonamer = genomic_sequence[end_pos + 20:min(end_pos + 28, length(genomic_sequence))]
