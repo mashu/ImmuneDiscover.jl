@@ -160,6 +160,9 @@ module cli
             "diff"
                 help = "Diff two FASTA files based on sequence identity but keep associated names"
                 action = :command
+            "linkage"
+                help = "Analyze cross-donor co-occurrence (linkage) between alleles"
+                action = :command
             end
 
         # Define the genes and choices for ArgParse
@@ -188,6 +191,9 @@ module cli
                 help = "Forward array index to use for demultiplexing"
                 arg_type = String
                 default = ""
+            "--case-filter-regex"
+                help = "Regex pattern to filter cases (e.g., '[ACDERF]' for monkey cases)"
+                arg_type = String
         end
 
         @add_arg_table! s["diff"] begin
@@ -195,6 +201,56 @@ module cli
                 help = "FASTA files with sequences"
                 nargs = '+'
                 required = true
+        end
+
+        @add_arg_table! s["linkage"] begin
+        "input"
+            help = "TSV/TSV.GZ with columns: case and db_name (or specify columns)"
+            required = true
+        "edges"
+            help = "TSV.GZ to save pairwise edges table (metrics, p, q)"
+            required = true
+        "-C", "--case-col"
+            help = "Name of column with donor/case id"
+            default = "case"
+            arg_type = String
+        "-A", "--allele-col"
+            help = "Name of column with allele name"
+            default = "db_name"
+            arg_type = String
+        "-m", "--min-donors"
+            help = "Minimum donors required to include an allele"
+            default = 2
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "--min-support"
+            help = "Minimum co-present donors (n11) to consider an edge"
+            default = 3
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-jaccard"
+            help = "Minimum Jaccard co-presence required to consider an edge"
+            default = 0.2
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--similarity"
+            help = "Similarity mode: r or r2"
+            default = "r"
+            arg_type = String
+            range_tester = (x->(x == "r") | (x == "r2"))
+        "--threshold"
+            help = "Similarity threshold for complete-linkage cut (on r or r2)"
+            default = 0.5
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-cluster-size"
+            help = "Minimum cluster size to output"
+            default = 3
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "--clusters"
+            help = "Optional path to save clusters (TSV)"
+            arg_type = String
         end
 
         @add_arg_table! s["heptamer"] begin

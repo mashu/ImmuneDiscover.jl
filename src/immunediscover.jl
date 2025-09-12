@@ -14,6 +14,7 @@ module immunediscover
     include("nwpattern.jl")
     include("blast.jl")
     include("keyedsets.jl")
+    include("linkage.jl")
 
     using .cli
     using .demultiplex
@@ -30,6 +31,7 @@ module immunediscover
     using .bwa
     using .blast
     using .keyedsets
+    using .linkage
 
     using CSV
     using DataFrames
@@ -106,6 +108,17 @@ module immunediscover
                                                          parsed_args["demultiplex"]["forwardarrayindex"],
                                                          min_length=parsed_args["demultiplex"]["length"],
                                                          save_fastq_files=parsed_args["demultiplex"]["split"])
+                
+                # Apply case filtering if regex is provided
+                case_filter_regex = get(parsed_args["demultiplex"], "case-filter-regex", nothing)
+                if case_filter_regex !== nothing
+                    @info "Filtering cases with regex: $case_filter_regex"
+                    original_count = nrow(table)
+                    filter!(x -> startswith(x.case, Regex(case_filter_regex)), table)
+                    filtered_count = nrow(table)
+                    @info "Filtered from $original_count to $filtered_count rows ($(original_count - filtered_count) rows removed)"
+                end
+                
                 logfile = "$(parsed_args["demultiplex"]["output"]).log"
                 CSV.write(logfile, stats, delim='\t')
                 count_df = combine(groupby(table, :case), :case => length => :count)
@@ -651,6 +664,70 @@ module immunediscover
 
                 CSV.write(output, final, compress=true, delim='\t')
                 @info "Pattern search data saved in compressed $output file"
+            end
+            if get(parsed_args,"%COMMAND%","") == "linkage"
+                @info "Linkage analysis"
+                tsv  = parsed_args["linkage"]["input"]
+                edges_out  = cli.always_gz(parsed_args["linkage"]["edges"])
+                case_col = parsed_args["linkage"]["case-col"]
+                allele_col = parsed_args["linkage"]["allele-col"]
+                min_donors = parsed_args["linkage"]["min-donors"]
+                min_support = parsed_args["linkage"]["min-support"]
+                jaccard_threshold = parsed_args["linkage"]["min-jaccard"]
+                sim_mode = parsed_args["linkage"]["similarity"] == "r2" ? :r2 : :r
+                sim_thresh = parsed_args["linkage"]["threshold"]
+                min_cluster_size = parsed_args["linkage"]["min-cluster-size"]
+                clusters_path = get(parsed_args["linkage"], "clusters", nothing)
+                df = CSV.File(tsv, delim='\t') |> DataFrame
+                @info "Loaded $(nrow(df)) rows from input file"
+                
+                edges, clusters, clusters_detailed = linkage.compute_edges_and_clusters(
+                    df; case_col=case_col, allele_col=allele_col, min_donors=min_donors,
+                    min_support=min_support, jaccard_threshold=jaccard_threshold,
+                    similarity=sim_mode, similarity_threshold=sim_thresh, min_cluster_size=min_cluster_size
+                )
+                
+                CSV.write(edges_out, edges, compress=true, delim='\t')
+                @info "Edges saved in compressed $edges_out file ($(nrow(edges)) pairs)"
+                
+                if clusters_path !== nothing
+                    # Create detailed clusters output with donor information and statistics
+                    all_cluster_rows = Vector{NamedTuple}()
+                    for (gid, cluster_df) in enumerate(clusters_detailed)
+                        for row in eachrow(cluster_df)
+                            push!(all_cluster_rows, (
+                                group_id = gid,
+                                allele = row.allele,
+                                donors = row.donors,
+                                n_donors = row.n_donors,
+                                mean_n11 = row.mean_n11,
+                                mean_n10 = row.mean_n10,
+                                mean_n01 = row.mean_n01,
+                                mean_n00 = row.mean_n00,
+                                mean_r = row.mean_r,
+                                max_r = row.max_r,
+                                min_r = row.min_r
+                            ))
+                        end
+                    end
+                    
+                    # Also create simple clusters file for backward compatibility
+                    simple_rows = Vector{NamedTuple}()
+                    for (gid, comp) in enumerate(clusters)
+                        for allele in comp
+                            push!(simple_rows, (; group_id=gid, allele))
+                        end
+                    end
+                    
+                    # Save detailed clusters
+                    CSV.write(clusters_path, DataFrame(all_cluster_rows), delim='\t')
+                    @info "Detailed clusters saved in $(clusters_path) ($(length(clusters)) clusters, $(length(all_cluster_rows)) alleles)"
+                    
+                    # Save simple clusters as well (with .simple suffix)
+                    simple_path = replace(clusters_path, r"\.tsv$" => ".simple.tsv")
+                    CSV.write(simple_path, DataFrame(simple_rows), delim='\t')
+                    @info "Simple clusters saved in $(simple_path) for backward compatibility"
+                end
             end
             if get(parsed_args,"%COMMAND%","") == "novel"
                 df = CSV.File(parsed_args["novel"]["tsv"],delim='\t') |> DataFrame

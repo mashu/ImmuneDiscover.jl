@@ -16,6 +16,7 @@ using immunediscover.patterns
 using immunediscover.heptamer
 using immunediscover.keyedsets
 using immunediscover.blast
+using immunediscover.linkage
 
 # Initialize a dictionary to track test outcomes
 test_outcomes = Dict(
@@ -345,6 +346,18 @@ test_outcomes = Dict(
         else
             println("Skipping remaining tests due to failed dependencies")
         end
+
+    @testset "linkage.jl" begin
+        df = CSV.read("test/test_linkage.tsv", DataFrame, delim='\t')
+        res_pair = linkage.pairwise_linkage(df)
+        @test nrow(res_pair) > 0
+        # In toy data, A*01 and B*01 co-occur in D1 and D2 (a=2)
+        row = first(filter(r -> (r.allele_a == "A*01" && r.allele_b == "B*01") || (r.allele_a == "B*01" && r.allele_b == "A*01"), res_pair))
+        @test row.support == 2
+        # Reference mode
+        res_ref = linkage.analyze_linkage(df; alleles_of_interest=["A*01"])
+        @test any(res_ref.allele_name .== "B*01")
+    end
 
     # # Cleanup test files
     # for file in ["test.fasta", "reference.fasta", "novel.fasta", "test_indices.tsv",

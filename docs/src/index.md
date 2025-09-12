@@ -377,3 +377,22 @@ immunediscover bwa test-regex.tsv.gz gnome.fasta test_bwa.tsv.gz -c "chromosome 
 - `-n, --colname`: Column name to use for allele name (Default: "best_name")
 - `-s, --colseq`: Column names to use for sequence (Default: "prefix best_aln suffix")
 
+# Linkage
+The linkage command analyzes cross-donor co-occurrence (linkage) between alleles. It accepts any table with at least two columns: `case` and `db_name`. Column names are configurable.
+
+Two modes:
+- Reference mode (specific alleles vs all others):
+```bash
+immunediscover linkage input.tsv.gz output.tsv.gz \
+  --reference IGHV1-69*01_S0001 IGHV3-23*01_S0007 \
+  --case-col case --allele-col db_name --min-donors 2 --fdr 0.05
+```
+
+- Global pairwise mode (all allele pairs):
+```bash
+immunediscover linkage input.tsv.gz output.tsv.gz \
+  --case-col case --allele-col db_name --min-donors 2
+```
+
+Output columns: `a,b,c,d` (contingency counts), `support,nA,nB,N`, `cooccur_rate`, `jaccard`, `lift`, `phi`, `odds_ratio`, `p_value`, `q_value`. Filter significant pairs with `q_value <= 0.05`.
+
