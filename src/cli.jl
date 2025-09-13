@@ -139,8 +139,8 @@ module cli
             "regex"
                 help = "Search for short novel alleles with regex"
                 action = :command
-            "novel"
-                help = "Extract novel alleles into FASTA format"
+            "fasta"
+                help = "Extract sequences from TSV file into FASTA format"
                 action = :command
             "hash"
                 help = "Add hash based _S suffix to all allele names in the FASTA file"
@@ -723,10 +723,29 @@ module cli
                 range_tester = (x->x >= 1)
         end
 
-        @add_arg_table! s["novel"] begin
-        "tsv"
-            help = "TSV file with columns allele_name and seq"
+        @add_arg_table! s["fasta"] begin
+        "input"
+            help = "TSV file with data to extract"
             required = true
+        "output"
+            help = "Output FASTA file"
+            required = true
+        "-n", "--colname"
+            help = "Name of the column with sequence names/IDs"
+            default = "allele_name"
+            arg_type = String
+        "-s", "--colseq"
+            help = "Name of the column with sequences"
+            default = "seq"
+            arg_type = String
+        "-d", "--coldesc"
+            help = "Optional name of the column with descriptions (used in FASTA headers)"
+            default = nothing
+            arg_type = Union{String, Nothing}
+        "-f", "--filter"
+            help = "Optional regex pattern to filter colname column (e.g., 'Novel')"
+            default = nothing
+            arg_type = Union{String, Nothing}
         end
 
         @add_arg_table! s["collect"] begin
