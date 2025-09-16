@@ -1,11 +1,25 @@
 module cli
     using ArgParse
     export parse_commandline, apply_blast_presets!, show_blast_presets, show_blast_params
-    export BLAST_PRESETS
+    export BLAST_PRESETS, BLAST_CLI_DEFAULTS
     import ArgParse.parse_item
     using ArgParse: @add_arg_table!
     using Logging
     using Dates
+
+    # CLI defaults for blast command - single source of truth (based on v0.0.66)
+    const BLAST_CLI_DEFAULTS = Dict(
+        "forward" => 20,
+        "reverse" => 20,
+        "minfullfreq" => 0.1,
+        "length" => 290,
+        "maxdist" => 20,
+        "minfullcount" => 5,
+        "edge" => 0,
+        "subjectcov" => 0.1,
+        "minquality" => 0.75,
+        "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
+    )
 
     const BLAST_PRESETS = Dict(
         "V" => Dict(
@@ -27,7 +41,7 @@ module cli
             "edge" => 10,
             "subjectcov" => 0.25,
             "minquality" => 0.5,
-            "args" => "-task blastn-short -subject_besthit -num_alignments 10 -qcov_hsp_perc 5"
+            "args" => "-task blastn -word_size 7 -xdrop_ungap 40 -xdrop_gap 40 -subject_besthit -num_alignments 10 -qcov_hsp_perc 5"
         ),
         # Old D presets (commented out for reference)
         # "D" => Dict(
@@ -82,12 +96,26 @@ module cli
             if haskey(BLAST_PRESETS, gene)
                 preset = BLAST_PRESETS[gene]
 
-                # Only apply preset if argument wasn't explicitly provided on command line
-                for (key, value) in preset
-                    # Check if the parameter was explicitly provided on command line
-                    # If it's not in the args dict or is null, use preset
-                    if !haskey(parsed_args["blast"], key) || parsed_args["blast"][key] === nothing
-                        parsed_args["blast"][key] = value
+                # Only apply preset if the current value equals the CLI default
+                # This means the user didn't explicitly override it
+                for (key, preset_value) in preset
+                    if haskey(parsed_args["blast"], key) && haskey(BLAST_CLI_DEFAULTS, key)
+                        current_value = parsed_args["blast"][key]
+                        default_value = BLAST_CLI_DEFAULTS[key]
+                        
+                        # Apply preset only if current value equals the default
+                        if current_value == default_value
+                            @info "Applying $gene preset $key: $current_value → $preset_value"
+                            parsed_args["blast"][key] = preset_value
+                        else
+                            @info "Keeping user override for $key: $current_value (not default $default_value)"
+                        end
+                    else
+                        # Apply preset for keys not in CLI defaults
+                        if haskey(parsed_args["blast"], key)
+                            @info "Applying $gene preset $key: $(parsed_args["blast"][key]) → $preset_value"
+                            parsed_args["blast"][key] = preset_value
+                        end
                     end
                 end
             end

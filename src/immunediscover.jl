@@ -753,7 +753,7 @@ module immunediscover
 
             if get(parsed_args,"%COMMAND%","") == "merge"
                 merge_fasta_files(
-                    parsed_args["merge"]["inputs"],
+                    String.(parsed_args["merge"]["inputs"]),
                     parsed_args["merge"]["output"];
                     sort_by_name = !parsed_args["merge"]["no-sort"],
                     cleanup_pattern = parsed_args["merge"]["cleanup"],
