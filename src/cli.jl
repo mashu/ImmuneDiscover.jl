@@ -18,15 +18,28 @@ module cli
             "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
         ),
         "D" => Dict(
-            "forward" => 0,
-            "reverse" => 0,
+            "forward" => 40,
+            "reverse" => 40,
             "minfullfreq" => 0.2,
-            "length" => 10,
-            "maxdist" => 10,
+            "length" => 5,
+            "maxdist" => 20,
             "minfullcount" => 10,
-            "args" => "-task blastn-short -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
-            #"args" => "-task blastn -word_size 7 -evalue 100 -penalty -2 -reward 1 -dust no -soft_masking false -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
+            "edge" => 10,
+            "subjectcov" => 0.25,
+            "minquality" => 0.5,
+            "args" => "-task blastn-short -subject_besthit -num_alignments 10 -qcov_hsp_perc 5"
         ),
+        # Old D presets (commented out for reference)
+        # "D" => Dict(
+        #     "forward" => 0,
+        #     "reverse" => 0,
+        #     "minfullfreq" => 0.2,
+        #     "length" => 10,
+        #     "maxdist" => 10,
+        #     "minfullcount" => 10,
+        #     "args" => "-task blastn-short -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
+        #     #"args" => "-task blastn -word_size 7 -evalue 100 -penalty -2 -reward 1 -dust no -soft_masking false -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
+        # ),
         "J" => Dict(
             "forward" => 12,
             "reverse" => 12,

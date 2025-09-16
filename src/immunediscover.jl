@@ -338,7 +338,7 @@ module immunediscover
                 if !keep_failed
                     before = nrow(blast_clusters)
                     filter!(x -> !ismissing(x.aln_qseq) && (x.aln_qseq != "") && (x.aln_qseq != "nothing") && x.aln_mismatch >= 0, blast_clusters)
-                    @info "Dropped $(before - nrow(blast_clusters)) rows with failed/empty alignments"
+                    @info "Dropped $(before - nrow(blast_clusters)) rows with failed/empty alignments (remaining: $(nrow(blast_clusters)))"
                 end
 
                 # Core coverage filter to suppress short local matches
@@ -351,14 +351,18 @@ module immunediscover
                         length(aq_s) / length(ds_s)
                     end
                 end) => :corecov)
+                before_corecov = nrow(blast_clusters)
                 filter!(x -> x.corecov >= min_corecov, blast_clusters)
+                @info "Dropped $(before_corecov - nrow(blast_clusters)) rows with core coverage < $min_corecov (remaining: $(nrow(blast_clusters)))"
                 # Info
                 for (gene, failures) in sort(collect(stats.failed_genes))
                     if !isempty(failures)
                         failure_counts = counter(failures)
+                        successful_count = length(stats.successful_trims[gene])
+                        total_failures = length(failures)
+                        total_sequences = successful_count + total_failures
                         for (reason, count) in sort(collect(failure_counts), by=x->x[2], rev=true)
-                            trimmed_count = length(stats.successful_trims[gene])
-                            @warn "Cluster for $gene: $count out of $trimmed_count sequences: $reason"
+                            @warn "Gene $gene: $count sequences failed with '$reason' (out of $total_sequences total sequences: $successful_count successful, $total_failures failed)"
                         end
                     end
                 end

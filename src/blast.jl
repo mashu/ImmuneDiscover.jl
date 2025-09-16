@@ -202,10 +202,26 @@ module blast
     # Helper funciton to remove BLAST gaps before re-aligning
     nogaps(s) = replace(s,'-'=>"")
 
-    function calculate_alignment_quality(pairs)
-        # Find the first and last non-gap positions in the affix (first of each pair)
-        affix_start = findfirst(p -> first(p) != DNA_Gap, pairs)
-        affix_end = findlast(p -> first(p) != DNA_Gap, pairs)
+    function check_affix_quality_warning(affix_length::Int, quality_threshold::Float64)
+        """
+        Check if quality threshold might be too strict for short affixes and issue warning.
+        """
+        if affix_length > 0 && affix_length <= 20 && quality_threshold > 0.5
+            @warn "Quality threshold $(round(quality_threshold * 100, digits=1))% might be too strict for short affixes ($affix_length nt). Consider lowering --minquality for better sensitivity."
+        end
+    end
+
+    function calculate_alignment_quality(pairs, affix_is_first::Bool=true)
+        # Find the first and last non-gap positions in the affix
+        if affix_is_first
+            # Affix is in the first position of each pair
+            affix_start = findfirst(p -> first(p) != DNA_Gap, pairs)
+            affix_end = findlast(p -> first(p) != DNA_Gap, pairs)
+        else
+            # Affix is in the second position of each pair (reversed alignment)
+            affix_start = findfirst(p -> last(p) != DNA_Gap, pairs)
+            affix_end = findlast(p -> last(p) != DNA_Gap, pairs)
+        end
 
         if affix_start === nothing || affix_end === nothing
             return 0.0
@@ -250,9 +266,13 @@ module blast
         partial_query = query
         stats.total_attempts += 1
 
+
+        # The key insight: Extensions help find matches, but we trim back to the original core
+        # Use semi-global alignment but with better quality calculation
+        
         # Only trim prefix if it has length
         if length(prefix) > 0
-            # Perform safe alignment
+            # Perform semi-global alignment: prefix against query
             prefix_aln_result = safe_pairalign(prefix, query, scoremodel)
 
             if prefix_aln_result === nothing
@@ -264,28 +284,49 @@ module blast
             prefix_aln = alignment(prefix_aln_result)
             prefix_pairs = collect(prefix_aln)
 
-            # Check prefix alignment quality
-            prefix_quality = calculate_alignment_quality(prefix_pairs)
+
+            # Calculate quality: only count positions where prefix is not a gap
+            prefix_positions = findall(p -> first(p) != DNA_Gap, prefix_pairs)
+            if isempty(prefix_positions)
+                push!(stats.failed_genes[sseqid], "No prefix content in alignment")
+                stats.prefix_failures += 1
+                return nothing
+            end
+            
+            # Count matches only in prefix positions (no gaps in prefix)
+            matches = sum(first(prefix_pairs[i]) == last(prefix_pairs[i]) for i in prefix_positions)
+            prefix_quality = matches / length(prefix_positions)
+            
+            
             if prefix_quality < min_quality
                 push!(stats.failed_genes[sseqid], "Poor prefix quality ($(round(prefix_quality * 100, digits=1))%)")
                 stats.prefix_failures += 1
                 return nothing
             end
 
+            # Find where the prefix ends (last non-gap in prefix)
             aligned_prefix = first.(prefix_pairs)
             aligned_query = last.(prefix_pairs)
-            core_start = findfirst(x -> x == DNA_Gap, aligned_prefix)
-
-            if core_start === nothing
-                push!(stats.failed_genes[sseqid], "No gap in prefix")
+            
+            prefix_end = findlast(x -> x != DNA_Gap, aligned_prefix)
+            if prefix_end === nothing
+                push!(stats.failed_genes[sseqid], "No prefix match found")
                 stats.prefix_failures += 1
                 return nothing
             end
-
-            try
-                partial_query = remove_gaps(LongDNA{4}(join(aligned_query[core_start:end])))
-            catch e
-                push!(stats.failed_genes[sseqid], "Error in prefix trim")
+            
+            # Extract core sequence after prefix
+            query_core_start = prefix_end + 1
+            if query_core_start > length(aligned_query)
+                push!(stats.failed_genes[sseqid], "Query too short after prefix")
+                stats.prefix_failures += 1
+                return nothing
+            end
+            
+            core_part = aligned_query[query_core_start:end]
+            partial_query = remove_gaps(LongDNA{4}(join(core_part)))
+            if length(partial_query) == 0
+                push!(stats.failed_genes[sseqid], "Empty core after prefix trimming")
                 stats.prefix_failures += 1
                 return nothing
             end
@@ -293,6 +334,7 @@ module blast
 
         # Only trim suffix if it has length
         if length(suffix) > 0
+            # Perform semi-global alignment: suffix against partial_query
             suffix_aln_result = safe_pairalign(suffix, partial_query, scoremodel)
 
             if suffix_aln_result === nothing
@@ -304,31 +346,61 @@ module blast
             suffix_aln = alignment(suffix_aln_result)
             suffix_pairs = collect(suffix_aln)
 
-            suffix_quality = calculate_alignment_quality(suffix_pairs)
+
+            # Calculate quality: only count positions where suffix is not a gap
+            suffix_positions = findall(p -> first(p) != DNA_Gap, suffix_pairs)
+            if isempty(suffix_positions)
+                push!(stats.failed_genes[sseqid], "No suffix content in alignment")
+                stats.suffix_failures += 1
+                return nothing
+            end
+            
+            # Count matches only in suffix positions (no gaps in suffix)
+            matches = sum(first(suffix_pairs[i]) == last(suffix_pairs[i]) for i in suffix_positions)
+            suffix_quality = matches / length(suffix_positions)
+            
+            
             if suffix_quality < min_quality
                 push!(stats.failed_genes[sseqid], "Poor suffix quality ($(round(suffix_quality * 100, digits=1))%)")
                 stats.suffix_failures += 1
                 return nothing
             end
 
+            # Find where the suffix starts (first non-gap in suffix)
             aligned_suffix = first.(suffix_pairs)
             aligned_query = last.(suffix_pairs)
-            core_end = findlast(x -> x == DNA_Gap, aligned_suffix)
-
-            if core_end === nothing
-                push!(stats.failed_genes[sseqid], "No gap in suffix")
+            
+            suffix_start = findfirst(x -> x != DNA_Gap, aligned_suffix)
+            if suffix_start === nothing
+                push!(stats.failed_genes[sseqid], "No suffix match found")
                 stats.suffix_failures += 1
                 return nothing
             end
-
-            try
-                partial_query = remove_gaps(LongDNA{4}(join(aligned_query[1:core_end])))
-            catch e
-                push!(stats.failed_genes[sseqid], "Error in suffix trim")
+            
+            if suffix_start <= 1
+                push!(stats.failed_genes[sseqid], "Suffix starts too early")
+                stats.suffix_failures += 1
+                return nothing
+            end
+            
+            # Extract core sequence before suffix
+            core_part = aligned_query[1:suffix_start-1]
+            partial_query = remove_gaps(LongDNA{4}(join(core_part)))
+            if length(partial_query) == 0
+                push!(stats.failed_genes[sseqid], "Empty core after suffix trimming")
                 stats.suffix_failures += 1
                 return nothing
             end
         end
+
+        # Check if remaining core sequence is long enough for specificity
+        core_length = length(partial_query)
+        if core_length < 10
+            push!(stats.failed_genes[sseqid], "Core sequence too short ($core_length < 10 nt)")
+            stats.prefix_failures += 1
+            return nothing
+        end
+
 
         push!(stats.successful_trims[sseqid], "Trimmed successfully")
         return partial_query
@@ -428,8 +500,11 @@ module blast
         save_to_fasta(query_sequences, query_fasta)
 
         # If file does not exist run blast
-        if isfile(blast_tsv*".gz") && !overwrite
-            @info "BLASTn results already exist $(blast_tsv).gz. Skipping BLASTn."
+        blast_file = blast_tsv * ".gz"
+        file_exists = isfile(blast_file)
+        @info "BLAST cache check: file='$blast_file', exists=$file_exists, overwrite=$overwrite"
+        if file_exists && !overwrite
+            @info "BLASTn results already exist $blast_file. Skipping BLASTn."
         else
             @info "Running BLASTn. This may take a while."
             # Run BLAST
