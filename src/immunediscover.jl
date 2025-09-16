@@ -15,6 +15,7 @@ module immunediscover
     include("blast.jl")
     include("keyedsets.jl")
     include("linkage.jl")
+    include("fasta.jl")
 
     using .cli
     using .demultiplex
@@ -32,6 +33,7 @@ module immunediscover
     using .blast
     using .keyedsets
     using .linkage
+    using .fasta
 
     using CSV
     using DataFrames
@@ -735,73 +737,16 @@ module immunediscover
                 end
             end
             if get(parsed_args,"%COMMAND%","") == "fasta"
-                @info "Extracting sequences to FASTA format"
-                df = CSV.File(parsed_args["fasta"]["input"], delim='\t') |> DataFrame
-                
-                # Get column names from parameters
-                colname = parsed_args["fasta"]["colname"]
-                colseq = parsed_args["fasta"]["colseq"]
-                coldesc = parsed_args["fasta"]["coldesc"]
-                filter_pattern = parsed_args["fasta"]["filter"]
-                
-                # Assert that the input file has the required columns
-                @assert colname ∈ names(df) "Input file must have $colname column"
-                @assert colseq ∈ names(df) "Input file must have $colseq column"
-                
-                # Check if description column is specified and exists
-                if coldesc !== nothing
-                    @assert coldesc ∈ names(df) "Input file must have $coldesc column when --coldesc is specified"
-                    @info "Using $coldesc column for FASTA descriptions"
-                end
-                
-                @info "Loaded $(nrow(df)) rows from input file"
-                
-                # Apply regex filter if specified
-                if filter_pattern !== nothing
-                    @info "Filtering rows where $colname matches regex pattern '$filter_pattern'"
-                    df = df[occursin.(Regex(filter_pattern), df[!, colname]), :]
-                    @info "After filtering: $(nrow(df)) rows remaining"
-                end
-                
-                # Remove duplicates based on both name and sequence columns
-                before_unique = nrow(df)
-                df = DataFrames.unique(df, [colname, colseq])
-                after_unique = nrow(df)
-                if before_unique != after_unique
-                    @info "Removed $(before_unique - after_unique) duplicate records (by $colname and $colseq)"
-                end
-                
-                # Create FASTA records and write to file
-                output_file = parsed_args["fasta"]["output"]
-                writer = FASTA.Writer(open(output_file, "w"))
-                
-                try
-                    for row in eachrow(df)
-                        name = string(row[colname])
-                        seq = string(row[colseq])
-                        
-                        # Clean up name if it contains the filter pattern
-                        if filter_pattern !== nothing && occursin(Regex(filter_pattern), name)
-                            name = rstrip(replace(name, Regex(filter_pattern) => ""))
-                        end
-                        
-                        # Add description if specified
-                        if coldesc !== nothing
-                            desc = string(row[coldesc])
-                            if !isempty(desc)
-                                name = "$name $desc"
-                            end
-                        end
-                        
-                        # Create and write FASTA record
-                        record = FASTARecord(name, seq)
-                        write(writer, record)
-                    end
-                finally
-                    close(writer)
-                end
-                
-                @info "Extracted $(nrow(df)) unique sequences to $output_file"
+                extract_sequences_to_fasta(
+                    parsed_args["fasta"]["input"],
+                    parsed_args["fasta"]["output"];
+                    colname = parsed_args["fasta"]["colname"],
+                    colseq = parsed_args["fasta"]["colseq"],
+                    coldesc = parsed_args["fasta"]["coldesc"],
+                    filter_pattern = parsed_args["fasta"]["filter"],
+                    cleanup_pattern = parsed_args["fasta"]["cleanup"],
+                    sort_by_name = !parsed_args["fasta"]["no-sort"]
+                )
             end
 
             if get(parsed_args,"%COMMAND%","") == "regex"

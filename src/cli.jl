@@ -759,6 +759,13 @@ module cli
             help = "Optional regex pattern to filter colname column (e.g., 'Novel')"
             default = nothing
             arg_type = Union{String, Nothing}
+        "-c", "--cleanup"
+            help = "Optional regex pattern to remove from sequence names (e.g., ' Novel')"
+            default = nothing
+            arg_type = Union{String, Nothing}
+        "--no-sort"
+            help = "Disable sorting alleles by name (default: sort enabled)"
+            action = :store_true
         end
 
         @add_arg_table! s["collect"] begin
