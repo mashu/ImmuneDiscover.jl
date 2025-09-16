@@ -16,6 +16,7 @@ module immunediscover
     include("keyedsets.jl")
     include("linkage.jl")
     include("fasta.jl")
+    include("merge.jl")
 
     using .cli
     using .demultiplex
@@ -34,6 +35,7 @@ module immunediscover
     using .keyedsets
     using .linkage
     using .fasta
+    using .merge
 
     using CSV
     using DataFrames
@@ -746,6 +748,17 @@ module immunediscover
                     filter_pattern = parsed_args["fasta"]["filter"],
                     cleanup_pattern = parsed_args["fasta"]["cleanup"],
                     sort_by_name = !parsed_args["fasta"]["no-sort"]
+                )
+            end
+
+            if get(parsed_args,"%COMMAND%","") == "merge"
+                merge_fasta_files(
+                    parsed_args["merge"]["inputs"],
+                    parsed_args["merge"]["output"];
+                    sort_by_name = !parsed_args["merge"]["no-sort"],
+                    cleanup_pattern = parsed_args["merge"]["cleanup"],
+                    prefer_first = !parsed_args["merge"]["prefer-last"],
+                    add_source_prefix = parsed_args["merge"]["add-source-prefix"]
                 )
             end
 
