@@ -299,7 +299,7 @@ module blast
             
             
             if prefix_quality < min_quality
-                push!(stats.failed_genes[sseqid], "Poor prefix quality ($(round(prefix_quality * 100, digits=1))%)")
+                push!(stats.failed_genes[sseqid], "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))% match)")
                 stats.prefix_failures += 1
                 return nothing
             end
@@ -361,7 +361,7 @@ module blast
             
             
             if suffix_quality < min_quality
-                push!(stats.failed_genes[sseqid], "Poor suffix quality ($(round(suffix_quality * 100, digits=1))%)")
+                push!(stats.failed_genes[sseqid], "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))% match)")
                 stats.suffix_failures += 1
                 return nothing
             end
