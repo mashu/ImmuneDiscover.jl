@@ -15,6 +15,7 @@ module immunediscover
     include("blast.jl")
     include("keyedsets.jl")
     include("linkage.jl")
+    include("haplotype.jl")
     include("fasta.jl")
     include("merge.jl")
 
@@ -34,6 +35,7 @@ module immunediscover
     using .blast
     using .keyedsets
     using .linkage
+    using .haplotype
     using .fasta
     using .merge
 
@@ -366,7 +368,7 @@ module immunediscover
                         total_failures = length(failures)
                         total_sequences = successful_count + total_failures
                         for (reason, count) in sort(collect(failure_counts), by=x->x[2], rev=true)
-                            @warn "Gene $gene: $count sequences failed with '$reason' (out of $total_sequences total sequences: $successful_count successful, $total_failures failed)"
+                            @warn "Gene $gene: $count/$total_failures failures due to '$reason' | Overall: $successful_count/$total_sequences successful ($(round(successful_count/total_sequences*100, digits=1))%)"
                         end
                     end
                 end
@@ -720,23 +722,31 @@ module immunediscover
                         end
                     end
                     
-                    # Also create simple clusters file for backward compatibility
-                    simple_rows = Vector{NamedTuple}()
-                    for (gid, comp) in enumerate(clusters)
-                        for allele in comp
-                            push!(simple_rows, (; group_id=gid, allele))
-                        end
-                    end
-                    
-                    # Save detailed clusters
+                    # Save detailed clusters with complete data
                     CSV.write(clusters_path, DataFrame(all_cluster_rows), delim='\t')
-                    @info "Detailed clusters saved in $(clusters_path) ($(length(clusters)) clusters, $(length(all_cluster_rows)) alleles)"
-                    
-                    # Save simple clusters as well (with .simple suffix)
-                    simple_path = replace(clusters_path, r"\.tsv$" => ".simple.tsv")
-                    CSV.write(simple_path, DataFrame(simple_rows), delim='\t')
-                    @info "Simple clusters saved in $(simple_path) for backward compatibility"
+                    @info "Clusters saved in $(clusters_path) ($(length(clusters)) clusters, $(length(all_cluster_rows)) alleles)"
                 end
+            end
+            if get(parsed_args,"%COMMAND%","") == "haplotype"
+                @info "Haplotype inference"
+                input_file = parsed_args["haplotype"]["input"]
+                output_file = parsed_args["haplotype"]["output"]
+                case_col = parsed_args["haplotype"]["case-col"]
+                allele_col = parsed_args["haplotype"]["allele-col"]
+                gene_col = parsed_args["haplotype"]["gene-col"]
+                mincount = parsed_args["haplotype"]["mincount"]
+                min_ratio = parsed_args["haplotype"]["min-ratio"]
+                novel_fasta = get(parsed_args["haplotype"], "novel-fasta", nothing)
+                
+                haplotype.infer_haplotypes(
+                    input_file, output_file;
+                    case_col=case_col,
+                    allele_col=allele_col,
+                    gene_col=gene_col,
+                    mincount=mincount,
+                    min_ratio=min_ratio,
+                    novel_fasta=novel_fasta
+                )
             end
             if get(parsed_args,"%COMMAND%","") == "fasta"
                 extract_sequences_to_fasta(
