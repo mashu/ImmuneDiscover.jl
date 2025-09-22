@@ -2,12 +2,37 @@ workflow:
   rules:
     - if: $CI_COMMIT_TAG
       variables:
-        VERSION: "$CI_COMMIT_TAG"
+        VERSION: "${CI_COMMIT_TAG#v}"
     - when: always
       variables:
         VERSION: "dev-$CI_COMMIT_SHORT_SHA"
 
 image: julia:1.11.6
+
+update_version:
+  stage: build
+  script:
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        # VERSION is already set by workflow (with 'v' prefix removed)
+        echo "Updating Project.toml version to $VERSION"
+        # Update Project.toml using sed
+        sed -i "s/version = \".*\"/version = \"$VERSION\"/" Project.toml
+        # Verify the change
+        grep "version = " Project.toml
+        # Commit the change back to the repository
+        git config --global user.email "ci@gitlab.com"
+        git config --global user.name "GitLab CI"
+        git add Project.toml
+        git commit -m "Update version to $VERSION [skip ci]" || echo "No changes to commit"
+        git push origin HEAD:${CI_COMMIT_REF_NAME} || echo "Push failed or no changes"
+      else
+        echo "No tag detected, skipping version update"
+      fi
+  rules:
+    - if: $CI_COMMIT_TAG
+  before_script:
+    - git config --global --add safe.directory $CI_PROJECT_DIR
 
 variables:
   LINUX_AMD64_BINARY: "immunediscover-ubuntu-x86-64_${VERSION}.tar.gz"
@@ -74,7 +99,7 @@ build_binary:
           include_lazy_artifacts=true,
           cpu_target="x86-64")'
     - |
-      if [ -z "${VERSION:-}" ]; then VERSION="dev-$(git rev-parse --short HEAD 2>/dev/null || echo local)"; fi
+      # Use VERSION from workflow variables (already set for tags)
       LINUX_AMD64_BINARY="immunediscover-ubuntu-x86-64_${VERSION}.tar.gz"
       # Strip debug symbols to reduce size
       strip --strip-unneeded immunediscover/bin/julia || true
@@ -138,6 +163,7 @@ release:
         --assets-link "{\"name\":\"${LINUX_AMD64_BINARY}\",\"url\":\"${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}\"}"
 
 stages:
+  - update_version
   - build
   - build_binary
   - test
