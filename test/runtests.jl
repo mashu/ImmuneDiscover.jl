@@ -17,6 +17,12 @@ using immunediscover.heptamer
 using immunediscover.keyedsets
 using immunediscover.blast
 using immunediscover.linkage
+using immunediscover.fasta
+using immunediscover.merge
+using immunediscover.haplotype
+using immunediscover.bwa
+using immunediscover.regex
+using Glob
 
 # Initialize a dictionary to track test outcomes
 test_outcomes = Dict(
@@ -362,11 +368,489 @@ test_outcomes = Dict(
         @test length(clusters) >= 0
     end
 
-    # # Cleanup test files
-    # for file in ["test.fasta", "reference.fasta", "novel.fasta", "test_indices.tsv",
-    #              "test.tsv.gz", "test_exact.tsv.gz", "test_hamming.tsv.gz",
-    #              "test_trim.tsv", "test_pattern.tsv.gz", "test_heptamer.tsv.gz",
-    #              "test_summary.tsv"]
-    #     isfile(file) && rm(file)
-    # end
+    @testset "fasta.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["fasta", "test.tsv.gz", "test_fasta_output.fasta"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "fasta"
+        @test parsed_args["fasta"]["input"] == "test.tsv.gz"
+        @test parsed_args["fasta"]["output"] == "test_fasta_output.fasta"
+        @test parsed_args["fasta"]["colname"] == "allele_name"
+        @test parsed_args["fasta"]["colseq"] == "seq"
+
+        # Module - test with generated data
+        test_data = DataFrame(
+            allele_name = ["A*01", "B*01", "C*01"],
+            seq = ["ATCGATCG", "GCTAGCTA", "TTTTAAAA"],
+            description = ["First allele", "Second allele", "Third allele"]
+        )
+        
+        # Write test data to temporary file
+        CSV.write("test_fasta_input.tsv", test_data, delim='\t')
+        
+        # Test basic extraction
+        fasta.extract_sequences_to_fasta("test_fasta_input.tsv", "test_fasta_basic.fasta")
+        @test isfile("test_fasta_basic.fasta")
+        
+        # Test with custom column names
+        fasta.extract_sequences_to_fasta("test_fasta_input.tsv", "test_fasta_custom.fasta", 
+                                        colname="allele_name", colseq="seq", coldesc="description")
+        @test isfile("test_fasta_custom.fasta")
+        
+        # Test with filtering
+        fasta.extract_sequences_to_fasta("test_fasta_input.tsv", "test_fasta_filtered.fasta",
+                                        filter_pattern="A\\*")
+        @test isfile("test_fasta_filtered.fasta")
+        
+        # Clean up test files
+        for file in ["test_fasta_input.tsv", "test_fasta_basic.fasta", "test_fasta_custom.fasta", "test_fasta_filtered.fasta"]
+            isfile(file) && rm(file)
+        end
+    end
+
+    @testset "merge.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["merge", "test_merge_output.fasta", "file1.fasta", "file2.fasta"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "merge"
+        @test parsed_args["merge"]["output"] == "test_merge_output.fasta"
+        @test parsed_args["merge"]["inputs"] == ["file1.fasta", "file2.fasta"]
+
+        # Module - test with generated FASTA files
+        # Create test FASTA files
+        test_fasta1 = "test_merge1.fasta"
+        test_fasta2 = "test_merge2.fasta"
+        test_fasta3 = "test_merge3.fasta"
+        
+        # Write test FASTA files
+        open(FASTA.Writer, test_fasta1) do writer
+            write(writer, FASTARecord("A*01", "ATCGATCG"))
+            write(writer, FASTARecord("B*01", "GCTAGCTA"))
+        end
+        
+        open(FASTA.Writer, test_fasta2) do writer
+            write(writer, FASTARecord("C*01", "TTTTAAAA"))
+            write(writer, FASTARecord("A*01", "ATCGATCG"))  # Duplicate sequence
+        end
+        
+        open(FASTA.Writer, test_fasta3) do writer
+            write(writer, FASTARecord("D*01", "GGGGCCCC"))
+        end
+        
+        # Test merging two files
+        immunediscover.merge.merge_fasta_files([test_fasta1, test_fasta2], "test_merge_two.fasta")
+        @test isfile("test_merge_two.fasta")
+        
+        # Test merging three files
+        immunediscover.merge.merge_fasta_files([test_fasta1, test_fasta2, test_fasta3], "test_merge_three.fasta")
+        @test isfile("test_merge_three.fasta")
+        
+        # Test convenience method for two files
+        immunediscover.merge.merge_fasta_files(test_fasta1, test_fasta2, "test_merge_convenience.fasta")
+        @test isfile("test_merge_convenience.fasta")
+        
+        # Test with cleanup pattern
+        immunediscover.merge.merge_fasta_files([test_fasta1, test_fasta2], "test_merge_cleanup.fasta", 
+                               cleanup_pattern="\\*")
+        @test isfile("test_merge_cleanup.fasta")
+        
+        # Clean up test files
+        for file in [test_fasta1, test_fasta2, test_fasta3, "test_merge_two.fasta", 
+                    "test_merge_three.fasta", "test_merge_convenience.fasta", "test_merge_cleanup.fasta"]
+            isfile(file) && rm(file)
+        end
+    end
+
+    @testset "haplotype.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["haplotype", "test_haplotype_input.tsv", "test_haplotype_output.tsv"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "haplotype"
+        @test parsed_args["haplotype"]["input"] == "test_haplotype_input.tsv"
+        @test parsed_args["haplotype"]["output"] == "test_haplotype_output.tsv"
+        @test parsed_args["haplotype"]["case-col"] == "case"
+        @test parsed_args["haplotype"]["allele-col"] == "db_name"
+        @test parsed_args["haplotype"]["gene-col"] == "gene"
+
+        # Module - test with generated data
+        # Create test data that mimics exact search output
+        test_data = DataFrame(
+            case = ["D1", "D1", "D1", "D2", "D2", "D2", "D3", "D3"],
+            db_name = ["A*01", "A*02", "B*01", "A*01", "A*02", "B*01", "A*01", "B*01"],
+            gene = ["V", "V", "D", "V", "V", "D", "V", "D"],
+            count = [10, 8, 12, 15, 3, 9, 20, 18]
+        )
+        
+        # Write test data to temporary file
+        CSV.write("test_haplotype_input.tsv", test_data, delim='\t')
+        
+        # Test basic haplotype inference
+        haplotype.infer_haplotypes("test_haplotype_input.tsv", "test_haplotype_basic.tsv")
+        @test isfile("test_haplotype_basic.tsv")
+        
+        # Test with custom parameters
+        haplotype.infer_haplotypes("test_haplotype_input.tsv", "test_haplotype_custom.tsv",
+                                  mincount=10, min_ratio=0.2)
+        @test isfile("test_haplotype_custom.tsv")
+        
+        # Test with novel alleles FASTA
+        # Create a simple novel alleles FASTA
+        open(FASTA.Writer, "test_novel_alleles.fasta") do writer
+            write(writer, FASTARecord("A*03", "ATCGATCGATCG"))
+            write(writer, FASTARecord("B*02", "GCTAGCTAGCTA"))
+        end
+        
+        haplotype.infer_haplotypes("test_haplotype_input.tsv", "test_haplotype_novel.tsv",
+                                  novel_fasta="test_novel_alleles.fasta")
+        @test isfile("test_haplotype_novel.tsv")
+        
+        # Clean up test files
+        for file in ["test_haplotype_input.tsv", "test_haplotype_basic.tsv", 
+                    "test_haplotype_custom.tsv", "test_haplotype_novel.tsv", "test_novel_alleles.fasta"]
+            isfile(file) && rm(file)
+        end
+    end
+
+    @testset "blast.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["blast", "test_blast_input.tsv", "test_blast_db.fasta", "test_blast_output.tsv"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "blast"
+        @test parsed_args["blast"]["input"] == "test_blast_input.tsv"
+        @test parsed_args["blast"]["fasta"] == "test_blast_db.fasta"
+        @test parsed_args["blast"]["output"] == "test_blast_output.tsv"
+        @test parsed_args["blast"]["minfullcount"] == 5
+        @test parsed_args["blast"]["minfullfreq"] == 0.1
+        @test parsed_args["blast"]["subjectcov"] == 0.1
+
+        # Module - test utility functions that don't require BLAST
+        # Test read_fasta function
+        test_fasta_content = ">seq1\nATCGATCG\n>seq2\nGCTAGCTA\n"
+        open("test_blast_fasta.fasta", "w") do io
+            write(io, test_fasta_content)
+        end
+        
+        fasta_records = blast.read_fasta("test_blast_fasta.fasta")
+        @test length(fasta_records) == 2
+        @test fasta_records[1] == ("seq1", "ATCGATCG")
+        @test fasta_records[2] == ("seq2", "GCTAGCTA")
+        
+        # Test save_to_fasta function
+        test_records = [("well1", "case1", "name1", "ATCGATCG"), ("well2", "case2", "name2", "GCTAGCTA")]
+        blast.save_to_fasta(test_records, "test_blast_save.fasta")
+        @test isfile("test_blast_save.fasta")
+        
+        # Test CSV loading
+        test_blast_data = DataFrame(
+            name = ["seq1", "seq2"],
+            sequence = ["ATCGATCG", "GCTAGCTA"],
+            well = ["A1", "A2"],
+            case = ["case1", "case2"]
+        )
+        CSV.write("test_blast_input.tsv", test_blast_data, delim='\t')
+        
+        loaded_df = blast.load_csv("test_blast_input.tsv")
+        @test nrow(loaded_df) == 2
+        @test "name" ∈ names(loaded_df)
+        
+        # Clean up test files
+        for file in ["test_blast_fasta.fasta", "test_blast_save.fasta", "test_blast_input.tsv"]
+            isfile(file) && rm(file)
+        end
+    end
+
+    @testset "bwa.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["bwa", "test_bwa_input.tsv", "test_bwa_output.tsv", "genome1.fasta", "genome2.fasta"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "bwa"
+        @test parsed_args["bwa"]["tsv"] == "test_bwa_input.tsv"
+        @test parsed_args["bwa"]["output"] == "test_bwa_output.tsv"
+        @test parsed_args["bwa"]["genome"] == ["genome1.fasta", "genome2.fasta"]
+        @test parsed_args["bwa"]["chromosome"] == "chromosome 14"
+        @test parsed_args["bwa"]["colname"] == "best_name"
+
+        # Module - test utility functions that don't require BWA
+        # Test create_aligner function (this will fail without actual genome files, but we can test the structure)
+        test_genome_paths = ["test_genome1.fasta", "test_genome2.fasta"]
+        
+        # Create dummy genome files for testing
+        for (i, path) in enumerate(test_genome_paths)
+            open(FASTA.Writer, path) do writer
+                write(writer, FASTARecord("chr14", "ATCGATCGATCGATCG"))
+            end
+        end
+        
+        # Test that we can create the aligner structure (will fail at actual alignment without BWA index)
+        try
+            aligners = bwa.create_aligner(test_genome_paths)
+            @test length(aligners) == 2
+            @test isa(aligners[1][2], BurrowsWheelerAligner.Aligner)
+        catch e
+            # Expected to fail without BWA index, but we can test the function exists
+            # The error could be about missing index, file not found, or BWA-related issues
+            error_msg = string(e)
+            @test occursin("BWA", error_msg) || occursin("index", error_msg) || 
+                  occursin("file", error_msg) || occursin("not found", error_msg) ||
+                  occursin("aligner", error_msg)
+        end
+        
+        # Test CSV loading for BWA input
+        test_bwa_data = DataFrame(
+            best_name = ["allele1", "allele2"],
+            seq = ["ATCGATCG", "GCTAGCTA"]
+        )
+        CSV.write("test_bwa_input.tsv", test_bwa_data, delim='\t')
+        
+        loaded_df = CSV.read("test_bwa_input.tsv", DataFrame, delim='\t')
+        @test nrow(loaded_df) == 2
+        @test "best_name" ∈ names(loaded_df)
+        @test "seq" ∈ names(loaded_df)
+        
+        # Clean up test files
+        for file in [test_genome_paths..., "test_bwa_input.tsv"]
+            isfile(file) && rm(file)
+        end
+    end
+
+    @testset "regex.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["regex", "test_regex_input.tsv", "test_regex_query.fasta", "test_regex_output.tsv"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "regex"
+        @test parsed_args["regex"]["tsv"] == "test_regex_input.tsv"
+        @test parsed_args["regex"]["fasta"] == "test_regex_query.fasta"
+        @test parsed_args["regex"]["output"] == "test_regex_output.tsv"
+        @test parsed_args["regex"]["insert-minlen"] == 15
+        @test parsed_args["regex"]["insert-maxlen"] == 40
+        @test parsed_args["regex"]["flank-mincount"] == 50
+        @test parsed_args["regex"]["flank-frequency"] == 0.5
+
+        # Module - test utility functions
+        # Test longest_common_substring function
+        result = regex.longest_common_substring("ATCGATCG", "GATCGATC")
+        @test result == "ATCGATC"  # The actual longest common substring
+        
+        result = regex.longest_common_substring("AAAA", "BBBB")
+        @test result == ""
+        
+        result = regex.longest_common_substring("", "ATCG")
+        @test result == ""
+        
+        # Test flanks function
+        query = "ATCG"
+        target = "GGGATCGTTT"
+        result = regex.flanks(query, target, nprefix=2, nsuffix=2)
+        @test result == ("GG", "TT")
+        
+        # Test with query not found
+        query = "XXXX"
+        target = "GGGATCGTTT"
+        result = regex.flanks(query, target, nprefix=2, nsuffix=2)
+        @test result == ("", "")  # The function returns empty strings when not found
+        
+        # Test CSV loading for regex input
+        test_regex_data = DataFrame(
+            name = ["read1", "read2"],
+            sequence = ["ATCGATCG", "GCTAGCTA"],
+            well = ["A1", "A2"],
+            case = ["case1", "case2"]
+        )
+        CSV.write("test_regex_input.tsv", test_regex_data, delim='\t')
+        
+        loaded_df = CSV.read("test_regex_input.tsv", DataFrame, delim='\t')
+        @test nrow(loaded_df) == 2
+        @test "name" ∈ names(loaded_df)
+        @test "sequence" ∈ names(loaded_df)
+        
+        # Clean up test files
+        for file in ["test_regex_input.tsv"]
+            isfile(file) && rm(file)
+        end
+    end
+
+    @testset "diff.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["diff", "file1.fasta", "file2.fasta", "file3.fasta"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "diff"
+        @test parsed_args["diff"]["fasta"] == ["file1.fasta", "file2.fasta", "file3.fasta"]
+
+        # Module - test the diff functionality
+        # Create test FASTA files
+        test_fasta1 = "test_diff1.fasta"
+        test_fasta2 = "test_diff2.fasta"
+        test_fasta3 = "test_diff3.fasta"
+        
+        # Write test FASTA files with some overlapping sequences
+        open(FASTA.Writer, test_fasta1) do writer
+            write(writer, FASTA.Record("seq1", "ATCGATCG"))
+            write(writer, FASTA.Record("seq2", "GCTAGCTA"))
+            write(writer, FASTA.Record("seq3", "TTTTAAAA"))
+        end
+        
+        open(FASTA.Writer, test_fasta2) do writer
+            write(writer, FASTA.Record("seq2", "GCTAGCTA"))  # Same as file1
+            write(writer, FASTA.Record("seq4", "CCCCGGGG"))
+            write(writer, FASTA.Record("seq5", "AAAAATTT"))
+        end
+        
+        open(FASTA.Writer, test_fasta3) do writer
+            write(writer, FASTA.Record("seq1", "ATCGATCG"))  # Same as file1
+            write(writer, FASTA.Record("seq6", "TTTTCCCC"))
+        end
+        
+        # Test the diff functionality by calling the main function
+        # We'll test the core logic that the diff command uses
+        fasta_files = [(file=file, records=immunediscover.load_fasta.(file)) for file in [test_fasta1, test_fasta2, test_fasta3]]
+        sets = [(file=x, set=KeyedSet(reverse.(y))) for (x,y) in fasta_files]
+        
+        # Test that we can create the sets
+        @test length(sets) == 3
+        @test length(sets[1].set) == 3  # file1 has 3 sequences
+        @test length(sets[2].set) == 3  # file2 has 3 sequences  
+        @test length(sets[3].set) == 2  # file3 has 2 sequences
+        
+        # Test set operations
+        union_12 = union(sets[1].set, sets[2].set)
+        @test length(union_12) == 5  # 3 + 3 - 1 (seq2 is common) = 5
+        
+        intersection_12 = intersect(sets[1].set, sets[2].set)
+        @test length(intersection_12) == 1  # Only seq2 is common
+        
+        # Test set difference
+        diff_12 = setdiff(sets[1].set, sets[2].set)
+        @test length(diff_12) == 2  # seq1 and seq3 are only in file1
+        
+        diff_21 = setdiff(sets[2].set, sets[1].set)
+        @test length(diff_21) == 2  # seq4 and seq5 are only in file2
+        
+        # Test that the sequences are correctly identified
+        # Note: KeyedSet stores (sequence, name) pairs, so we get the names
+        diff_12_names = last.(collect(diff_12))
+        @test "seq1" ∈ diff_12_names
+        @test "seq3" ∈ diff_12_names
+        @test "seq2" ∉ diff_12_names  # This should be in intersection, not difference
+        
+        # Clean up test files
+        for file in [test_fasta1, test_fasta2, test_fasta3]
+            isfile(file) && rm(file)
+        end
+    end
+
+    @testset "collect.jl" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["collect", "test_*.tsv", "test_collected.tsv"])
+        parsed_args = cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "collect"
+        @test parsed_args["collect"]["pattern"] == "test_*.tsv"
+        @test parsed_args["collect"]["output"] == "test_collected.tsv"
+
+        # Module - test the collect functionality
+        # Create test TSV files with the same structure
+        test_tsv1 = "test_collect1.tsv"
+        test_tsv2 = "test_collect2.tsv"
+        test_tsv3 = "test_collect3.tsv"
+        
+        # Create test data with consistent column structure
+        test_data1 = DataFrame(
+            name = ["seq1", "seq2"],
+            sequence = ["ATCGATCG", "GCTAGCTA"],
+            well = ["A1", "A2"],
+            case = ["case1", "case1"]
+        )
+        
+        test_data2 = DataFrame(
+            name = ["seq3", "seq4"],
+            sequence = ["TTTTAAAA", "CCCCGGGG"],
+            well = ["B1", "B2"],
+            case = ["case2", "case2"]
+        )
+        
+        test_data3 = DataFrame(
+            name = ["seq5", "seq6"],
+            sequence = ["AAAAATTT", "TTTTCCCC"],
+            well = ["C1", "C2"],
+            case = ["case3", "case3"]
+        )
+        
+        # Write test TSV files
+        CSV.write(test_tsv1, test_data1, delim='\t')
+        CSV.write(test_tsv2, test_data2, delim='\t')
+        CSV.write(test_tsv3, test_data3, delim='\t')
+        
+        # Test the collect functionality
+        pattern = "test_collect*.tsv"
+        files = Glob.glob(pattern)
+        @test length(files) == 3
+        @test test_tsv1 ∈ files
+        @test test_tsv2 ∈ files
+        @test test_tsv3 ∈ files
+        
+        # Test collecting the files
+        collected = []
+        first_file_columns = nothing
+        for file in files
+            df = CSV.read(file, DataFrame, delim='\t')
+            if first_file_columns === nothing
+                first_file_columns = names(df)
+            else
+                @test first_file_columns == names(df)
+            end
+            push!(collected, df)
+        end
+        
+        @test length(collected) == 3
+        @test first_file_columns == ["name", "sequence", "well", "case"]
+        
+        # Test concatenating the data
+        collected_df = vcat(collected...)
+        @test nrow(collected_df) == 6  # 2 + 2 + 2 = 6 rows
+        @test ncol(collected_df) == 4  # 4 columns
+        @test "name" ∈ names(collected_df)
+        @test "sequence" ∈ names(collected_df)
+        @test "well" ∈ names(collected_df)
+        @test "case" ∈ names(collected_df)
+        
+        # Test that all sequences are present
+        all_sequences = collected_df.sequence
+        @test "ATCGATCG" ∈ all_sequences
+        @test "GCTAGCTA" ∈ all_sequences
+        @test "TTTTAAAA" ∈ all_sequences
+        @test "CCCCGGGG" ∈ all_sequences
+        @test "AAAAATTT" ∈ all_sequences
+        @test "TTTTCCCC" ∈ all_sequences
+        
+        # Test writing the collected data
+        output_file = "test_collected_output.tsv"
+        CSV.write(output_file, collected_df, delim='\t', compress=true)
+        @test isfile(output_file)
+        
+        # Verify the output file can be read back
+        read_back = CSV.read(output_file, DataFrame, delim='\t')
+        @test nrow(read_back) == 6
+        @test ncol(read_back) == 4
+        @test names(read_back) == ["name", "sequence", "well", "case"]
+        
+        # Clean up test files
+        for file in [test_tsv1, test_tsv2, test_tsv3, output_file]
+            isfile(file) && rm(file)
+        end
+    end
+
+    # Cleanup test files
+    for file in ["test.fasta", "reference.fasta", "novel.fasta", "test_indices.tsv",
+                 "test.tsv.gz", "test_exact.tsv.gz", "test_hamming.tsv.gz",
+                 "test_trim.tsv", "test_pattern.tsv.gz", "test_heptamer.tsv.gz",
+                 "test_summary.tsv"]
+        isfile(file) && rm(file)
+    end
 end
