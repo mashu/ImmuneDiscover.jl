@@ -1,18 +1,39 @@
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      variables:
+        VERSION: "$CI_COMMIT_TAG"
+    - when: always
+      variables:
+        VERSION: "dev-$CI_COMMIT_SHORT_SHA"
+
+image: julia:1.11.6
+
 variables:
-  LINUX_AMD64_BINARY: "immunediscover-ubuntu-x86-64_${CI_COMMIT_TAG}.tar.gz"
-  PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/immunediscover/${CI_COMMIT_TAG}"
+  LINUX_AMD64_BINARY: "immunediscover-ubuntu-x86-64_${VERSION}.tar.gz"
+  PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/immunediscover/${VERSION}"
+  JULIA_DEPOT_PATH: "$CI_PROJECT_DIR/.julia"
+  JULIA_NUM_THREADS: "auto"
 
 cache:
-  key: $CI_PIPELINE_ID
+  key: "$CI_COMMIT_REF_SLUG"
   paths:
-    - .julia
+    - .julia/
+    - .apt/cache/archives/
+    - .apt/lists/
+  policy: pull-push
 
 .script:
+  before_script:
+    - "export APT_FLAGS='-o Dir::Cache::archives=$CI_PROJECT_DIR/.apt/cache/archives -o Dir::State::lists=$CI_PROJECT_DIR/.apt/lists -o Acquire::Retries=3'"
+    - mkdir -p .apt/cache/archives .apt/lists
+    - apt-get $APT_FLAGS update -qq
+    - apt-get $APT_FLAGS install -y --no-install-recommends git curl
   script:
-    - apt-get update -qq && apt-get install -y git
     - |
       julia --threads auto --project=@. -e '
         using Pkg
+        Pkg.instantiate()
         Pkg.build()
         Pkg.test(coverage=true)'
 
@@ -30,7 +51,6 @@ cache:
         @printf "Test coverage %.2f%%\n" 100c / t'
 
 build:
-  image: julia:1.11.6
   extends:
     - .script
     - .coverage
@@ -38,32 +58,33 @@ build:
     - main
 
 build_binary:
-  image: ubuntu:20.04
   timeout: 3h 30m
+  extends:
+    - .script
   script:
-    - apt-get update -qq && apt-get install -y clang curl git
-    - curl -fsSL https://install.julialang.org | sh -s -- -y
-    - ~/.juliaup/bin/juliaup add 1.11.6
-    - ~/.juliaup/bin/juliaup default 1.11.6
+    - apt-get $APT_FLAGS install -y --no-install-recommends clang
     - |
-      ~/.juliaup/bin/julia --startup-file=no --threads auto --project=@. -e '
+      julia --startup-file=no --threads auto --project=build -e '
         using Pkg
+        Pkg.develop(PackageSpec(path=pwd()))
         Pkg.instantiate()
         using PackageCompiler
-
-        create_app(".", "immunediscover", include_transitive_dependencies=false, cpu_target="x86-64") '
-    - tar cvfz ${LINUX_AMD64_BINARY} immunediscover
+        create_app(".", "immunediscover", include_transitive_dependencies=false, cpu_target="x86-64")'
+    - |
+      if [ -z "${VERSION:-}" ]; then VERSION="dev-$(git rev-parse --short HEAD 2>/dev/null || echo local)"; fi
+      LINUX_AMD64_BINARY="immunediscover-ubuntu-x86-64_${VERSION}.tar.gz"
+      tar cvfz "${LINUX_AMD64_BINARY}" immunediscover
   artifacts:
     paths:
-      - ${LINUX_AMD64_BINARY}
-  only:
-    - tags
+      - immunediscover-ubuntu-x86-64_*.tar.gz
+  rules:
+    - if: $CI_COMMIT_TAG
 
 pages:
-  image: julia:1.11.6
   stage: deploy
+  extends:
+    - .script
   script:
-    - apt-get update -qq && apt-get install -y git
     - |
       julia --threads auto --project=docs -e '
         using Pkg
@@ -92,8 +113,12 @@ upload:
   script:
     - ls -la
     - |
-      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "${LINUX_AMD64_BINARY}" "${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}"
-    - echo "${LINUX_AMD64_BINARY}" "${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}"
+      FILE=$(ls -1 immunediscover-ubuntu-x86-64_*.tar.gz | head -n1)
+      VERSION=${FILE#immunediscover-ubuntu-x86-64_}
+      VERSION=${VERSION%.tar.gz}
+      URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/immunediscover/${VERSION}"
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "${FILE}" "${URL}/${FILE}"
+      echo "${FILE}" "${URL}/${FILE}"
 
 release:
   stage: release
