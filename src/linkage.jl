@@ -49,9 +49,14 @@ module linkage
                 n01 = length(setdiff(b_cases, a_cases)) # b only
                 n00 = length(setdiff(donors, a_cases, b_cases)) # neither
 
-                r = (n11 * n00 - n10 * n01) / sqrt((n11 + n10) * (n11 + n01) * (n10 + n00) * (n01 + n00))
-                if isnan(r)
+                denominator = sqrt((n11 + n10) * (n11 + n01) * (n10 + n00) * (n01 + n00))
+                if denominator == 0 || isnan(denominator)
                     r = missing
+                else
+                    r = (n11 * n00 - n10 * n01) / denominator
+                    if isnan(r)
+                        r = missing
+                    end
                 end
                 R[i, j] = r
                 R[j, i] = r

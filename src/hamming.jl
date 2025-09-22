@@ -27,7 +27,9 @@ module hamming
             append!(found_list, [r for r in found if r !== nothing])
         end
         assignments_df = DataFrame(vcat(found_list...))
-        rename!(assignments_df, [:closest_name, :distance, :start, :stop, :prefix, :middle, :suffix, :db_sequence, :well, :case, :barcode])
+        if nrow(assignments_df) > 0
+            rename!(assignments_df, [:closest_name, :distance, :start, :stop, :prefix, :middle, :suffix, :db_sequence, :well, :case, :barcode])
+        end
         return assignments_df
     end
     

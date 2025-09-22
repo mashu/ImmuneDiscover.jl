@@ -71,7 +71,12 @@ module heptamer
                 sub_short_df
             end
         end
-        return vcat([d for d in completed if d !== nothing]...)
+        valid_results = [d for d in completed if d !== nothing]
+        if isempty(valid_results)
+            return DataFrame()
+        else
+            return vcat(valid_results...)
+        end
     end
 
     """

@@ -154,7 +154,12 @@ module exact
             end
             matches
         end
-        result_df = DataFrame(reduce(vcat,[r for r in result if r != []]))
+        valid_results = [r for r in result if r != []]
+        if isempty(valid_results)
+            result_df = DataFrame()
+        else
+            result_df = DataFrame(reduce(vcat, valid_results))
+        end
 
         # Compute counts
         df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
