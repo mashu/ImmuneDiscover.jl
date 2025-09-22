@@ -69,10 +69,16 @@ build_binary:
         Pkg.develop(PackageSpec(path=pwd()))
         Pkg.instantiate()
         using PackageCompiler
-        create_app(".", "immunediscover", include_transitive_dependencies=false, cpu_target="x86-64")'
+        create_app(".", "immunediscover", 
+          include_transitive_dependencies=false,
+          include_lazy_artifacts=true,
+          cpu_target="x86-64")'
     - |
       if [ -z "${VERSION:-}" ]; then VERSION="dev-$(git rev-parse --short HEAD 2>/dev/null || echo local)"; fi
       LINUX_AMD64_BINARY="immunediscover-ubuntu-x86-64_${VERSION}.tar.gz"
+      # Strip debug symbols to reduce size
+      strip --strip-unneeded immunediscover/bin/julia || true
+      find immunediscover -type f -name "*.so*" -exec strip --strip-unneeded {} + || true
       tar cvfz "${LINUX_AMD64_BINARY}" immunediscover
   artifacts:
     paths:
