@@ -756,6 +756,7 @@ module immunediscover
                     colseq = parsed_args["fasta"]["colseq"],
                     coldesc = parsed_args["fasta"]["coldesc"],
                     filter_pattern = parsed_args["fasta"]["filter"],
+                    desc_filter_pattern = parsed_args["fasta"]["desc-filter"],
                     cleanup_pattern = parsed_args["fasta"]["cleanup"],
                     sort_by_name = !parsed_args["fasta"]["no-sort"]
                 )

@@ -20,6 +20,7 @@ module fasta
     - `colseq::String="seq"`: Name of the column with sequences
     - `coldesc::Union{String,Nothing}=nothing`: Optional column with descriptions for FASTA headers
     - `filter_pattern::Union{String,Nothing}=nothing`: Optional regex pattern to filter colname column
+    - `desc_filter_pattern::Union{String,Nothing}=nothing`: Optional regex pattern to filter coldesc column (use capture groups to include description in FASTA header)
     - `cleanup_pattern::Union{String,Nothing}=nothing`: Optional regex pattern to remove from sequence names (e.g., " Novel")
     - `sort_by_name::Bool=true`: Sort alleles by name before saving
     """
@@ -28,6 +29,7 @@ module fasta
                                        colseq::String="seq", 
                                        coldesc::Union{String,Nothing}=nothing,
                                        filter_pattern::Union{String,Nothing}=nothing,
+                                       desc_filter_pattern::Union{String,Nothing}=nothing,
                                        cleanup_pattern::Union{String,Nothing}=nothing,
                                        sort_by_name::Bool=true)
         
@@ -51,6 +53,16 @@ module fasta
             @info "Filtering rows where $colname matches regex pattern '$filter_pattern'"
             df = df[occursin.(Regex(filter_pattern), df[!, colname]), :]
             @info "After filtering: $(nrow(df)) rows remaining"
+        end
+        
+        # Apply description regex filter if specified
+        if desc_filter_pattern !== nothing
+            if coldesc === nothing
+                error("Description filter pattern specified but no coldesc column provided")
+            end
+            @info "Filtering rows where $coldesc matches regex pattern '$desc_filter_pattern'"
+            df = df[occursin.(Regex(desc_filter_pattern), df[!, coldesc]), :]
+            @info "After description filtering: $(nrow(df)) rows remaining"
         end
         
         # Remove duplicates based on both name and sequence columns
@@ -94,7 +106,24 @@ module fasta
                 if coldesc !== nothing
                     desc = string(row[coldesc])
                     if !isempty(desc)
-                        name = "$name $desc"
+                        # If desc_filter_pattern has capture groups, use only the captured part
+                        if desc_filter_pattern !== nothing
+                            match_result = match(Regex(desc_filter_pattern), desc)
+                            if match_result !== nothing && !isempty(match_result.captures) && match_result.captures[1] !== nothing
+                                # Use first capture group if available
+                                desc = match_result.captures[1]
+                                name = "$name $desc"
+                            elseif match_result !== nothing
+                                # No capture groups, don't include description (just filter)
+                                # name stays as is
+                            else
+                                # Pattern didn't match, skip this row (shouldn't happen due to filtering)
+                                continue
+                            end
+                        else
+                            # No filter pattern, include full description
+                            name = "$name $desc"
+                        end
                     end
                 end
                 

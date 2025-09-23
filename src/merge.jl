@@ -45,7 +45,9 @@ module merge
             
             open(FASTA.Reader, input_file) do reader
                 for record in reader
-                    name = FASTA.identifier(record)
+                    identifier = FASTA.identifier(record)
+                    description = FASTA.description(record)
+                    name = isempty(description) ? identifier : "$identifier $description"
                     sequence = string(FASTA.sequence(record))
                     
                     # Clean up name if cleanup pattern is specified

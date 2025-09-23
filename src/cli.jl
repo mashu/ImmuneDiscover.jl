@@ -831,6 +831,10 @@ module cli
             help = "Optional regex pattern to remove from sequence names (e.g., ' Novel')"
             default = nothing
             arg_type = Union{String, Nothing}
+        "--desc-filter"
+            help = "Optional regex pattern to filter coldesc column (without capture groups: filters only; with capture groups: filters and includes captured string in FASTA header, e.g., '(case\\d+)')"
+            default = nothing
+            arg_type = Union{String, Nothing}
         "--no-sort"
             help = "Disable sorting alleles by name (default: sort enabled)"
             action = :store_true
