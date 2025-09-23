@@ -99,8 +99,31 @@ build_binary:
           include_lazy_artifacts=true,
           cpu_target="x86-64")'
     - |
-      # Use VERSION from workflow variables (already set for tags)
+      # Use VERSION from workflow variables, with fallbacks for local runs
+      if [ -z "$VERSION" ]; then
+        if [ -n "$CI_COMMIT_TAG" ]; then
+          # Tagged commit in local run, use tag without 'v' prefix
+          VERSION="${CI_COMMIT_TAG#v}"
+          echo "Local tagged run, using tag version: $VERSION"
+        elif [ -n "$CI_COMMIT_SHORT_SHA" ]; then
+          # Regular commit in local run, use dev-hash
+          VERSION="dev-$CI_COMMIT_SHORT_SHA"
+          echo "Local commit run, using dev version: $VERSION"
+          else
+            # No CI variables available, try to get commit hash from git
+            COMMIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            if [ "$COMMIT_HASH" != "unknown" ]; then
+              VERSION="dev-$COMMIT_HASH"
+              echo "Local run with git, using dev version: $VERSION"
+            else
+              # Last resort: use unknown version
+              VERSION="unknown"
+              echo "Local run without git, using unknown version: $VERSION"
+            fi
+        fi
+      fi
       LINUX_AMD64_BINARY="immunediscover-ubuntu-x86-64_${VERSION}.tar.gz"
+      echo "Creating binary: $LINUX_AMD64_BINARY"
       # Strip debug symbols to reduce size
       strip --strip-unneeded immunediscover/bin/julia || true
       find immunediscover -type f -name "*.so*" -exec strip --strip-unneeded {} + || true

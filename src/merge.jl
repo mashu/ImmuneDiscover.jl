@@ -47,7 +47,12 @@ module merge
                 for record in reader
                     identifier = FASTA.identifier(record)
                     description = FASTA.description(record)
-                    name = isempty(description) ? identifier : "$identifier $description"
+                    # Only add description if it's different from identifier to avoid duplicates
+                    if isempty(description) || description == identifier
+                        name = identifier
+                    else
+                        name = "$identifier $description"
+                    end
                     sequence = string(FASTA.sequence(record))
                     
                     # Clean up name if cleanup pattern is specified
