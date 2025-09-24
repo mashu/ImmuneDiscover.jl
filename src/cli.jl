@@ -838,6 +838,15 @@ module cli
         "--no-sort"
             help = "Disable sorting alleles by name (default: sort enabled)"
             action = :store_true
+        "--mincase"
+            help = "Minimum number of donors (cases) that must have this allele to include it in output"
+            default = 1
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "--case-col"
+            help = "Name of the column containing donor/case identifiers"
+            default = "case"
+            arg_type = String
         end
 
         @add_arg_table! s["merge"] begin

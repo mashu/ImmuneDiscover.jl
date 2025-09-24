@@ -23,6 +23,8 @@ module fasta
     - `desc_filter_pattern::Union{String,Nothing}=nothing`: Optional regex pattern to filter coldesc column (use capture groups to include description in FASTA header)
     - `cleanup_pattern::Union{String,Nothing}=nothing`: Optional regex pattern to remove from sequence names (e.g., " Novel")
     - `sort_by_name::Bool=true`: Sort alleles by name before saving
+    - `mincase::Int=1`: Minimum number of donors (cases) that must have this allele to include it in output
+    - `case_col::String="case"`: Name of the column containing donor/case identifiers
     """
     function extract_sequences_to_fasta(input_file::String, output_file::String;
                                        colname::String="allele_name",
@@ -31,7 +33,9 @@ module fasta
                                        filter_pattern::Union{String,Nothing}=nothing,
                                        desc_filter_pattern::Union{String,Nothing}=nothing,
                                        cleanup_pattern::Union{String,Nothing}=nothing,
-                                       sort_by_name::Bool=true)
+                                       sort_by_name::Bool=true,
+                                       mincase::Int=1,
+                                       case_col::String="case")
         
         @info "Extracting sequences to FASTA format"
         df = CSV.File(input_file, delim='\t') |> DataFrame
@@ -63,6 +67,24 @@ module fasta
             @info "Filtering rows where $coldesc matches regex pattern '$desc_filter_pattern'"
             df = df[occursin.(Regex(desc_filter_pattern), df[!, coldesc]), :]
             @info "After description filtering: $(nrow(df)) rows remaining"
+        end
+        
+        # Apply mincase filter if specified
+        if mincase > 1
+            @assert case_col ∈ names(df) "Input file must have $case_col column when mincase > 1"
+            @info "Filtering alleles present in at least $mincase donors"
+            
+            # Count unique donors per allele (combination of colname and colseq)
+            allele_donor_counts = combine(groupby(df, [colname, colseq]), 
+                                        case_col => (x -> length(unique(x))) => :donor_count)
+            
+            # Filter alleles that meet the minimum donor count
+            qualifying_alleles = allele_donor_counts[allele_donor_counts.donor_count .>= mincase, [colname, colseq]]
+            
+            # Join back to get all rows for qualifying alleles
+            df = innerjoin(df, qualifying_alleles, on=[colname, colseq])
+            
+            @info "After mincase filtering (≥$mincase donors): $(nrow(df)) rows remaining"
         end
         
         # Remove duplicates based on both name and sequence columns

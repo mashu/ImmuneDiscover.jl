@@ -758,7 +758,9 @@ module immunediscover
                     filter_pattern = parsed_args["fasta"]["filter"],
                     desc_filter_pattern = parsed_args["fasta"]["desc-filter"],
                     cleanup_pattern = parsed_args["fasta"]["cleanup"],
-                    sort_by_name = !parsed_args["fasta"]["no-sort"]
+                    sort_by_name = !parsed_args["fasta"]["no-sort"],
+                    mincase = parsed_args["fasta"]["mincase"],
+                    case_col = parsed_args["fasta"]["case-col"]
                 )
             end
 
