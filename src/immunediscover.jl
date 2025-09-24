@@ -840,6 +840,22 @@ module immunediscover
                         left_select=left_select,
                         right_select=right_select
                     )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "filter"
+                    @info "Filtering TSV file"
+                    # Parse arguments for filter
+                    column = parsed_args["table"]["filter"]["column"]
+                    pattern = get(parsed_args["table"]["filter"], "pattern", nothing)
+                    operator = get(parsed_args["table"]["filter"], "operator", nothing)
+                    threshold = get(parsed_args["table"]["filter"], "threshold", nothing)
+                    
+                    immunediscover.table.filter_tsv(
+                        parsed_args["table"]["filter"]["input"],
+                        parsed_args["table"]["filter"]["output"],
+                        column;
+                        pattern=pattern,
+                        operator=operator,
+                        threshold=threshold
+                    )
                 end
             end
 

@@ -211,7 +211,7 @@ module cli
                 help = "Infer approximate haplotypes from unphased data based on diploid assumptions"
                 action = :command
             "table"
-                help = "Table operations: join TSV files by key columns"
+                help = "Table operations"
                 action = :command
             end
 
@@ -344,6 +344,9 @@ module cli
             "leftjoin"
                 help = "Perform left join on two TSV files"
                 action = :command
+            "filter"
+                help = "Filter TSV file by column using regex or numeric operations"
+                action = :command
         end
 
         @add_arg_table! s["table"]["outerjoin"] begin
@@ -418,6 +421,31 @@ module cli
             "--right-select"
                 help = "Columns to select from right file (comma-separated, defaults to all columns)"
                 arg_type = String
+        end
+
+        @add_arg_table! s["table"]["filter"] begin
+            "input"
+                help = "Input TSV file to filter"
+                required = true
+                arg_type = String
+            "output"
+                help = "Output TSV file"
+                required = true
+                arg_type = String
+            "-c", "--column"
+                help = "Column name to filter on"
+                required = true
+                arg_type = String
+            "--pattern"
+                help = "Regex pattern for string filtering (use this for text columns)"
+                arg_type = String
+            "--operator"
+                help = "Numeric operator: <, <=, >=, > (use with --threshold for numeric columns)"
+                arg_type = String
+                range_tester = (x->x ∈ ["<", "<=", ">=", ">"])
+            "--threshold"
+                help = "Numeric threshold value (use with --operator for numeric columns)"
+                arg_type = Float64
         end
 
         @add_arg_table! s["heptamer"] begin

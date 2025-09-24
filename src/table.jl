@@ -3,7 +3,7 @@ module table
     using DataFrames
     using Logging
 
-    export outerjoin_tsv, leftjoin_tsv
+    export outerjoin_tsv, leftjoin_tsv, filter_tsv
 
     """
         outerjoin_tsv(left_file, right_file, output_file; left_keys, right_keys, left_prefix, right_prefix, left_select, right_select)
@@ -186,5 +186,89 @@ module table
             end
         end
         return filename, ""
+    end
+
+    """
+        filter_tsv(input_file, output_file, column; pattern=nothing, operator=nothing, threshold=nothing)
+
+    Filter TSV file by column using regex or numeric operations.
+    Mode is automatically detected based on provided parameters:
+    - If `pattern` is provided: regex mode (string filtering)
+    - If `operator` and `threshold` are provided: numeric mode (numeric filtering)
+    
+    # Arguments
+    - `input_file`: Path to the input TSV file
+    - `output_file`: Path for the output TSV file
+    - `column`: Name of the column to filter on
+    - `pattern`: Regex pattern for string filtering (optional)
+    - `operator`: Numeric operator - "<", "<=", ">=", ">" (optional)
+    - `threshold`: Numeric threshold value (optional)
+    """
+    function filter_tsv(input_file, output_file, column; pattern=nothing, operator=nothing, threshold=nothing)
+        
+        @info "Loading input file: $input_file"
+        df = CSV.File(input_file, delim='\t') |> DataFrame
+        
+        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
+        
+        # Check if column exists
+        if !(column in names(df))
+            error("Column '$column' not found in input file. Available columns: $(join(names(df), ", "))")
+        end
+        
+        # Auto-detect mode based on provided parameters
+        if pattern !== nothing && (operator !== nothing || threshold !== nothing)
+            error("Cannot use both regex pattern and numeric operator/threshold. Choose one filtering method.")
+        elseif pattern !== nothing
+            # Regex mode
+            @info "Filtering column '$column' using regex pattern: $pattern"
+            filter_mask = occursin.(Regex(pattern), df[!, column])
+        elseif operator !== nothing && threshold !== nothing
+            # Numeric mode
+            # Check if column can be converted to numeric
+            numeric_values = try
+                # Try to convert to numeric, handling both string and already numeric columns
+                if eltype(df[!, column]) <: Number
+                    df[!, column]
+                else
+                    parse.(Float64, string.(df[!, column]))
+                end
+            catch
+                error("Column '$column' cannot be converted to numeric values for filtering")
+            end
+            
+            @info "Filtering column '$column' using numeric operation: $operator $threshold"
+            
+            # Apply numeric filter based on operator
+            if operator == "<"
+                filter_mask = numeric_values .< threshold
+            elseif operator == "<="
+                filter_mask = numeric_values .<= threshold
+            elseif operator == ">="
+                filter_mask = numeric_values .>= threshold
+            elseif operator == ">"
+                filter_mask = numeric_values .> threshold
+            else
+                error("Invalid operator: $operator. Must be one of: <, <=, >=, >")
+            end
+        else
+            error("Must provide either --pattern for regex filtering or both --operator and --threshold for numeric filtering")
+        end
+        
+        # Apply filter
+        filtered_df = df[filter_mask, :]
+        
+        original_count = nrow(df)
+        filtered_count = nrow(filtered_df)
+        removed_count = original_count - filtered_count
+        
+        @info "Filter results: $filtered_count rows kept, $removed_count rows removed"
+        
+        # Save result
+        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
+        CSV.write(output_gz, filtered_df, compress=true, delim='\t')
+        @info "Filtered data saved to: $output_gz"
+        
+        return filtered_df
     end
 end
