@@ -353,6 +353,9 @@ module cli
             "unique"
                 help = "Select unique rows based on specified columns"
                 action = :command
+            "sort"
+                help = "Sort TSV file by specified columns"
+                action = :command
             "filter"
                 help = "Filter TSV file by column using regex or numeric operations"
                 action = :command
@@ -493,6 +496,24 @@ module cli
                 help = "Column names to select for uniqueness (comma-separated)"
                 required = true
                 arg_type = String
+        end
+
+        @add_arg_table! s["table"]["sort"] begin
+            "input"
+                help = "Input TSV file to sort"
+                required = true
+                arg_type = String
+            "output"
+                help = "Output TSV file"
+                required = true
+                arg_type = String
+            "-c", "--columns"
+                help = "Column names to sort by (comma-separated, in order of priority)"
+                required = true
+                arg_type = String
+            "-r", "--reverse"
+                help = "Sort in descending order (default: ascending)"
+                action = :store_true
         end
 
         @add_arg_table! s["table"]["filter"] begin

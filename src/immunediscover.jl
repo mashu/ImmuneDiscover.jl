@@ -874,6 +874,16 @@ module immunediscover
                         parsed_args["table"]["unique"]["output"];
                         columns=columns
                     )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "sort"
+                    @info "Sorting TSV file"
+                    columns = split(parsed_args["table"]["sort"]["columns"], ",")
+                    reverse = get(parsed_args["table"]["sort"], "reverse", false)
+                    immunediscover.table.sort_tsv(
+                        parsed_args["table"]["sort"]["input"],
+                        parsed_args["table"]["sort"]["output"];
+                        columns=columns,
+                        reverse=reverse
+                    )
                 elseif get(parsed_args["table"],"%COMMAND%","") == "filter"
                     @info "Filtering TSV file"
                     # Parse arguments for filter

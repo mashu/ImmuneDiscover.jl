@@ -3,7 +3,7 @@ module table
     using DataFrames
     using Logging
 
-    export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv
+    export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv, sort_tsv
 
     """
         outerjoin_tsv(left_file, right_file, output_file; left_keys, right_keys, left_prefix, right_prefix, left_select, right_select)
@@ -468,5 +468,46 @@ module table
         @info "Unique data saved to: $output_gz"
         
         return unique_df
+    end
+
+    """
+        sort_tsv(input_file, output_file; columns, reverse=false)
+
+    Sort a TSV file by specified columns.
+    
+    # Arguments
+    - `input_file`: Path to the input TSV file
+    - `output_file`: Path for the output TSV file
+    - `columns`: Vector of column names to sort by (in order of priority)
+    - `reverse`: Whether to sort in descending order (defaults to false for ascending)
+    """
+    function sort_tsv(input_file, output_file; columns, reverse=false)
+        
+        @info "Loading input file: $input_file"
+        df = CSV.File(input_file, delim='\t') |> DataFrame
+        
+        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
+        
+        # Check if columns exist
+        for col in columns
+            if !(col in names(df))
+                error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
+            end
+        end
+        
+        @info "Sorting by columns: $columns"
+        @info "Sort order: $(reverse ? "descending" : "ascending")"
+        
+        # Sort the dataframe
+        sort!(df, columns, rev=reverse)
+        
+        @info "Sorted $(nrow(df)) rows"
+        
+        # Save result
+        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
+        CSV.write(output_gz, df, compress=true, delim='\t')
+        @info "Sorted data saved to: $output_gz"
+        
+        return df
     end
 end
