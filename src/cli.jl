@@ -210,6 +210,9 @@ module cli
             "haplotype"
                 help = "Infer approximate haplotypes from unphased data based on diploid assumptions"
                 action = :command
+            "table"
+                help = "Table operations: join TSV files by key columns"
+                action = :command
             end
 
         # Define the genes and choices for ArgParse
@@ -332,6 +335,89 @@ module cli
         "-f", "--novel-fasta"
             help = "Optional FASTA file with novel alleles to mark in results"
             arg_type = String
+        end
+
+        @add_arg_table! s["table"] begin
+            "outerjoin"
+                help = "Perform outer join on two TSV files"
+                action = :command
+            "leftjoin"
+                help = "Perform left join on two TSV files"
+                action = :command
+        end
+
+        @add_arg_table! s["table"]["outerjoin"] begin
+            "left"
+                help = "Left TSV file"
+                required = true
+                arg_type = String
+            "right"
+                help = "Right TSV file"
+                required = true
+                arg_type = String
+            "output"
+                help = "Output TSV file"
+                required = true
+                arg_type = String
+            "-k", "--keys"
+                help = "Column names to join on (comma-separated)"
+                required = true
+                arg_type = String
+            "--left-keys"
+                help = "Column names to join on from left file (comma-separated, defaults to --keys)"
+                arg_type = String
+            "--right-keys"
+                help = "Column names to join on from right file (comma-separated, defaults to --keys)"
+                arg_type = String
+            "--left-prefix"
+                help = "Prefix for left file columns (defaults to no prefix)"
+                arg_type = String
+            "--right-prefix"
+                help = "Prefix for right file columns (defaults to no prefix)"
+                arg_type = String
+            "--left-select"
+                help = "Columns to select from left file (comma-separated, defaults to all columns)"
+                arg_type = String
+            "--right-select"
+                help = "Columns to select from right file (comma-separated, defaults to all columns)"
+                arg_type = String
+        end
+
+        @add_arg_table! s["table"]["leftjoin"] begin
+            "left"
+                help = "Left TSV file"
+                required = true
+                arg_type = String
+            "right"
+                help = "Right TSV file"
+                required = true
+                arg_type = String
+            "output"
+                help = "Output TSV file"
+                required = true
+                arg_type = String
+            "-k", "--keys"
+                help = "Column names to join on (comma-separated)"
+                required = true
+                arg_type = String
+            "--left-keys"
+                help = "Column names to join on from left file (comma-separated, defaults to --keys)"
+                arg_type = String
+            "--right-keys"
+                help = "Column names to join on from right file (comma-separated, defaults to --keys)"
+                arg_type = String
+            "--left-prefix"
+                help = "Prefix for left file columns (defaults to no prefix)"
+                arg_type = String
+            "--right-prefix"
+                help = "Prefix for right file columns (defaults to no prefix)"
+                arg_type = String
+            "--left-select"
+                help = "Columns to select from left file (comma-separated, defaults to all columns)"
+                arg_type = String
+            "--right-select"
+                help = "Columns to select from right file (comma-separated, defaults to all columns)"
+                arg_type = String
         end
 
         @add_arg_table! s["heptamer"] begin

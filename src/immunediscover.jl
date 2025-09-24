@@ -18,6 +18,7 @@ module immunediscover
     include("haplotype.jl")
     include("fasta.jl")
     include("merge.jl")
+    include("table.jl")
 
     using .cli
     using .demultiplex
@@ -38,6 +39,7 @@ module immunediscover
     using .haplotype
     using .fasta
     using .merge
+    using .table
 
     using CSV
     using DataFrames
@@ -773,6 +775,72 @@ module immunediscover
                     prefer_first = !parsed_args["merge"]["prefer-last"],
                     add_source_prefix = parsed_args["merge"]["add-source-prefix"]
                 )
+            end
+
+            if get(parsed_args,"%COMMAND%","") == "table"
+                if get(parsed_args["table"],"%COMMAND%","") == "outerjoin"
+                    @info "Performing outer join"
+                    # Parse arguments for outerjoin
+                    left_keys = split(parsed_args["table"]["outerjoin"]["keys"], ",")
+                    right_keys = get(parsed_args["table"]["outerjoin"], "right-keys", nothing)
+                    if right_keys !== nothing
+                        right_keys = split(right_keys, ",")
+                    end
+                    left_prefix = get(parsed_args["table"]["outerjoin"], "left-prefix", nothing)
+                    right_prefix = get(parsed_args["table"]["outerjoin"], "right-prefix", nothing)
+                    left_select = get(parsed_args["table"]["outerjoin"], "left-select", nothing)
+                    right_select = get(parsed_args["table"]["outerjoin"], "right-select", nothing)
+                    
+                    if left_select !== nothing
+                        left_select = split(left_select, ",")
+                    end
+                    if right_select !== nothing
+                        right_select = split(right_select, ",")
+                    end
+                    
+                    immunediscover.table.outerjoin_tsv(
+                        parsed_args["table"]["outerjoin"]["left"],
+                        parsed_args["table"]["outerjoin"]["right"],
+                        parsed_args["table"]["outerjoin"]["output"];
+                        left_keys=left_keys,
+                        right_keys=right_keys,
+                        left_prefix=left_prefix,
+                        right_prefix=right_prefix,
+                        left_select=left_select,
+                        right_select=right_select
+                    )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "leftjoin"
+                    @info "Performing left join"
+                    # Parse arguments for leftjoin
+                    left_keys = split(parsed_args["table"]["leftjoin"]["keys"], ",")
+                    right_keys = get(parsed_args["table"]["leftjoin"], "right-keys", nothing)
+                    if right_keys !== nothing
+                        right_keys = split(right_keys, ",")
+                    end
+                    left_prefix = get(parsed_args["table"]["leftjoin"], "left-prefix", nothing)
+                    right_prefix = get(parsed_args["table"]["leftjoin"], "right-prefix", nothing)
+                    left_select = get(parsed_args["table"]["leftjoin"], "left-select", nothing)
+                    right_select = get(parsed_args["table"]["leftjoin"], "right-select", nothing)
+                    
+                    if left_select !== nothing
+                        left_select = split(left_select, ",")
+                    end
+                    if right_select !== nothing
+                        right_select = split(right_select, ",")
+                    end
+                    
+                    immunediscover.table.leftjoin_tsv(
+                        parsed_args["table"]["leftjoin"]["left"],
+                        parsed_args["table"]["leftjoin"]["right"],
+                        parsed_args["table"]["leftjoin"]["output"];
+                        left_keys=left_keys,
+                        right_keys=right_keys,
+                        left_prefix=left_prefix,
+                        right_prefix=right_prefix,
+                        left_select=left_select,
+                        right_select=right_select
+                    )
+                end
             end
 
             if get(parsed_args,"%COMMAND%","") == "regex"
