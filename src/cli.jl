@@ -344,6 +344,15 @@ module cli
             "leftjoin"
                 help = "Perform left join on two TSV files"
                 action = :command
+            "transform"
+                help = "Transform TSV file using regex with capture groups"
+                action = :command
+            "aggregate"
+                help = "Aggregate unique rows by selected columns"
+                action = :command
+            "unique"
+                help = "Select unique rows based on specified columns"
+                action = :command
             "filter"
                 help = "Filter TSV file by column using regex or numeric operations"
                 action = :command
@@ -420,6 +429,69 @@ module cli
                 arg_type = String
             "--right-select"
                 help = "Columns to select from right file (comma-separated, defaults to all columns)"
+                arg_type = String
+        end
+
+        @add_arg_table! s["table"]["transform"] begin
+            "input"
+                help = "Input TSV file to transform"
+                required = true
+                arg_type = String
+            "output"
+                help = "Output TSV file"
+                required = true
+                arg_type = String
+            "-c", "--column"
+                help = "Column name to transform"
+                required = true
+                arg_type = String
+            "-p", "--pattern"
+                help = "Regex pattern with capture groups (e.g., 'ID_(\\d+)_(\\w+)')"
+                required = true
+                arg_type = String
+            "-r", "--replacement"
+                help = "Replacement string using capture groups (e.g., '\\1-\\2')"
+                required = true
+                arg_type = String
+            "--new-column"
+                help = "Optional name for new column containing captured groups"
+                arg_type = String
+        end
+
+        @add_arg_table! s["table"]["aggregate"] begin
+            "input"
+                help = "Input TSV file to aggregate"
+                required = true
+                arg_type = String
+            "output"
+                help = "Output TSV file"
+                required = true
+                arg_type = String
+            "-g", "--group-by"
+                help = "Column names to group by (comma-separated)"
+                required = true
+                arg_type = String
+            "-k", "--keep-columns"
+                help = "Additional columns to keep (comma-separated, defaults to all non-group columns)"
+                arg_type = String
+            "-c", "--count-column"
+                help = "Name for the count column"
+                default = "count"
+                arg_type = String
+        end
+
+        @add_arg_table! s["table"]["unique"] begin
+            "input"
+                help = "Input TSV file to make unique"
+                required = true
+                arg_type = String
+            "output"
+                help = "Output TSV file"
+                required = true
+                arg_type = String
+            "-c", "--columns"
+                help = "Column names to select for uniqueness (comma-separated)"
+                required = true
                 arg_type = String
         end
 

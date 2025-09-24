@@ -3,7 +3,7 @@ module table
     using DataFrames
     using Logging
 
-    export outerjoin_tsv, leftjoin_tsv, filter_tsv
+    export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv
 
     """
         outerjoin_tsv(left_file, right_file, output_file; left_keys, right_keys, left_prefix, right_prefix, left_select, right_select)
@@ -270,5 +270,203 @@ module table
         @info "Filtered data saved to: $output_gz"
         
         return filtered_df
+    end
+
+    """
+        transform_tsv(input_file, output_file, column; pattern, replacement, new_column=nothing)
+
+    Transform a TSV file by applying regex pattern with capture groups to replace matched strings.
+    Optionally add a new column with captured groups.
+    
+    # Arguments
+    - `input_file`: Path to the input TSV file
+    - `output_file`: Path for the output TSV file
+    - `column`: Name of the column to transform
+    - `pattern`: Regex pattern with capture groups (e.g., "ID_(\\d+)_(\\w+)" to capture ID_123_ABC)
+    - `replacement`: Replacement string using capture groups (e.g., "\\1-\\2" to get "123-ABC")
+    - `new_column`: Optional name for new column containing captured groups (e.g., "extracted_id")
+    """
+    function transform_tsv(input_file, output_file; column, pattern, replacement, new_column=nothing)
+        
+        @info "Loading input file: $input_file"
+        df = CSV.File(input_file, delim='\t') |> DataFrame
+        
+        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
+        
+        # Check if column exists
+        if !(column in names(df))
+            error("Column '$column' not found in input file. Available columns: $(join(names(df), ", "))")
+        end
+        
+        @info "Transforming column '$column' using pattern: $pattern"
+        @info "Replacement pattern: $replacement"
+        
+        # Apply regex transformation
+        original_values = df[!, column]
+        @info "Julia replacement pattern: $replacement"
+        
+        # Manual regex replacement with capture groups
+        transformed_values = String[]
+        extracted_values = String[]
+        regex = Regex(pattern)
+        
+        for value in original_values
+            m = match(regex, string(value))
+            if m !== nothing
+                # Replace \1, \2, etc. with actual capture groups
+                result = replacement
+                for i in 1:length(m.captures)
+                    if m.captures[i] !== nothing
+                        result = replace(result, "\\$i" => m.captures[i])
+                    end
+                end
+                push!(transformed_values, result)
+                
+                # Extract captured groups for new column if requested
+                if new_column !== nothing
+                    extracted = join([m.captures[i] for i in 1:length(m.captures) if m.captures[i] !== nothing], "-")
+                    push!(extracted_values, extracted)
+                else
+                    push!(extracted_values, "")
+                end
+            else
+                push!(transformed_values, string(value))
+                push!(extracted_values, "")
+            end
+        end
+        
+        # Count how many values were actually changed
+        changed_count = sum(original_values .!= transformed_values)
+        @info "Transformed $changed_count values in column '$column'"
+        
+        # Update the dataframe
+        df[!, column] = transformed_values
+        
+        # Add new column with extracted values if requested
+        if new_column !== nothing
+            df[!, new_column] = extracted_values
+            @info "Added new column '$new_column' with extracted values"
+        end
+        
+        # Save result
+        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
+        CSV.write(output_gz, df, compress=true, delim='\t')
+        @info "Transformed data saved to: $output_gz"
+        
+        return df
+    end
+
+    """
+        aggregate_tsv(input_file, output_file; group_by, keep_columns=nothing, count_column="count")
+
+    Aggregate unique rows by selected columns, optionally keeping specific columns and adding a count.
+    
+    # Arguments
+    - `input_file`: Path to the input TSV file
+    - `output_file`: Path for the output TSV file
+    - `group_by`: Vector of column names to group by
+    - `keep_columns`: Optional vector of additional columns to keep (defaults to all non-group columns)
+    - `count_column`: Name for the count column (defaults to "count")
+    """
+    function aggregate_tsv(input_file, output_file; group_by, keep_columns=nothing, count_column="count")
+        
+        @info "Loading input file: $input_file"
+        df = CSV.File(input_file, delim='\t') |> DataFrame
+        
+        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
+        
+        # Check if group_by columns exist
+        for col in group_by
+            if !(col in names(df))
+                error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
+            end
+        end
+        
+        # Determine which columns to keep
+        if keep_columns === nothing
+            # Keep all columns that are not in group_by
+            keep_columns = [col for col in names(df) if !(col in group_by)]
+        else
+            # Check if keep_columns exist
+            for col in keep_columns
+                if !(col in names(df))
+                    error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
+                end
+            end
+        end
+        
+        @info "Grouping by: $group_by"
+        @info "Keeping columns: $keep_columns"
+        
+        # Select only the columns we need
+        selected_columns = vcat(group_by, keep_columns)
+        df_selected = df[:, selected_columns]
+        
+        # Group by the specified columns and count
+        grouped_df = combine(groupby(df_selected, group_by), nrow => count_column)
+        
+        # Add any additional columns that were kept (taking first value from each group)
+        if !isempty(keep_columns)
+            for col in keep_columns
+                if !(col in names(grouped_df))
+                    first_values = combine(groupby(df_selected, group_by), col => first => col)
+                    grouped_df = leftjoin(grouped_df, first_values, on=group_by)
+                end
+            end
+        end
+        
+        original_count = nrow(df)
+        aggregated_count = nrow(grouped_df)
+        @info "Aggregated from $original_count rows to $aggregated_count unique groups"
+        
+        # Save result
+        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
+        CSV.write(output_gz, grouped_df, compress=true, delim='\t')
+        @info "Aggregated data saved to: $output_gz"
+        
+        return grouped_df
+    end
+
+    """
+        unique_tsv(input_file, output_file; columns)
+
+    Create unique rows by selecting specific columns (like SELECT DISTINCT).
+    
+    # Arguments
+    - `input_file`: Path to the input TSV file
+    - `output_file`: Path for the output TSV file
+    - `columns`: Vector of column names to select for uniqueness
+    """
+    function unique_tsv(input_file, output_file; columns)
+        
+        @info "Loading input file: $input_file"
+        df = CSV.File(input_file, delim='\t') |> DataFrame
+        
+        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
+        
+        # Check if columns exist
+        for col in columns
+            if !(col in names(df))
+                error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
+            end
+        end
+        
+        @info "Selecting unique rows based on columns: $columns"
+        
+        # Select only the specified columns and get unique rows
+        unique_df = unique(df[:, columns])
+        
+        original_count = nrow(df)
+        unique_count = nrow(unique_df)
+        removed_count = original_count - unique_count
+        
+        @info "Unique rows: $unique_count rows (removed $removed_count duplicates)"
+        
+        # Save result
+        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
+        CSV.write(output_gz, unique_df, compress=true, delim='\t')
+        @info "Unique data saved to: $output_gz"
+        
+        return unique_df
     end
 end

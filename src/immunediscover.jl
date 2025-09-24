@@ -840,6 +840,40 @@ module immunediscover
                         left_select=left_select,
                         right_select=right_select
                     )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "transform"
+                    @info "Transforming TSV file"
+                    new_column = get(parsed_args["table"]["transform"], "new-column", nothing)
+                    immunediscover.table.transform_tsv(
+                        parsed_args["table"]["transform"]["input"],
+                        parsed_args["table"]["transform"]["output"];
+                        column=parsed_args["table"]["transform"]["column"],
+                        pattern=parsed_args["table"]["transform"]["pattern"],
+                        replacement=parsed_args["table"]["transform"]["replacement"],
+                        new_column=new_column
+                    )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "aggregate"
+                    @info "Aggregating TSV file"
+                    group_by = split(parsed_args["table"]["aggregate"]["group-by"], ",")
+                    keep_columns = get(parsed_args["table"]["aggregate"], "keep-columns", nothing)
+                    if keep_columns !== nothing
+                        keep_columns = split(keep_columns, ",")
+                    end
+                    count_column = get(parsed_args["table"]["aggregate"], "count-column", "count")
+                    immunediscover.table.aggregate_tsv(
+                        parsed_args["table"]["aggregate"]["input"],
+                        parsed_args["table"]["aggregate"]["output"];
+                        group_by=group_by,
+                        keep_columns=keep_columns,
+                        count_column=count_column
+                    )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "unique"
+                    @info "Creating unique rows"
+                    columns = split(parsed_args["table"]["unique"]["columns"], ",")
+                    immunediscover.table.unique_tsv(
+                        parsed_args["table"]["unique"]["input"],
+                        parsed_args["table"]["unique"]["output"];
+                        columns=columns
+                    )
                 elseif get(parsed_args["table"],"%COMMAND%","") == "filter"
                     @info "Filtering TSV file"
                     # Parse arguments for filter
