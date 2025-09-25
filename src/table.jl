@@ -79,7 +79,7 @@ module table
         
         # Perform outer join
         @info "Performing outer join"
-        result_df = outerjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys)
+        result_df = outerjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
         
         @info "Result: $(nrow(result_df)) rows, $(ncol(result_df)) columns"
         
@@ -165,7 +165,7 @@ module table
         
         # Perform left join
         @info "Performing left join"
-        result_df = leftjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys)
+        result_df = leftjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
         
         @info "Result: $(nrow(result_df)) rows, $(ncol(result_df)) columns"
         
