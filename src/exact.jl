@@ -3,6 +3,7 @@ module exact
     using DataFrames
     using ProgressMeter
     using Folds
+    using FASTX
 
     function filter_tuple_by_types(types_as_strings, mandatory_key; tuple_data)
         # Ensure mandatory_key is a valid option
@@ -129,7 +130,7 @@ module exact
         rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=13, rss=["heptamer", "spacer", "nonamer"], extension=nothing, N=10, raw=nothing, expect_dict=Dict{String,Float64}())
+    function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=13, rss=["heptamer", "spacer", "nonamer"], extension=nothing, N=10, raw=nothing, expect_dict=Dict{String,Float64}(), sequence_lookup=nothing)
         @info "Using mincount: $mincount, minratio: $minratio for genes: $gene"
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
         p = Progress(nrow(table))
@@ -165,6 +166,12 @@ module exact
         df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
         transform!(groupby(df, [:well, :case, :db_name, :sequence]), nrow => :count)
         transform!(df, :db_name => ByRow(x -> first(split(x, '*'))) => :gene)
+        
+        # Add isin_db column if sequence_lookup is provided
+        if sequence_lookup !== nothing
+            @info "Adding isin_db column based on reference FASTA"
+            df[!, :isin_db] = map(row -> get(sequence_lookup, row.sequence, false) ? "" : "Novel", eachrow(df))
+        end
 
         # Save raw dawa
         if raw !== nothing
@@ -233,5 +240,34 @@ module exact
         return transformed_df
     end
 
-    export grouped_ratios, transform_counts
+    """
+        build_sequence_lookup(ref_fasta_path::String) -> Dict{String, Bool}
+
+    Build a dictionary mapping sequences to true if they exist in the reference FASTA file.
+    This is used to add an isin_db column to exact search results where sequences in the 
+    database get an empty string and novel sequences get "Novel".
+
+    # Arguments
+    - `ref_fasta_path::String`: Path to the reference FASTA file
+
+    # Returns
+    - `Dict{String, Bool}`: Dictionary mapping sequences to true
+    """
+    function build_sequence_lookup(ref_fasta_path::String)
+        sequence_lookup = Dict{String, Bool}()
+        
+        @info "Building sequence lookup from reference FASTA: $ref_fasta_path"
+        
+        open(FASTA.Reader, ref_fasta_path) do reader
+            for record in reader
+                sequence = string(FASTA.sequence(record))
+                sequence_lookup[sequence] = true
+            end
+        end
+        
+        @info "Loaded $(length(sequence_lookup)) sequences from reference FASTA"
+        return sequence_lookup
+    end
+
+    export grouped_ratios, transform_counts, build_sequence_lookup
 end

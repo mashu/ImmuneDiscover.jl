@@ -515,7 +515,15 @@ module immunediscover
 
                 raw = parsed_args["exact"]["raw"]
                 locus = parsed_args["exact"]["locus"]
-                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect_dict=expect_dict, affix=affix, rss=rss, extension=extension, N=top, raw=raw)
+                ref_fasta = parsed_args["exact"]["ref-fasta"]
+                
+                # Build sequence lookup if reference FASTA is provided
+                sequence_lookup = nothing
+                if ref_fasta !== nothing
+                    sequence_lookup = exact.build_sequence_lookup(ref_fasta)
+                end
+                
+                counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect_dict=expect_dict, affix=affix, rss=rss, extension=extension, N=top, raw=raw, sequence_lookup=sequence_lookup)
                 sort!(counts_df, [:case, :db_name])
                 if !parsed_args["exact"]["noplot"]
                     if nrow(counts_df) > 0

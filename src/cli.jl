@@ -842,6 +842,9 @@ module cli
             help = "Locus to filter genes to start with this string (e.g. IGHV) excluding other genes from the analysis (i.e control genes)"
             arg_type = String
             default = "IG"
+        "--ref-fasta"
+            help = "Optional reference FASTA file to check if sequences are in database (adds isin_db column)"
+            arg_type = String
         end
 
         @add_arg_table! s["nwpattern"] begin
