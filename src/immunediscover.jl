@@ -912,6 +912,16 @@ module immunediscover
                         operator=operator,
                         threshold=threshold
                     )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "select"
+                    @info "Selecting columns from TSV file"
+                    # Parse arguments for select
+                    columns = split(parsed_args["table"]["select"]["columns"], ",")
+                    
+                    immunediscover.table.select_tsv(
+                        parsed_args["table"]["select"]["input"],
+                        parsed_args["table"]["select"]["output"];
+                        columns=columns
+                    )
                 end
             end
 

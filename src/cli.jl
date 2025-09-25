@@ -359,6 +359,9 @@ module cli
             "filter"
                 help = "Filter TSV file by column using regex or numeric operations"
                 action = :command
+            "select"
+                help = "Select specific columns from TSV file"
+                action = :command
         end
 
         @add_arg_table! s["table"]["outerjoin"] begin
@@ -539,6 +542,21 @@ module cli
             "--threshold"
                 help = "Numeric threshold value (use with --operator for numeric columns)"
                 arg_type = Float64
+        end
+
+        @add_arg_table! s["table"]["select"] begin
+            "input"
+                help = "Input TSV file to select columns from"
+                required = true
+                arg_type = String
+            "output"
+                help = "Output TSV file"
+                required = true
+                arg_type = String
+            "-c", "--columns"
+                help = "Column names to select (comma-separated)"
+                required = true
+                arg_type = String
         end
 
         @add_arg_table! s["heptamer"] begin

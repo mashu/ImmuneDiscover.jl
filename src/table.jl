@@ -3,7 +3,7 @@ module table
     using DataFrames
     using Logging
 
-    export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv, sort_tsv
+    export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv, sort_tsv, select_tsv
 
     """
         outerjoin_tsv(left_file, right_file, output_file; left_keys, right_keys, left_prefix, right_prefix, left_select, right_select)
@@ -509,5 +509,44 @@ module table
         @info "Sorted data saved to: $output_gz"
         
         return df
+    end
+
+    """
+        select_tsv(input_file, output_file; columns)
+
+    Select specific columns from a TSV file and save to output file.
+    
+    # Arguments
+    - `input_file`: Path to the input TSV file
+    - `output_file`: Path for the output TSV file
+    - `columns`: Vector of column names to select
+    """
+    function select_tsv(input_file, output_file; columns)
+        
+        @info "Loading input file: $input_file"
+        df = CSV.File(input_file, delim='\t') |> DataFrame
+        
+        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
+        
+        # Check if all specified columns exist
+        for col in columns
+            if !(col in names(df))
+                error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
+            end
+        end
+        
+        @info "Selecting columns: $columns"
+        
+        # Select only the specified columns
+        selected_df = df[:, columns]
+        
+        @info "Selected $(ncol(selected_df)) columns from $(ncol(df)) original columns"
+        
+        # Save result
+        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
+        CSV.write(output_gz, selected_df, compress=true, delim='\t')
+        @info "Selected data saved to: $output_gz"
+        
+        return selected_df
     end
 end
