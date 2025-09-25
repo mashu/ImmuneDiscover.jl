@@ -128,6 +128,18 @@ module immunediscover
                     @info "Filtered from $original_count to $filtered_count rows ($(original_count - filtered_count) rows removed)"
                 end
                 
+                # Calculate and display demultiplexing summary
+                unique_cases = length(unique(table.case))
+                unique_wells = length(unique(table.well))
+                unique_well_case_pairs = length(unique(zip(table.well, table.case)))
+                total_sequences = nrow(table)
+                
+                @info "Demultiplexing summary:"
+                @info "  - Total sequences demultiplexed: $total_sequences"
+                @info "  - Unique cases: $unique_cases"
+                @info "  - Unique wells: $unique_wells"
+                @info "  - Unique well-case pairs: $unique_well_case_pairs"
+                
                 logfile = "$(parsed_args["demultiplex"]["output"]).log"
                 CSV.write(logfile, stats, delim='\t')
                 count_df = combine(groupby(table, :case), :case => length => :count)
