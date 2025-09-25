@@ -324,7 +324,7 @@ module table
                 
                 # Extract captured groups for new column if requested
                 if new_column !== nothing
-                    extracted = join([m.captures[i] for i in 1:length(m.captures) if m.captures[i] !== nothing], "-")
+                    extracted = join([m.captures[i] for i in 1:length(m.captures) if m.captures[i] !== nothing], "")
                     push!(extracted_values, extracted)
                 else
                     push!(extracted_values, "")
