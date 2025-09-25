@@ -222,7 +222,8 @@ module table
         elseif pattern !== nothing
             # Regex mode
             @info "Filtering column '$column' using regex pattern: $pattern"
-            filter_mask = occursin.(Regex(pattern), df[!, column])
+            # Handle missing values by skipping them (treating them as not matching the pattern)
+            filter_mask = map(x -> ismissing(x) ? false : occursin(Regex(pattern), x), df[!, column])
         elseif operator !== nothing && threshold !== nothing
             # Numeric mode
             # Check if column can be converted to numeric
@@ -239,15 +240,15 @@ module table
             
             @info "Filtering column '$column' using numeric operation: $operator $threshold"
             
-            # Apply numeric filter based on operator
+            # Apply numeric filter based on operator, handling missing values
             if operator == "<"
-                filter_mask = numeric_values .< threshold
+                filter_mask = map(x -> ismissing(x) ? false : x < threshold, numeric_values)
             elseif operator == "<="
-                filter_mask = numeric_values .<= threshold
+                filter_mask = map(x -> ismissing(x) ? false : x <= threshold, numeric_values)
             elseif operator == ">="
-                filter_mask = numeric_values .>= threshold
+                filter_mask = map(x -> ismissing(x) ? false : x >= threshold, numeric_values)
             elseif operator == ">"
-                filter_mask = numeric_values .> threshold
+                filter_mask = map(x -> ismissing(x) ? false : x > threshold, numeric_values)
             else
                 error("Invalid operator: $operator. Must be one of: <, <=, >=, >")
             end
