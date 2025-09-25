@@ -129,9 +129,9 @@ module immunediscover
                 end
                 
                 # Calculate and display demultiplexing summary
-                unique_cases = length(unique(table.case))
-                unique_wells = length(unique(table.well))
-                unique_well_case_pairs = length(unique(zip(table.well, table.case)))
+                unique_cases = length(Base.unique(table.case))
+                unique_wells = length(Base.unique(table.well))
+                unique_well_case_pairs = length(Base.unique(zip(table.well, table.case)))
                 total_sequences = nrow(table)
                 
                 @info "Demultiplexing summary:"
@@ -167,8 +167,8 @@ module immunediscover
                 @info "Heptamer data saved in compressed $output file"
                 @info "Summarizing"
                 data_df = CSV.File(output, delim='\t') |> DataFrame
-                unique = heptamer.summarize(data_df, db, ratio=parsed_args["heptamer"]["ratio"],count=parsed_args["heptamer"]["mincount"])
-                CSV.write(parsed_args["heptamer"]["summary"], unique, delim='\t')
+                unique_summary = heptamer.summarize(data_df, db, ratio=parsed_args["heptamer"]["ratio"],count=parsed_args["heptamer"]["mincount"])
+                CSV.write(parsed_args["heptamer"]["summary"], unique_summary, delim='\t')
                 @info "Summary heptamer data saved in compressed $(parsed_args["heptamer"]["summary"]) file"
             end
 

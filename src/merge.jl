@@ -30,6 +30,8 @@ module merge
         
         # Dictionary to store unique sequences: sequence -> (name, source_file)
         unique_sequences = Dict{String, Tuple{String, String}}()
+        # Track duplicates: sequence -> list of (name, source_file) that were duplicates
+        duplicate_sequences = Dict{String, Vector{Tuple{String, String}}}()
         total_sequences = 0
         
         for (file_idx, input_file) in enumerate(input_files)
@@ -68,6 +70,14 @@ module merge
                     # Check if sequence already exists
                     if haskey(unique_sequences, sequence)
                         existing_name, existing_source = unique_sequences[sequence]
+                        
+                        # Track this duplicate
+                        if !haskey(duplicate_sequences, sequence)
+                            # First duplicate for this sequence - initialize with the original
+                            duplicate_sequences[sequence] = [(existing_name, existing_source)]
+                        end
+                        push!(duplicate_sequences[sequence], (name, input_file))
+                        
                         if !prefer_first
                             # Update with current name (prefer last)
                             unique_sequences[sequence] = (name, input_file)
@@ -112,6 +122,17 @@ module merge
         
         duplicates_removed = total_sequences - length(unique_sequences)
         @info "Successfully merged FASTA files: $duplicates_removed duplicates removed"
+        
+        # Report detailed duplicate information
+        if !isempty(duplicate_sequences)
+            @info "Duplicate sequences found:"
+            for (sequence, duplicate_list) in duplicate_sequences
+                @info "  Sequence with $(length(duplicate_list)) duplicates:"
+                for (dup_name, dup_source) in duplicate_list
+                    @info "    - $dup_name (from $(basename(dup_source)))"
+                end
+            end
+        end
         
         return length(unique_sequences)
     end
