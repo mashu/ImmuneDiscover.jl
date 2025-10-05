@@ -180,6 +180,9 @@ module cli
             "regex"
                 help = "Search for short novel alleles with regex"
                 action = :command
+            "hsmm"
+                help = "Detect D genes using an HSMM trained on RSS flanks"
+                action = :command
             "fasta"
                 help = "Extract sequences from TSV file into FASTA format"
                 action = :command
@@ -1030,6 +1033,48 @@ module cli
                 default = 7
                 arg_type = Int
                 range_tester = (x->x >= 1)
+        end
+
+        @add_arg_table! s["hsmm"] begin
+        "tsv"
+            help = "TSV/TSV.GZ demultiplex file with columns well, case, name, genomic_sequence"
+            required = true
+        "fasta"
+            help = "FASTA file with D alleles (known reference)"
+            required = true
+        "output"
+            help = "TSV.GZ file to save detected D alleles (novel and/or known) with flanks"
+            required = true
+        "-r", "--ratio"
+            help = "Allelic ratio threshold for known D selection per donor and gene"
+            default = 0.2
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-c", "--mincount"
+            help = "Minimum count for a known D allele to be considered in training"
+            default = 10
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "--min-posterior"
+            help = "Minimum posterior probability for accepting an HSMM detection"
+            default = 0.7
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-gene-len"
+            help = "Minimum D gene length for HSMM duration model (auto if 0)"
+            default = 10
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--max-gene-len"
+            help = "Maximum D gene length for HSMM duration model (auto if 0)"
+            default = 70
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "-l", "--limit"
+            help = "Limit number of demultiplexed reads to process (0 means no limit)"
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
         end
 
         @add_arg_table! s["fasta"] begin

@@ -10,6 +10,7 @@ module immunediscover
     include("hamming.jl")
     include("patterns.jl")
     include("regex.jl")
+    include("hsmm.jl")
     include("bwa.jl")
     include("nwpattern.jl")
     include("blast.jl")
@@ -32,6 +33,7 @@ module immunediscover
     using .nwpattern
     using .patterns
     using .regex
+    using .HSMM
     using .bwa
     using .blast
     using .keyedsets
@@ -971,6 +973,19 @@ module immunediscover
                 output = cli.always_gz(parsed_args["regex"]["output"])
                 CSV.write(output, result_df, compress=true, delim='\t')
                 @info "Extracted Ds saved in compressed $output file"
+            end
+            if get(parsed_args,"%COMMAND%","") == "hsmm"
+                @info "HSMM D detection"
+                tsv = parsed_args["hsmm"]["tsv"]
+                fasta = parsed_args["hsmm"]["fasta"]
+                output = parsed_args["hsmm"]["output"]
+                ratio = parsed_args["hsmm"]["ratio"]
+                mincount = parsed_args["hsmm"]["mincount"]
+                min_posterior = parsed_args["hsmm"]["min-posterior"]
+                min_gene_len = parsed_args["hsmm"]["min-gene-len"]
+                max_gene_len = parsed_args["hsmm"]["max-gene-len"]
+                limit = parsed_args["hsmm"]["limit"]
+                HSMM.run_hsmm(tsv, fasta, output; ratio=ratio, mincount=mincount, min_gene_len=min_gene_len, max_gene_len=max_gene_len, limit=limit, min_posterior=min_posterior)
             end
             if get(parsed_args,"%COMMAND%","") == "hash"
                 @info "Hasing alleles"
