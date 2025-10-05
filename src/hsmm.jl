@@ -507,6 +507,19 @@ export AbstractEmissionModel, IIDLogEmission, PWMLogEmission, AbstractDurationMo
     return m + log1p(exp(min(a, b) - m))
 end
 
+@inline function pwm_logprob(seq::AbstractString, pwm::PWMLogEmission{L})::Float64 where {L}
+    @assert length(seq) == L
+    total = 0.0
+    @inbounds for (pos, ch) in enumerate(seq)
+        idx = dna_index(ch)
+        if idx == 0
+            return -Inf
+        end
+        total += logemit(pwm, pos, idx)
+    end
+    return total
+end
+
 """
     scan_best_and_total(sequence::AbstractString, model::DGeneRSSHSMM)
 
@@ -630,7 +643,10 @@ Writes a TSV.GZ with detected candidates and returns the resulting DataFrame.
 function run_hsmm(tsv::String, fasta::String, output::String;
                   ratio::Float64=0.2, mincount::Int=5,
                   min_gene_len::Int=0, max_gene_len::Int=0,
-                  limit::Int=0, min_posterior::Float64=0.7)
+                  limit::Int=0, min_posterior::Float64=0.7,
+                  out_mincount::Int=10, out_minratio::Float64=0.2,
+                  min_heptamer_prob_pre::Float64=0.0,
+                  min_heptamer_prob_post::Float64=0.0)
     # Load inputs
     @info "Loading demultiplex: $tsv"
     table = limit > 0 ? data.load_demultiplex(tsv, limit=limit) : data.load_demultiplex(tsv)
@@ -650,13 +666,13 @@ function run_hsmm(tsv::String, fasta::String, output::String;
         return DataFrame()
     end
 
-    # Aggregate by (case, gene, sequence) to compute per-allele counts/ratios for filtering
+    # Aggregate by (case, gene, sequence) across wells and compute per-donor (case) ratios
     agg = combine(groupby(known_df, [:case, :gene, :sequence, :db_name]),
-                  :count => maximum => :count,
-                  :ratio => maximum => :ratio)
+                  :count => sum => :case_count)
+    transform!(groupby(agg, [:case, :gene]), :case_count => (x -> x ./ maximum(x)) => :case_ratio)
 
-    # Apply allelic ratio filter and cap to 2 alleles per (case, gene)
-    filter!(r -> r.count >= mincount && r.ratio >= ratio, agg)
+    # Apply allelic ratio filter (per donor/gene) and mincount on aggregated counts
+    filter!(r -> (r.case_count >= mincount) && (r.case_ratio >= ratio), agg)
     if nrow(agg) == 0
         @warn "No alleles passed ratio >= $(ratio) and mincount >= $(mincount); HSMM training cannot proceed"
         return DataFrame()
@@ -664,8 +680,8 @@ function run_hsmm(tsv::String, fasta::String, output::String;
 
     kept = Vector{Tuple{String,String,String}}()  # (case, gene, sequence)
     for grp in groupby(agg, [:case, :gene])
-        # Sort by count then ratio, descending
-        ord = sort(grp, [:count, :ratio], rev=[true, true])
+        # Sort by aggregated count then aggregated ratio, descending
+        ord = sort(grp, [:case_count, :case_ratio], rev=[true, true])
         n = min(2, nrow(ord))
         for i in 1:n
             push!(kept, (ord[i, :case], ord[i, :gene], ord[i, :sequence]))
@@ -762,24 +778,26 @@ function run_hsmm(tsv::String, fasta::String, output::String;
                 end
             end
 
-            return (
-                well = string(row.well),
-                case = string(row.case),
-                sequence = dseq,
-                pre_nonamer = pre_nonamer,
-                pre_spacer = pre_spacer,
-                pre_heptamer = pre_heptamer,
-                post_heptamer = post_heptamer,
-                post_spacer = post_spacer,
-                post_nonamer = post_nonamer,
-                log_path_prob = det.log_path_prob,
-                log_total_prob = det.log_total_prob,
-                posterior_prob = det.posterior_prob,
-                isin_db = isin,
-                db_name = db_name,
-                nearest_db = best_call,
-                nearest_db_dist = best_dist,
-            )
+        return (
+            well = string(row.well),
+            case = string(row.case),
+            sequence = dseq,
+            pre_nonamer = pre_nonamer,
+            pre_spacer = pre_spacer,
+            pre_heptamer = pre_heptamer,
+            post_heptamer = post_heptamer,
+            post_spacer = post_spacer,
+            post_nonamer = post_nonamer,
+            heptamer_logp_pre = pwm_logprob(pre_heptamer, model.pre_heptamer.emission),
+            heptamer_logp_post = pwm_logprob(post_heptamer, model.post_heptamer.emission),
+            log_path_prob = det.log_path_prob,
+            log_total_prob = det.log_total_prob,
+            posterior_prob = det.posterior_prob,
+            isin_db = isin,
+            db_name = db_name,
+            nearest_db = best_call,
+            nearest_db_dist = best_dist,
+        )
         end
         # Append valid results from this chunk
         for r in chunk_results
@@ -812,6 +830,8 @@ function run_hsmm(tsv::String, fasta::String, output::String;
         :post_heptamer => first => :post_heptamer,
         :post_spacer => first => :post_spacer,
         :post_nonamer => first => :post_nonamer,
+        :heptamer_logp_pre => first => :heptamer_logp_pre,
+        :heptamer_logp_post => first => :heptamer_logp_post,
         :log_path_prob => first => :log_path_prob,
         :log_total_prob => first => :log_total_prob,
         :posterior_prob => first => :posterior_prob,
@@ -819,6 +839,46 @@ function run_hsmm(tsv::String, fasta::String, output::String;
         :db_name => first => :db_name,
         :nearest_db => first => :nearest_db,
         :nearest_db_dist => minimum => :nearest_db_dist)
+
+    # Allele naming based on best match: keep original name if known; otherwise add _S hash from sequence
+    collapsed[!, :allele_name] = map(eachrow(collapsed)) do row
+        is_known = (row.nearest_db_dist == 0) || row.isin_db
+        base_name = (row.nearest_db != "") ? String(row.nearest_db) : String(row.db_name)
+        is_known ? base_name : unique_name(base_name, String(row.sequence))
+    end
+
+    # Convert heptamer log-probabilities to probabilities for user-friendly thresholds
+    collapsed[!, :heptamer_prob_pre] = map(x -> isfinite(x) ? exp(x) : 0.0, collapsed.heptamer_logp_pre)
+    collapsed[!, :heptamer_prob_post] = map(x -> isfinite(x) ? exp(x) : 0.0, collapsed.heptamer_logp_post)
+
+    # Output-level mincount and allelic ratio filters per donor and gene
+    # First, derive gene from nearest_db if present else empty; fallback: keep empty gene label
+    collapsed[!, :gene] = map(row -> begin
+        name = String(row.nearest_db)
+        if name == ""
+            ""
+        else
+            first(split(name, '*'))
+        end
+    end, eachrow(collapsed))
+
+    # Compute ratio within (well, case, gene)
+    if any(x->x != "", collapsed.gene)
+        transform!(groupby(collapsed, [:well, :case, :gene]), :count => (x->x./maximum(x)) => :ratio)
+        before_out = nrow(collapsed)
+        filter!(x -> x.count >= out_mincount, collapsed)
+        filter!(x -> x.ratio >= out_minratio, collapsed)
+        @info "Output filters: kept $(nrow(collapsed)) / $(before_out) with count >= $(out_mincount) and ratio >= $(out_minratio)"
+    else
+        @info "Skipping allelic ratio filter: gene names unavailable (nearest_db empty)"
+    end
+
+    # Heptamer probability-based filtering if requested
+    before_hep = nrow(collapsed)
+    filter!(x -> (x.heptamer_prob_pre >= min_heptamer_prob_pre) & (x.heptamer_prob_post >= min_heptamer_prob_post), collapsed)
+    if (min_heptamer_prob_pre > 0.0) || (min_heptamer_prob_post > 0.0)
+        @info "Heptamer PWM prob filter: kept $(nrow(collapsed)) / $(before_hep)"
+    end
 
     # Save
     outpath = endswith(output, ".gz") ? output : output * ".gz"

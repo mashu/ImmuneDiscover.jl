@@ -985,7 +985,11 @@ module immunediscover
                 min_gene_len = parsed_args["hsmm"]["min-gene-len"]
                 max_gene_len = parsed_args["hsmm"]["max-gene-len"]
                 limit = parsed_args["hsmm"]["limit"]
-                HSMM.run_hsmm(tsv, fasta, output; ratio=ratio, mincount=mincount, min_gene_len=min_gene_len, max_gene_len=max_gene_len, limit=limit, min_posterior=min_posterior)
+                out_mincount = parsed_args["hsmm"]["out-mincount"]
+                out_minratio = parsed_args["hsmm"]["out-minratio"]
+                min_heptamer_prob_pre = parsed_args["hsmm"]["min-heptamer-prob-pre"]
+                min_heptamer_prob_post = parsed_args["hsmm"]["min-heptamer-prob-post"]
+                HSMM.run_hsmm(tsv, fasta, output; ratio=ratio, mincount=mincount, min_gene_len=min_gene_len, max_gene_len=max_gene_len, limit=limit, min_posterior=min_posterior, out_mincount=out_mincount, out_minratio=out_minratio, min_heptamer_prob_pre=min_heptamer_prob_pre, min_heptamer_prob_post=min_heptamer_prob_post)
             end
             if get(parsed_args,"%COMMAND%","") == "hash"
                 @info "Hasing alleles"

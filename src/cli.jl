@@ -1075,6 +1075,26 @@ module cli
             default = 0
             arg_type = Int
             range_tester = (x->x >= 0)
+        "--out-mincount"
+            help = "Minimum count for an extracted D (after HSMM) to keep in output"
+            default = 10
+            arg_type = Int
+            range_tester = (x->x >= 1)
+        "--out-minratio"
+            help = "Minimum allelic ratio within gene (per donor) for output filtering"
+            default = 0.2
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-heptamer-prob-pre"
+            help = "Minimum probability under pre-heptamer PWM to keep detection (0 disables)"
+            default = 0.05
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-heptamer-prob-post"
+            help = "Minimum probability under post-heptamer PWM to keep detection (0 disables)"
+            default = 0.05
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
         @add_arg_table! s["fasta"] begin
