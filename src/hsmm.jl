@@ -5,6 +5,7 @@ using CSV
 using DataFrames
 using Logging
 using ProgressMeter
+using Folds
 using StringDistances
 
 # Bring in local utilities as submodules to avoid cross-module coupling
@@ -707,82 +708,96 @@ function run_hsmm(tsv::String, fasta::String, output::String;
 
     model = fit_dgene_rss_hsmm(tuples, minL, maxL)
 
-    # Apply model to all reads to detect candidate Ds
+    # Apply model to all reads to detect candidate Ds (parallel)
     pre_blocks = (n9=9, s12=12, h7=7)
     post_blocks = (h7=7, s12=12, n9=9)
 
-    results = NamedTuple[]
-    prog = Progress(nrow(table), desc="Scanning reads with HSMM")
-    for row in eachrow(table)
-        seq = row.genomic_sequence
-        det = scan_best_and_total(seq, model)
-        if det.gene_seq == ""
-            next!(prog)
-            continue
-        end
-        # Reconstruct flanks from positions
-        ps = det.prefix_start
-        pe = det.prefix_end
-        gs = det.gene_start
-        ge = det.gene_end
-        ss = det.suffix_start
-        # Pre RSS
-        pre_nonamer = seq[ps:ps + pre_blocks.n9 - 1]
-        pre_spacer = seq[ps + pre_blocks.n9 : ps + pre_blocks.n9 + pre_blocks.s12 - 1]
-        pre_heptamer = seq[ps + pre_blocks.n9 + pre_blocks.s12 : pe]
-        # Post RSS
-        post_heptamer = seq[ss : ss + post_blocks.h7 - 1]
-        post_spacer = seq[ss + post_blocks.h7 : ss + post_blocks.h7 + post_blocks.s12 - 1]
-        post_nonamer = seq[ss + post_blocks.h7 + post_blocks.s12 : ss + post_blocks.h7 + post_blocks.s12 + post_blocks.n9 - 1]
+    @info "Scanning reads with HSMM (parallel with chunked progress)"
+    N = nrow(table)
+    chunk = max(10_000, min(100_000, Int(cld(N, 50))))
+    starts = collect(1:chunk:N)
+    prog = Progress(length(starts), desc="Scanning chunks")
+    buffer = NamedTuple[]
+    for s in starts
+        e = min(s + chunk - 1, N)
+        sub = view(table, s:e, :)
+        chunk_results = Folds.map(eachrow(sub)) do row
+            seq = row.genomic_sequence
+            det = scan_best_and_total(seq, model)
+            if det.gene_seq == ""
+                return nothing
+            end
+            # Reconstruct flanks from positions
+            ps = det.prefix_start
+            pe = det.prefix_end
+            gs = det.gene_start
+            ge = det.gene_end
+            ss = det.suffix_start
+            # Pre RSS
+            pre_nonamer = seq[ps:ps + pre_blocks.n9 - 1]
+            pre_spacer = seq[ps + pre_blocks.n9 : ps + pre_blocks.n9 + pre_blocks.s12 - 1]
+            pre_heptamer = seq[ps + pre_blocks.n9 + pre_blocks.s12 : pe]
+            # Post RSS
+            post_heptamer = seq[ss : ss + post_blocks.h7 - 1]
+            post_spacer = seq[ss + post_blocks.h7 : ss + post_blocks.h7 + post_blocks.s12 - 1]
+            post_nonamer = seq[ss + post_blocks.h7 + post_blocks.s12 : ss + post_blocks.h7 + post_blocks.s12 + post_blocks.n9 - 1]
 
-        dseq = det.gene_seq
-        isin = haskey(db_seq_lookup, dseq)
-        db_name = isin ? db_seq_lookup[dseq] : "Novel"
+            dseq = det.gene_seq
+            isin = haskey(db_seq_lookup, dseq)
+            db_name = isin ? db_seq_lookup[dseq] : "Novel"
 
-        # Nearest DB allele by Levenshtein distance
-        best_dist = typemax(Int)
-        best_call = ""
-        if !isempty(db_seqs)
-            for (i, refseq) in enumerate(db_seqs)
-                dist = evaluate(Levenshtein(), dseq, refseq)
-                if dist < best_dist
-                    best_dist = dist
-                    best_call = db_names[i]
-                    if best_dist == 0
-                        break
+            # Nearest DB allele by Levenshtein distance
+            best_dist = typemax(Int)
+            best_call = ""
+            if !isempty(db_seqs)
+                for (i, refseq) in enumerate(db_seqs)
+                    dist = evaluate(Levenshtein(), dseq, refseq)
+                    if dist < best_dist
+                        best_dist = dist
+                        best_call = db_names[i]
+                        if best_dist == 0
+                            break
+                        end
                     end
                 end
             end
-        end
 
-        push!(results, (
-            well = string(row.well),
-            case = string(row.case),
-            sequence = dseq,
-            pre_nonamer = pre_nonamer,
-            pre_spacer = pre_spacer,
-            pre_heptamer = pre_heptamer,
-            post_heptamer = post_heptamer,
-            post_spacer = post_spacer,
-            post_nonamer = post_nonamer,
-            log_path_prob = det.log_path_prob,
-            log_total_prob = det.log_total_prob,
-            posterior_prob = det.posterior_prob,
-            isin_db = isin,
-            db_name = db_name,
-            nearest_db = best_call,
-            nearest_db_dist = best_dist,
-        ))
+            return (
+                well = string(row.well),
+                case = string(row.case),
+                sequence = dseq,
+                pre_nonamer = pre_nonamer,
+                pre_spacer = pre_spacer,
+                pre_heptamer = pre_heptamer,
+                post_heptamer = post_heptamer,
+                post_spacer = post_spacer,
+                post_nonamer = post_nonamer,
+                log_path_prob = det.log_path_prob,
+                log_total_prob = det.log_total_prob,
+                posterior_prob = det.posterior_prob,
+                isin_db = isin,
+                db_name = db_name,
+                nearest_db = best_call,
+                nearest_db_dist = best_dist,
+            )
+        end
+        # Append valid results from this chunk
+        for r in chunk_results
+            if r !== nothing
+                push!(buffer, r)
+            end
+        end
         next!(prog)
     end
     finish!(prog)
 
-    if isempty(results)
+    valid_results = buffer
+    if isempty(valid_results)
         @warn "No D segments detected by HSMM"
         return DataFrame()
     end
 
-    res_df = DataFrame(results)
+    res_df = DataFrame(valid_results)
     # Filter detections by minimum posterior probability
     before = nrow(res_df)
     filter!(x -> x.posterior_prob >= min_posterior, res_df)
