@@ -186,6 +186,12 @@ release:
   script:
     - echo "COMMIT_TAG ${CI_COMMIT_TAG}, CI_JOB_TOKEN ${CI_JOB_TOKEN}"
     - |
+      # Extract version from tag (remove 'v' prefix)
+      VERSION="${CI_COMMIT_TAG#v}"
+      LINUX_AMD64_BINARY="immunediscover-ubuntu-x86-64_${VERSION}.tar.gz"
+      PACKAGE_REGISTRY_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/immunediscover/${VERSION}"
+      echo "Creating release with binary: ${LINUX_AMD64_BINARY}"
+      echo "Package URL: ${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}"
       release-cli create --name "Release $CI_COMMIT_TAG" --tag-name $CI_COMMIT_TAG \
         --assets-link "{\"name\":\"${LINUX_AMD64_BINARY}\",\"url\":\"${PACKAGE_REGISTRY_URL}/${LINUX_AMD64_BINARY}\"}"
 
