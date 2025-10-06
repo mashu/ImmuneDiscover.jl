@@ -11,6 +11,12 @@ image: julia:1.11.6
 
 update_version:
   stage: build
+  before_script:
+    - "export APT_FLAGS='-o Dir::Cache::archives=$CI_PROJECT_DIR/.apt/cache/archives -o Dir::State::lists=$CI_PROJECT_DIR/.apt/lists -o Acquire::Retries=3'"
+    - mkdir -p .apt/cache/archives .apt/lists
+    - apt-get $APT_FLAGS update -qq
+    - apt-get $APT_FLAGS install -y --no-install-recommends git curl
+    - git config --global --add safe.directory $CI_PROJECT_DIR
   script:
     - |
       if [ -n "$CI_COMMIT_TAG" ]; then
@@ -31,8 +37,6 @@ update_version:
       fi
   rules:
     - if: $CI_COMMIT_TAG
-  before_script:
-    - git config --global --add safe.directory $CI_PROJECT_DIR
 
 variables:
   LINUX_AMD64_BINARY: "immunediscover-ubuntu-x86-64_${VERSION}.tar.gz"
