@@ -474,7 +474,7 @@ module blast
     """
     function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
         min_ver = v"2.15.0"
-        max_ver = v"2.16.0"
+        max_ver = v"2.17.0"
         is_valid, message = verify_blastn_version(min_ver, max_ver)
         @info message
         if !is_valid

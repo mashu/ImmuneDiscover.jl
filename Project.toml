@@ -34,7 +34,6 @@ XAM = "d759349c-bcba-11e9-07c2-5b90f8f05f7c"
 
 [compat]
 Clustering = "0.15.8"
-Distributions = "0.25.122"
 Printf = "1.11.0"
 SpecialFunctions = "2.5.1"
 julia = "1.9"

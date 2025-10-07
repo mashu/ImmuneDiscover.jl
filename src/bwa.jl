@@ -24,6 +24,7 @@ module bwa
         aligners = create_aligner(genome_path)
         discard = Accumulator{Tuple{String,String,String}, Int}()
         position = fill("", length(sequences))
+        edit_distance = fill(-1, length(sequences))  # -1 indicates no alignment
         @showprogress for (nallele, (name, sequence)) in enumerate(sequences)
             record = FASTA.Record(name, sequence)
             for (genome_file, aligner) in aligners
@@ -44,7 +45,9 @@ module bwa
 
                 if length(match) > 0
                     result[nallele] = true
-                    position[nallele] = "$(BurrowsWheelerAligner.refname(first(alns[index]), aligner)):$(first(alns[index]).pos)"
+                    best_aln = first(alns[index])
+                    position[nallele] = "$(BurrowsWheelerAligner.refname(best_aln, aligner)):$(best_aln.pos)"
+                    edit_distance[nallele] = best_aln.NM  # Extract edit distance (mismatches + indels)
                 else
                     bad_chromosome = first(nomatch)
                     push!(discard, (genome_file, name, bad_chromosome))
@@ -59,7 +62,7 @@ module bwa
         end
         CSV.write("/tmp/discarded.tsv", DataFrame(name=discarded), delim='\t')
         @info "Discarded sequence names written to /tmp/discarded.tsv"
-        return result, position
+        return result, position, edit_distance
     end
 
     export bwa_sequences
