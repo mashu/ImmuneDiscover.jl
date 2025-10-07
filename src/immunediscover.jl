@@ -1043,9 +1043,11 @@ module immunediscover
                     concatenated_sequence = concatenate_columns(row, colseq)
                     (row[colname], concatenated_sequence)
                 end
-                indices, position, edit_distance = bwa_sequences(genome, sequences, chromosome_name, tag=tag)
+                indices, position, edit_distance, ref_sequence, orientation = bwa_sequences(genome, sequences, chromosome_name, tag=tag)
                 df[!,:position] = position
                 df[!,:edit_distance] = edit_distance
+                df[!,:ref_sequence] = ref_sequence
+                df[!,:orientation] = orientation
                 @info "$(length(sequences))"
                 @info "$(nrow(df)) sequences matched chromosome $chromosome_name"
                 @info "$(length(indices)) sequences matched chromosome $chromosome_name"
