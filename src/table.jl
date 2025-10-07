@@ -222,8 +222,10 @@ module table
         elseif pattern !== nothing
             # Regex mode
             @info "Filtering column '$column' using regex pattern: $pattern"
+            # Compile regex once before the loop for performance
+            regex = Regex(pattern)
             # Handle missing values by skipping them (treating them as not matching the pattern)
-            filter_mask = map(x -> ismissing(x) ? false : occursin(Regex(pattern), x), df[!, column])
+            filter_mask = map(x -> ismissing(x) ? false : occursin(regex, x), df[!, column])
         elseif operator !== nothing && threshold !== nothing
             # Numeric mode
             # Check if column can be converted to numeric
