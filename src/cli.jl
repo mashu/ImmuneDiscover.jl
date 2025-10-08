@@ -76,14 +76,21 @@ module cli
     end
 
     function show_blast_params(args)
-        if args["%COMMAND%"] == "blast"
-            gene = args["blast"]["gene"]
-            if haskey(BLAST_PRESETS, gene)
-                preset = BLAST_PRESETS[gene]
-                println("BLAST Preset for $gene gene:")
-                for (param, value) in preset
-                    println("  --$param = $(args["blast"][param])")
-                end
+        cmd = get(args, "%COMMAND%", "")
+        local block
+        if cmd == "blast"
+            block = args["blast"]
+        elseif cmd == "search" && get(args["search"], "%COMMAND%", "") == "blast"
+            block = args["search"]["blast"]
+        else
+            return
+        end
+        gene = block["gene"]
+        if haskey(BLAST_PRESETS, gene)
+            preset = BLAST_PRESETS[gene]
+            println("BLAST Preset for $gene gene:")
+            for (param, value) in preset
+                println("  --$param = $(block[param])")
             end
         end
     end
@@ -91,31 +98,38 @@ module cli
 
 
     function apply_blast_presets!(parsed_args)
-        if parsed_args["%COMMAND%"] == "blast"
-            gene = parsed_args["blast"]["gene"]
-            if haskey(BLAST_PRESETS, gene)
-                preset = BLAST_PRESETS[gene]
+        cmd = get(parsed_args, "%COMMAND%", "")
+        local block
+        if cmd == "blast"
+            block = parsed_args["blast"]
+        elseif cmd == "search" && get(parsed_args["search"], "%COMMAND%", "") == "blast"
+            block = parsed_args["search"]["blast"]
+        else
+            return parsed_args
+        end
+        gene = block["gene"]
+        if haskey(BLAST_PRESETS, gene)
+            preset = BLAST_PRESETS[gene]
 
-                # Only apply preset if the current value equals the CLI default
-                # This means the user didn't explicitly override it
-                for (key, preset_value) in preset
-                    if haskey(parsed_args["blast"], key) && haskey(BLAST_CLI_DEFAULTS, key)
-                        current_value = parsed_args["blast"][key]
-                        default_value = BLAST_CLI_DEFAULTS[key]
-                        
-                        # Apply preset only if current value equals the default
-                        if current_value == default_value
-                            @info "Applying $gene preset $key: $current_value → $preset_value"
-                            parsed_args["blast"][key] = preset_value
-                        else
-                            @info "Keeping user override for $key: $current_value (not default $default_value)"
-                        end
+            # Only apply preset if the current value equals the CLI default
+            # This means the user didn't explicitly override it
+            for (key, preset_value) in preset
+                if haskey(block, key) && haskey(BLAST_CLI_DEFAULTS, key)
+                    current_value = block[key]
+                    default_value = BLAST_CLI_DEFAULTS[key]
+                    
+                    # Apply preset only if current value equals the default
+                    if current_value == default_value
+                        @info "Applying $gene preset $key: $current_value → $preset_value"
+                        block[key] = preset_value
                     else
-                        # Apply preset for keys not in CLI defaults
-                        if haskey(parsed_args["blast"], key)
-                            @info "Applying $gene preset $key: $(parsed_args["blast"][key]) → $preset_value"
-                            parsed_args["blast"][key] = preset_value
-                        end
+                        @info "Keeping user override for $key: $current_value (not default $default_value)"
+                    end
+                else
+                    # Apply preset for keys not in CLI defaults
+                    if haskey(block, key)
+                        @info "Applying $gene preset $key: $(get(block, key, nothing)) → $preset_value"
+                        block[key] = preset_value
                     end
                 end
             end
@@ -156,65 +170,20 @@ module cli
                             usage = "usage: immunediscover <command> [-h|--help]",
                             epilog = "GKHLab, $SOFTWARE_VERSION (git $SOFTWARE_GIT_HASH)")
         @add_arg_table! s begin
-            "demultiplex"
-                help = "Demultiplex plate library"
+            "search"
+                help = "Search and discovery (blast, exact, hsmm, heptamer)"
                 action = :command
-            "heptamer"
-                help = "Trim and extend Vs up to heptamer"
-                action = :command
-            "trim"
-                help = "Trim reads with start and stop profiles"
-                action = :command
-            "exact"
-                help = "Search for exact matches"
-                action = :command
-            "hamming"
-                help = "Search for matches within hamming distance"
-                action = :command
-            "nwpattern"
-                help = "Search for novel alleles with nwpattern and trim with PWM"
-                action = :command
-            "pattern"
-                help = "Search for novel alleles with kmers and trim with PWM"
-                action = :command
-            "regex"
-                help = "Search for short novel alleles with regex"
-                action = :command
-            "hsmm"
-                help = "Detect D genes using an HSMM trained on RSS flanks"
-                action = :command
-            "fasta"
-                help = "Extract sequences from TSV file into FASTA format"
-                action = :command
-            "merge"
-                help = "Merge multiple FASTA files, keeping only unique sequences"
-                action = :command
-            "hash"
-                help = "Add hash based _S suffix to all allele names in the FASTA file"
-                action = :command
-            "collect"
-                help = "Helper function to collect all TSV files into one"
-                action = :command
-            "exclude"
-                help = "Exclude sequences from the TSV file"
-                action = :command
-            "bwa"
-                help = "Filter input TSV file by mapping to the genome"
-                action = :command
-            "blast"
-                help = "Run BLAST on the input TSV file and perform identity clustering for discovery"
-                action = :command
-            "diff"
-                help = "Diff two FASTA files based on sequence identity but keep associated names"
-                action = :command
-            "linkage"
-                help = "Analyze cross-donor co-occurrence (linkage) between alleles"
-                action = :command
-            "haplotype"
-                help = "Infer approximate haplotypes from unphased data based on diploid assumptions"
+            "analyze"
+                help = "Analysis and QC (linkage, haplotype, bwa)"
                 action = :command
             "table"
-                help = "Table operations"
+                help = "Table utilities (outerjoin, leftjoin, transform, aggregate, unique, sort, filter, select, fasta, collect, exclude)"
+                action = :command
+            "fasta"
+                help = "FASTA utilities (merge, diff, hash)"
+                action = :command
+            "demultiplex"
+                help = "Demultiplex indexed plate libraries into a TSV with per-read metadata"
                 action = :command
             end
 
@@ -224,39 +193,45 @@ module cli
 
         @add_arg_table! s["demultiplex"] begin
             "fastq"
-                help = "FASTQ file with reads"
+                help = "Input FASTQ file with reads (single-end)"
                 required = true
             "indices"
-                help = "TSV file with barcodes and cases"
+                help = "TSV with well indices/barcodes and case identifiers"
                 required = true
             "output"
-                help = "TSV file to save demultiplex data"
+                help = "Output TSV (gz auto-enabled) with demultiplexed reads and metadata"
                 required = true
             "-l", "--length"
-                help = "Minimum length of the read"
+                help = "Minimum read length to keep"
                 arg_type = Int
                 range_tester = (x->x >= 0)
                 default = 200
             "-s", "--split"
-                help = "Split FASTQ files per case"
+                help = "Write per-case FASTQ files"
                 action = :store_true
             "-f", "--forwardarrayindex"
-                help = "Forward array index to use for demultiplexing"
+                help = "Name of the forward array index to use for demultiplexing (if present)"
                 arg_type = String
                 default = ""
             "--case-filter-regex"
-                help = "Regex pattern to filter cases (e.g., '[ACDERF]' for monkey cases)"
+                help = "Regex to keep only cases matching pattern (e.g., '[ACDERF]')"
                 arg_type = String
         end
 
-        @add_arg_table! s["diff"] begin
-            "fasta"
-                help = "FASTA files with sequences"
-                nargs = '+'
-                required = true
+        # Analyze group
+        @add_arg_table! s["analyze"] begin
+            "linkage"
+                help = "Analyze cross-donor co-occurrence (linkage) among alleles across cases"
+                action = :command
+            "haplotype"
+                help = "Infer approximate haplotypes per case using diploid assumptions"
+                action = :command
+            "bwa"
+                help = "Genome mapping QC with BWA to retain sequences mapped to the target chromosome"
+                action = :command
         end
 
-        @add_arg_table! s["linkage"] begin
+        @add_arg_table! s["analyze"]["linkage"] begin
         "input"
             help = "TSV/TSV.GZ with columns: case and db_name (or specify columns)"
             required = true
@@ -306,7 +281,7 @@ module cli
             arg_type = String
         end
 
-        @add_arg_table! s["haplotype"] begin
+        @add_arg_table! s["analyze"]["haplotype"] begin
         "input"
             help = "TSV/TSV.GZ with columns: case and allele (or specify columns)"
             required = true
@@ -342,120 +317,129 @@ module cli
 
         @add_arg_table! s["table"] begin
             "outerjoin"
-                help = "Perform outer join on two TSV files"
+                help = "Outer-join two TSVs on specified key columns"
                 action = :command
             "leftjoin"
-                help = "Perform left join on two TSV files"
+                help = "Left-join two TSVs on specified key columns"
                 action = :command
             "transform"
-                help = "Transform TSV file using regex with capture groups"
+                help = "Regex-based column transform with capture-group replacement and optional new column"
                 action = :command
             "aggregate"
-                help = "Aggregate unique rows by selected columns"
+                help = "Group by selected columns and count unique groups (keep optional columns)"
                 action = :command
             "unique"
-                help = "Select unique rows based on specified columns"
+                help = "Select distinct rows by specified columns"
                 action = :command
             "sort"
-                help = "Sort TSV file by specified columns"
+                help = "Sort TSV by one or more columns (asc/desc)"
                 action = :command
             "filter"
-                help = "Filter TSV file by column using regex or numeric operations"
+                help = "Filter rows by string regex or numeric threshold operation"
                 action = :command
             "select"
-                help = "Select specific columns from TSV file"
+                help = "Project a subset of columns from a TSV"
+                action = :command
+            "fasta"
+                help = "Export sequences from TSV to FASTA with optional filtering/cleanup"
+                action = :command
+            "collect"
+                help = "Concatenate many TSVs into a single table (schema must match)"
+                action = :command
+            "exclude"
+                help = "Exclude sequences whose names or sequences overlap with a FASTA reference"
                 action = :command
         end
 
         @add_arg_table! s["table"]["outerjoin"] begin
             "left"
-                help = "Left TSV file"
+                help = "Left TSV file path"
                 required = true
                 arg_type = String
             "right"
-                help = "Right TSV file"
+                help = "Right TSV file path"
                 required = true
                 arg_type = String
             "output"
-                help = "Output TSV file"
+                help = "Output TSV (gz auto-enabled)"
                 required = true
                 arg_type = String
             "-k", "--keys"
-                help = "Column names to join on (comma-separated)"
+                help = "Comma-separated column names to join on"
                 required = true
                 arg_type = String
             "--left-keys"
-                help = "Column names to join on from left file (comma-separated, defaults to --keys)"
+                help = "Comma-separated join keys from left file (defaults to --keys)"
                 arg_type = String
             "--right-keys"
-                help = "Column names to join on from right file (comma-separated, defaults to --keys)"
+                help = "Comma-separated join keys from right file (defaults to --keys)"
                 arg_type = String
             "--left-prefix"
-                help = "Prefix for left file columns (defaults to no prefix)"
+                help = "Optional prefix for left non-key columns"
                 arg_type = String
             "--right-prefix"
-                help = "Prefix for right file columns (defaults to no prefix)"
+                help = "Optional prefix for right non-key columns"
                 arg_type = String
             "--left-select"
-                help = "Columns to select from left file (comma-separated, defaults to all columns)"
+                help = "Comma-separated subset of columns to keep from left file"
                 arg_type = String
             "--right-select"
-                help = "Columns to select from right file (comma-separated, defaults to all columns)"
+                help = "Comma-separated subset of columns to keep from right file"
                 arg_type = String
         end
 
         @add_arg_table! s["table"]["leftjoin"] begin
             "left"
-                help = "Left TSV file"
+                help = "Left TSV file path"
                 required = true
                 arg_type = String
             "right"
-                help = "Right TSV file"
+                help = "Right TSV file path"
                 required = true
                 arg_type = String
             "output"
-                help = "Output TSV file"
+                help = "Output TSV (gz auto-enabled)"
                 required = true
                 arg_type = String
             "-k", "--keys"
-                help = "Column names to join on (comma-separated)"
+                help = "Comma-separated column names to join on"
                 required = true
                 arg_type = String
             "--left-keys"
-                help = "Column names to join on from left file (comma-separated, defaults to --keys)"
+                help = "Comma-separated join keys from left file (defaults to --keys)"
                 arg_type = String
             "--right-keys"
-                help = "Column names to join on from right file (comma-separated, defaults to --keys)"
+                help = "Comma-separated join keys from right file (defaults to --keys)"
                 arg_type = String
             "--left-prefix"
-                help = "Prefix for left file columns (defaults to no prefix)"
+                help = "Optional prefix for left non-key columns"
                 arg_type = String
             "--right-prefix"
-                help = "Prefix for right file columns (defaults to no prefix)"
+                help = "Optional prefix for right non-key columns"
                 arg_type = String
             "--left-select"
-                help = "Columns to select from left file (comma-separated, defaults to all columns)"
+                help = "Comma-separated subset of columns to keep from left file"
                 arg_type = String
             "--right-select"
-                help = "Columns to select from right file (comma-separated, defaults to all columns)"
+                help = "Comma-separated subset of columns to keep from right file"
                 arg_type = String
         end
 
         @add_arg_table! s["table"]["transform"] begin
             "input"
-                help = "Input TSV file to transform"
+                help = "Input TSV file path"
                 required = true
                 arg_type = String
             "output"
-                help = "Output TSV file"
+                help = "Output TSV (gz auto-enabled)"
                 required = true
                 arg_type = String
             "-c", "--column"
-                help = "Column name to transform"
+                help = "Target column to transform"
                 required = true
                 arg_type = String
             "-p", "--pattern"
-                help = "Regex pattern with capture groups (e.g., 'ID_(\\d+)_(\\w+)')"
+                help = "Regex with capture groups (e.g., 'ID_(\\d+)_(\\w+)')"
                 required = true
                 arg_type = String
             "-r", "--replacement"
@@ -463,106 +447,122 @@ module cli
                 required = true
                 arg_type = String
             "--new-column"
-                help = "Optional name for new column containing captured groups"
+                help = "Optional name for a new column storing captured groups"
                 arg_type = String
         end
 
         @add_arg_table! s["table"]["aggregate"] begin
             "input"
-                help = "Input TSV file to aggregate"
+                help = "Input TSV file path"
                 required = true
                 arg_type = String
             "output"
-                help = "Output TSV file"
+                help = "Output TSV (gz auto-enabled)"
                 required = true
                 arg_type = String
             "-g", "--group-by"
-                help = "Column names to group by (comma-separated)"
+                help = "Comma-separated column names to group by"
                 required = true
                 arg_type = String
             "-k", "--keep-columns"
-                help = "Additional columns to keep (comma-separated, defaults to all non-group columns)"
+                help = "Comma-separated additional columns to keep (defaults to all non-group columns)"
                 arg_type = String
             "-c", "--count-column"
-                help = "Name for the count column"
+                help = "Name of the count column"
                 default = "count"
                 arg_type = String
         end
 
         @add_arg_table! s["table"]["unique"] begin
             "input"
-                help = "Input TSV file to make unique"
+                help = "Input TSV file path"
                 required = true
                 arg_type = String
             "output"
-                help = "Output TSV file"
+                help = "Output TSV (gz auto-enabled)"
                 required = true
                 arg_type = String
             "-c", "--columns"
-                help = "Column names to select for uniqueness (comma-separated)"
+                help = "Comma-separated columns to form distinct rows"
                 required = true
                 arg_type = String
         end
 
         @add_arg_table! s["table"]["sort"] begin
             "input"
-                help = "Input TSV file to sort"
+                help = "Input TSV file path"
                 required = true
                 arg_type = String
             "output"
-                help = "Output TSV file"
+                help = "Output TSV (gz auto-enabled)"
                 required = true
                 arg_type = String
             "-c", "--columns"
-                help = "Column names to sort by (comma-separated, in order of priority)"
+                help = "Comma-separated columns to sort by (priority order)"
                 required = true
                 arg_type = String
             "-r", "--reverse"
-                help = "Sort in descending order (default: ascending)"
+                help = "Sort in descending order (default ascending)"
                 action = :store_true
         end
 
         @add_arg_table! s["table"]["filter"] begin
             "input"
-                help = "Input TSV file to filter"
+                help = "Input TSV file path"
                 required = true
                 arg_type = String
             "output"
-                help = "Output TSV file"
+                help = "Output TSV (gz auto-enabled)"
                 required = true
                 arg_type = String
             "-c", "--column"
-                help = "Column name to filter on"
+                help = "Target column to filter on"
                 required = true
                 arg_type = String
             "--pattern"
-                help = "Regex pattern for string filtering (use this for text columns)"
+                help = "Regex pattern for string filtering (for text columns)"
                 arg_type = String
             "--operator"
-                help = "Numeric operator: <, <=, >=, > (use with --threshold for numeric columns)"
+                help = "Numeric operator: <, <=, >=, > (requires --threshold)"
                 arg_type = String
                 range_tester = (x->x ∈ ["<", "<=", ">=", ">"])
             "--threshold"
-                help = "Numeric threshold value (use with --operator for numeric columns)"
+                help = "Numeric threshold value (used with --operator for numeric columns)"
                 arg_type = Float64
         end
 
         @add_arg_table! s["table"]["select"] begin
             "input"
-                help = "Input TSV file to select columns from"
+                help = "Input TSV file path"
                 required = true
                 arg_type = String
             "output"
-                help = "Output TSV file"
+                help = "Output TSV (gz auto-enabled)"
                 required = true
                 arg_type = String
             "-c", "--columns"
-                help = "Column names to select (comma-separated)"
+                help = "Comma-separated list of columns to select"
                 required = true
                 arg_type = String
         end
 
-        @add_arg_table! s["heptamer"] begin
+        # heptamer moved under search
+        @add_arg_table! s["search"] begin
+            "blast"
+                help = "BLAST-based candidate discovery with trimming, filtering, and identity clustering"
+                action = :command
+            "exact"
+                help = "Exact match search of reads to database alleles with robust filters"
+                action = :command
+            "hsmm"
+                help = "Detect D genes using an HSMM trained on RSS flanks (V/J masked)"
+                action = :command
+            "heptamer"
+                help = "Identify heptamer RSS positions and extend/trim V reads accordingly"
+                action = :command
+        end
+
+        @add_arg_table! s["search"]["heptamer"] begin
             "tsv"
                 help = "TSV file with demultiplexed reads"
                 required = true
@@ -610,77 +610,12 @@ module cli
                 range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
-        @add_arg_table! s["hamming"] begin
-        "tsv"
-            help = "TSV file with demultiplexed data"
-            required = true
-        "fasta"
-            help = "FASTA file with query alleles"
-            required = true
-        "output"
-            help = "TSV file to save ouput"
-            required = true
-        "-a", "--assignments"
-            help = "Optional TSV file to save intermediate assignments"
-            arg_type = String
-        "-d", "--maxdist"
-            help = "Maximum distance allowed"
-            default = 2
-            arg_type = Int
-            range_tester = (x->x >= 0)
-        "-c", "--mincount"
-            help = "Minimum cluster size"
-            default = 10
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "-r","--ratio"
-            help = "Minimum allelic ratio applied on cluster sizes"
-            default = 0.25
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-f","--column"
-            help = "Column with genomic sequence"
-            default = "genomic_sequence"
-            arg_type = String
-        "-u", "--umi"
-            help = "UMI is present in the read"
-            action = :store_true
-        "-l", "--limit"
-            help = "Limit to this number of sequences, zero means no limit"
-            arg_type = Int
-            default = 0
-            range_tester = (x->x >= 0)
-        "-n","--noplot"
-            help = "Disable unicode gene plot"
-            action = :store_true
-        end
+        # The following commands are deprecated and intentionally disabled:
+        # trim, hamming, nwpattern, pattern, regex
 
-        @add_arg_table! s["trim"] begin
-        "input"
-            help = "TSV file with demultiplex data"
-            required = true
-        "fasta"
-            help = "FASTA file with aligned gene sequences to build trimming profile"
-            required = true
-        "output"
-            help = "TSV file to save demultiplex data"
-            required = true
-        "-w", "--weights"
-            help = "Length of the position weight matrix"
-            default = 20
-            arg_type = Int
-            range_tester = (x->x > 1)
-        "-l", "--length"
-            help = "Minimum length of the trimmed read"
-            default = 1
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "-p", "--position"
-            help = "An optional switch to save start,stop columns instead of trimmed_sequence"
-            action = :store_true
-        end
+        # (trim command removed)
 
-        @add_arg_table! s["blast"] begin
+        @add_arg_table! s["search"]["blast"] begin
         "input"
             help = "TSV file with demultiplex data"
             required = true
@@ -768,7 +703,7 @@ module cli
             action = :store_true
         end
 
-        @add_arg_table! s["exact"] begin
+        @add_arg_table! s["search"]["exact"] begin
         "tsv"
             help = "TSV file with demultiplexed data"
             required = true
@@ -850,192 +785,13 @@ module cli
             arg_type = String
         end
 
-        @add_arg_table! s["nwpattern"] begin
-        "input"
-            help = "TSV file with demultiplex data"
-            required = true
-        "fasta"
-            help = "FASTA file with aligned gene sequences to build trimming profile"
-            required = true
-        "output"
-            help = "TSV file to save demultiplex data"
-            required = true
-        "-w", "--window"
-            help = "Length of the flanks"
-            default = 30
-            arg_type = Int
-            range_tester = (x->x > 1)
-        "-l", "--length"
-            help = "Minimum length of the trimmed read"
-            default = 200
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "-k", "--kmer"
-            help = "Kmer size which will be used to search for patterns"
-            default = 7
-            arg_type = Int
-            range_tester = (x->x >= 3)
-        "-d", "--maxdist"
-            help = "Maximum distance allowed for alleles"
-            default = 10
-            arg_type = Int
-            range_tester = (x->x >= 0)
-        "-s", "--sample"
-            help = "Number of kmers in a combination"
-            default = 5
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "--max-combinations"
-            help = "Number of combinations to sample (higher slower but more sequences found)"
-            default = 100000
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "--max-attempts"
-            help = "Number of samplings to attempt (higher slower but more sequences found)"
-            default = 100000
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "-f","--minfreq"
-            help = "Minimum allelic ratio applied within each gene group"
-            default = 0.1
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-c","--mincount"
-            help = "Minimum count for an allele"
-            default = 5
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        end
+        # (nwpattern command removed)
 
-        @add_arg_table! s["pattern"] begin
-        "input"
-            help = "TSV file with demultiplex data"
-            required = true
-        "fasta"
-            help = "FASTA file with aligned gene sequences to build trimming profile"
-            required = true
-        "output"
-            help = "TSV file to save demultiplex data"
-            required = true
-        "-t", "--top"
-            help = "Save top candidates with highest counts per allele_name and case"
-            arg_type = Int
-            default = 5
-            range_tester = (x->x >= 1)
-        "-w", "--weights"
-            help = "Length of the position weight matrix"
-            default = 25
-            arg_type = Int
-            range_tester = (x->x > 1)
-        "-n", "--noprofile"
-            help = "Use distance to database gene lengths instead of profiles to trim reads"
-            action = :store_true
-        "-l", "--length"
-            help = "Minimum length of the trimmed read"
-            default = 200
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "-k", "--kmer"
-            help = "Kmer size which will be used to search for patterns"
-            default = 12
-            arg_type = Int
-            range_tester = (x->x >= 3)
-        "-u", "--usehalf"
-            help = "Use half of the allele as a search word instead of kmer"
-            action = :store_true
-        "-m", "--maxkmer"
-            help = "Maximum kmer size if kmer size needs to be increased automatically"
-            default = 50
-            arg_type = Int
-            range_tester = (x->x >= 3)
-        "-d", "--maxdist"
-            help = "Maximum distance allowed for alleles"
-            default = 50
-            arg_type = Int
-            range_tester = (x->x >= 0)
-        "-s", "--sample"
-            help = "Number of kmers to sample from the set of all kmers to search for a gene"
-            default = 5
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "-f","--minfreq"
-            help = "Minimum allelic ratio applied within each gene group"
-            default = 0.01
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-c","--mincount"
-            help = "Minimum count for an allele"
-            default = 10
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "-b","--blacklist"
-            help = "Blacklist file with sequences to be excluded from pattern search (e.g. pseudo-genes)"
-            arg_type = String
-        end
+        # (pattern command removed)
 
-        @add_arg_table! s["regex"] begin
-            "tsv"
-                help = "TSV file with demultiplexed reads"
-                required = true
-            "fasta"
-                help = "FASTA file with query alleles"
-                required = true
-            "output"
-                help = "TSV file to save data with identified alleles"
-                required = true
-            "--insert-minlen"
-                help = "Minimum length of an insert"
-                default = 15
-                arg_type = Int
-                range_tester = (x->x >= 1)
-            "--insert-maxlen"
-                help = "Maximum length of an insert"
-                default = 40
-                arg_type = Int
-                range_tester = (x->x >= 1)
-            "--flank-mincount"
-                help = "Minimum number of reads per flanks"
-                default = 50
-                arg_type = Int
-                range_tester = (x->x >= 1)
-            "--flank-frequency"
-                help = "Lowest frequency of reads per flank"
-                default = 0.5
-                arg_type = Float64
-                range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-            "--flank-minwell"
-                help = "Minimum number of wells with reads per flank"
-                default = 1
-                arg_type = Int
-                range_tester = (x->x >= 1)
-            "-c", "--mincount"
-                help = "Minimum count of a match"
-                default = 3
-                arg_type = Int
-                range_tester = (x->x >= 1)
-            "-d", "--maxdist"
-                help = "Maximum distance of an insert to known allele"
-                default = 3
-                arg_type = Int
-                range_tester = (x->x >= 1)
-            "-f","--frequency"
-                help = "Lowest frequency of a match"
-                default = 0.1
-                arg_type = Float64
-                range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-            "-p", "--nprefix"
-                help = "Number of nucleotides to extract from the 5' end of the query sequence"
-                default = 7
-                arg_type = Int
-                range_tester = (x->x >= 1)
-            "-s", "--nsuffix"
-                help = "Number of nucleotides to extract from the 3' end of the query sequence"
-                default = 7
-                arg_type = Int
-                range_tester = (x->x >= 1)
-        end
+        # (regex command removed)
 
-        @add_arg_table! s["hsmm"] begin
+        @add_arg_table! s["search"]["hsmm"] begin
         "tsv"
             help = "TSV/TSV.GZ demultiplex file with columns well, case, name, genomic_sequence"
             required = true
@@ -1097,52 +853,66 @@ module cli
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
-        @add_arg_table! s["fasta"] begin
+        # Table → fasta export
+        @add_arg_table! s["table"]["fasta"] begin
         "input"
-            help = "TSV file with data to extract"
+            help = "Input TSV file path"
             required = true
         "output"
-            help = "Output FASTA file"
+            help = "Output FASTA file path"
             required = true
         "-n", "--colname"
-            help = "Name of the column with sequence names/IDs"
+            help = "Column name with sequence names/IDs"
             default = "allele_name"
             arg_type = String
         "-s", "--colseq"
-            help = "Name of the column with sequences"
+            help = "Column name with nucleotide sequences"
             default = "seq"
             arg_type = String
         "-d", "--coldesc"
-            help = "Optional name of the column with descriptions (used in FASTA headers)"
+            help = "Optional column with descriptions appended to FASTA headers"
             default = nothing
             arg_type = Union{String, Nothing}
         "-f", "--filter"
-            help = "Optional regex pattern to filter colname column (e.g., 'Novel')"
+            help = "Regex to filter sequence names (e.g., 'Novel')"
             default = nothing
             arg_type = Union{String, Nothing}
         "-c", "--cleanup"
-            help = "Optional regex pattern to remove from sequence names (e.g., ' Novel')"
+            help = "Regex to remove from sequence names (e.g., ' Novel')"
             default = nothing
             arg_type = Union{String, Nothing}
         "--desc-filter"
-            help = "Optional regex pattern to filter coldesc column (without capture groups: filters only; with capture groups: filters and includes captured string in FASTA header, e.g., '(case\\d+)')"
+            help = "Regex to filter description column; capture group 1 (if present) is appended"
             default = nothing
             arg_type = Union{String, Nothing}
         "--no-sort"
-            help = "Disable sorting alleles by name (default: sort enabled)"
+            help = "Do not sort records by sequence name"
             action = :store_true
         "--mincase"
-            help = "Minimum number of donors (cases) that must have this allele to include it in output"
+            help = "Minimum number of cases that must include the allele to export"
             default = 1
             arg_type = Int
             range_tester = (x->x >= 1)
         "--case-col"
-            help = "Name of the column containing donor/case identifiers"
+            help = "Column name with donor/case identifiers"
             default = "case"
             arg_type = String
         end
 
-        @add_arg_table! s["merge"] begin
+        # FASTA group (operations on FASTA files)
+        @add_arg_table! s["fasta"] begin
+            "merge"
+                help = "Merge multiple FASTA files, keeping only unique sequences"
+                action = :command
+            "diff"
+                help = "Diff two FASTA files based on sequence identity but keep associated names"
+                action = :command
+            "hash"
+                help = "Add hash based _S suffix to all allele names in the FASTA file"
+                action = :command
+        end
+
+        @add_arg_table! s["fasta"]["merge"] begin
         "output"
             help = "Output merged FASTA file"
             required = true
@@ -1165,42 +935,49 @@ module cli
             action = :store_true
         end
 
-        @add_arg_table! s["collect"] begin
-        "pattern"
-            help = "Pattern of TSV files to collect"
-            required = true
-        "output"
-            help = "TSV file to save data"
-            required = true
+        @add_arg_table! s["fasta"]["diff"] begin
+            "fasta"
+                help = "FASTA files with sequences"
+                nargs = '+'
+                required = true
         end
 
-        @add_arg_table! s["hash"] begin
+        @add_arg_table! s["fasta"]["hash"] begin
         "fastain"
-            help = "FASTA file with allele names"
+            help = "Input FASTA file path"
             required = true
         end
 
-        @add_arg_table! s["exclude"] begin
-        "input"
-            help = "TSV file with columns allele_name and seq"
+        @add_arg_table! s["table"]["collect"] begin
+        "pattern"
+            help = "Glob pattern of TSV files to concatenate (columns must match)"
             required = true
         "output"
-            help = "TSV file to save filtered input"
+            help = "Output TSV file path for concatenated table"
+            required = true
+        end
+
+        @add_arg_table! s["table"]["exclude"] begin
+        "input"
+            help = "Input TSV with allele_name and seq columns"
+            required = true
+        "output"
+            help = "Output TSV with excluded rows removed"
             required = true
         "fasta"
-            help = "FASTA file with allele names and sequences to exclude"
+            help = "Reference FASTA with names/sequences to exclude against"
             required = true
         "-n", "--colname"
-            help = "Name of the column with allele names"
+            help = "Column name containing allele names"
             default = "allele_name"
             arg_type = String
         "-s", "--colseq"
-            help = "Name of the column with sequence"
+            help = "Column name containing nucleotide sequences"
             default = "seq"
             arg_type = String
         end
 
-        @add_arg_table! s["bwa"] begin
+        @add_arg_table! s["analyze"]["bwa"] begin
         "tsv"
             help = "TSV file with columns allele_name and seq"
             required = true

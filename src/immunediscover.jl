@@ -4,15 +4,15 @@ module immunediscover
     include("simulate.jl")
     include("data.jl")
     include("profile.jl")
-    include("trim.jl")
+    # include("trim.jl")  # deprecated command; not compiled
     include("exact.jl")
     include("heptamer.jl")
-    include("hamming.jl")
-    include("patterns.jl")
-    include("regex.jl")
+    # include("hamming.jl")  # deprecated command; not compiled
+    # include("patterns.jl")  # deprecated command; not compiled
+    # include("regex.jl")  # deprecated command; not compiled
     include("hsmm.jl")
     include("bwa.jl")
-    include("nwpattern.jl")
+    # include("nwpattern.jl")  # deprecated command; not compiled
     include("blast.jl")
     include("keyedsets.jl")
     include("linkage.jl")
@@ -26,13 +26,13 @@ module immunediscover
     using .simulate
     using .data
     using .profile
-    using .trim
+    # using .trim  # deprecated
     using .exact
     using .heptamer
-    using .hamming
-    using .nwpattern
-    using .patterns
-    using .regex
+    # using .hamming  # deprecated
+    # using .nwpattern  # deprecated
+    # using .patterns  # deprecated
+    # using .regex  # deprecated
     using .HSMM
     using .bwa
     using .blast
@@ -112,110 +112,393 @@ module immunediscover
     function real_main(args=[])
         parsed_args = parse_commandline(args)
         if parsed_args !== nothing
+            # demultiplex (top-level)
             if get(parsed_args,"%COMMAND%","") == "demultiplex"
-                @info "Demultiplexing"
-                table, stats = immunediscover.demultiplex.demux(parsed_args["demultiplex"]["fastq"],
-                                                         parsed_args["demultiplex"]["indices"],
-                                                         parsed_args["demultiplex"]["forwardarrayindex"],
-                                                         min_length=parsed_args["demultiplex"]["length"],
-                                                         save_fastq_files=parsed_args["demultiplex"]["split"])
-                
-                # Apply case filtering if regex is provided
-                case_filter_regex = get(parsed_args["demultiplex"], "case-filter-regex", nothing)
-                if case_filter_regex !== nothing
-                    @info "Filtering cases with regex: $case_filter_regex"
-                    original_count = nrow(table)
-                    filter!(x -> startswith(x.case, Regex(case_filter_regex)), table)
-                    filtered_count = nrow(table)
-                    @info "Filtered from $original_count to $filtered_count rows ($(original_count - filtered_count) rows removed)"
-                end
-                
-                # Calculate and display demultiplexing summary
-                unique_cases = length(Base.unique(table.case))
-                unique_wells = length(Base.unique(table.well))
-                unique_well_case_pairs = length(Base.unique(zip(table.well, table.case)))
-                total_sequences = nrow(table)
-                
-                @info "Demultiplexing summary:"
-                @info "  - Total sequences demultiplexed: $total_sequences"
-                @info "  - Unique cases: $unique_cases"
-                @info "  - Unique wells: $unique_wells"
-                @info "  - Unique well-case pairs: $unique_well_case_pairs"
-                
-                logfile = "$(parsed_args["demultiplex"]["output"]).log"
-                CSV.write(logfile, stats, delim='\t')
-                count_df = combine(groupby(table, :case), :case => length => :count)
-                sort!(count_df, :count, rev=true)
-                @info "Demultiplexing statistics"
-                println(barplot(count_df.case, count_df.count))
-                output = cli.always_gz(parsed_args["demultiplex"]["output"])
-                CSV.write(output, table, compress=true, delim='\t')
-                @info "Demultiplexing data saved in compressed $output file"
-                @info "Demultiplexing detailed statistics saved in $logfile file"
-            end
-
-            if get(parsed_args,"%COMMAND%","") == "heptamer"
-                @info "Extracting heptamers"
-                heptamers = heptamer.load_heptamers(parsed_args["heptamer"]["json"])
-                chain = parsed_args["heptamer"]["chain"]
-                @info "Parsing for $(chain)"
-                @info "Using heptamers $(join(heptamers[chain],','))"
-                db = load_fasta(parsed_args["heptamer"]["fasta"])
-                @info "Loaded $(length(db)) query sequences"
-                table = load_demultiplex(parsed_args["heptamer"]["tsv"])
-                data = heptamer.extract_heptamers(table, db, heptamers[chain]; max_dist=parsed_args["heptamer"]["maxdist"], b=parsed_args["heptamer"]["begin"]+1, e=parsed_args["heptamer"]["end"])
-                output = cli.always_gz(parsed_args["heptamer"]["output"])
-                CSV.write(output, data, compress=true, delim='\t')
-                @info "Heptamer data saved in compressed $output file"
-                @info "Summarizing"
-                data_df = CSV.File(output, delim='\t') |> DataFrame
-                unique_summary = heptamer.summarize(data_df, db, ratio=parsed_args["heptamer"]["ratio"],count=parsed_args["heptamer"]["mincount"])
-                CSV.write(parsed_args["heptamer"]["summary"], unique_summary, delim='\t')
-                @info "Summary heptamer data saved in compressed $(parsed_args["heptamer"]["summary"]) file"
-            end
-
-            if get(parsed_args,"%COMMAND%","") == "diff"
-                fasta = parsed_args["diff"]["fasta"]
-                fasta_files = [(file=file, records=immunediscover.load_fasta.(file)) for file in fasta]
-                sets = [(file=x, set=KeyedSet(reverse.(y))) for (x,y) in fasta_files]
-                for i in eachindex(sets)
-                    for j in i+1:length(sets)
-                        # All vs vall comparisons
-                        println("Comparing $(sets[i].file) vs $(sets[j].file)")
-                        println("Union: $(length(union(sets[i].set, sets[j].set)))")
-                        println("Intersection: $(length(intersect(sets[i].set, sets[j].set)))")
-                        ab = last.(collect(setdiff(sets[i].set, sets[j].set)))
-                        ba = last.(collect(setdiff(sets[j].set, sets[i].set)))
-                        println("Difference ($(length(ab))): \n$(join(ab, "\n"))")
-                        println("Difference ($(length(ba))): \n$(join(ba, "\n"))")
+                    @info "Demultiplexing"
+                    table, stats = immunediscover.demultiplex.demux(parsed_args["demultiplex"]["fastq"],
+                                                             parsed_args["demultiplex"]["indices"],
+                                                             parsed_args["demultiplex"]["forwardarrayindex"],
+                                                             min_length=parsed_args["demultiplex"]["length"],
+                                                             save_fastq_files=parsed_args["demultiplex"]["split"])
+                    # Apply case filtering if regex is provided
+                    case_filter_regex = get(parsed_args["demultiplex"], "case-filter-regex", nothing)
+                    if case_filter_regex !== nothing
+                        @info "Filtering cases with regex: $case_filter_regex"
+                        original_count = nrow(table)
+                        filter!(x -> startswith(x.case, Regex(case_filter_regex)), table)
+                        filtered_count = nrow(table)
+                        @info "Filtered from $original_count to $filtered_count rows ($(original_count - filtered_count) rows removed)"
                     end
-                end
-            end
-            if get(parsed_args,"%COMMAND%","") == "trim"
-                @info "Trimming"
-                table = load_demultiplex(parsed_args["trim"]["input"])
-                db = [r[2] for r in load_fasta(parsed_args["trim"]["fasta"])]
-                weights = parsed_args["trim"]["weights"]
-                pos = parsed_args["trim"]["position"]
-                mlen = parsed_args["trim"]["length"]
-
-                prof_start, prof_stop = trim.trim_profiles(db, weights)
-                ok, fragments, region = trim.find_segments(table.genomic_sequence, prof_start, prof_stop, mlen)
-
-                subtable = table[ok,:]
-                if pos
-                    start = [r[1] for r in region]
-                    stop = [r[2] for r in region]
-                    subtable[:,:start] = start
-                    subtable[:,:stop] = stop
-                else
-                    subtable[:,:trimmed_sequence] = fragments
-                end
-                output = cli.always_gz(parsed_args["trim"]["output"])
-                CSV.write(output, subtable, compress=true, delim='\t')
-                @info "Trimmed data saved in compressed $output file"
+                    # Summary and outputs
+                    unique_cases = length(Base.unique(table.case))
+                    unique_wells = length(Base.unique(table.well))
+                    unique_well_case_pairs = length(Base.unique(zip(table.well, table.case)))
+                    total_sequences = nrow(table)
+                    @info "Demultiplexing summary:"
+                    @info "  - Total sequences demultiplexed: $total_sequences"
+                    @info "  - Unique cases: $unique_cases"
+                    @info "  - Unique wells: $unique_wells"
+                    @info "  - Unique well-case pairs: $unique_well_case_pairs"
+                    logfile = "$(parsed_args["demultiplex"]["output"]).log"
+                    CSV.write(logfile, stats, delim='\t')
+                    count_df = combine(groupby(table, :case), :case => length => :count)
+                    sort!(count_df, :count, rev=true)
+                    @info "Demultiplexing statistics"
+                    println(barplot(count_df.case, count_df.count))
+                    output = cli.always_gz(parsed_args["demultiplex"]["output"])
+                    CSV.write(output, table, compress=true, delim='\t')
+                    @info "Demultiplexing data saved in compressed $output file"
+                    @info "Demultiplexing detailed statistics saved in $logfile file"
             end
 
+            # search group
+            if get(parsed_args,"%COMMAND%","") == "search"
+                subcmd = get(parsed_args["search"], "%COMMAND%", "")
+                if subcmd == "heptamer"
+                    @info "Extracting heptamers"
+                    heptamers = heptamer.load_heptamers(parsed_args["search"]["heptamer"]["json"])
+                    chain = parsed_args["search"]["heptamer"]["chain"]
+                    @info "Parsing for $(chain)"
+                    @info "Using heptamers $(join(heptamers[chain],','))"
+                    db = load_fasta(parsed_args["search"]["heptamer"]["fasta"])
+                    @info "Loaded $(length(db)) query sequences"
+                    table = load_demultiplex(parsed_args["search"]["heptamer"]["tsv"])
+                    data = heptamer.extract_heptamers(table, db, heptamers[chain]; max_dist=parsed_args["search"]["heptamer"]["maxdist"], b=parsed_args["search"]["heptamer"]["begin"]+1, e=parsed_args["search"]["heptamer"]["end"])
+                    output = cli.always_gz(parsed_args["search"]["heptamer"]["output"])
+                    CSV.write(output, data, compress=true, delim='\t')
+                    @info "Heptamer data saved in compressed $output file"
+                    @info "Summarizing"
+                    data_df = CSV.File(output, delim='\t') |> DataFrame
+                    unique_summary = heptamer.summarize(data_df, db, ratio=parsed_args["search"]["heptamer"]["ratio"],count=parsed_args["search"]["heptamer"]["mincount"])
+                    CSV.write(parsed_args["search"]["heptamer"]["summary"], unique_summary, delim='\t')
+                    @info "Summary heptamer data saved in compressed $(parsed_args["search"]["heptamer"]["summary"]) file"
+                elseif subcmd == "blast"
+                    parsed_args = apply_blast_presets!(parsed_args)
+                    gene = parsed_args["search"]["blast"]["gene"]
+                    if haskey(BLAST_PRESETS, gene)
+                        @info "Initial $gene preset parameters (can be overridden by command line arguments):"
+                        for (param, value) in BLAST_PRESETS[gene]
+                            @info "  --$param = $value"
+                        end
+                    end
+                    @info "Running with the following parameters:"
+                    for (param, value) in parsed_args["search"]["blast"]
+                        @info "  --$param = $value"
+                    end
+                    @info "Discovery with BLAST assignments"
+                    # Load paths and parameters
+                    fasta_path = parsed_args["search"]["blast"]["fasta"]
+                    affixes_path = fasta_path * ".affixes"
+                    DB = load_fasta(fasta_path, validate=false)
+                    # Parameters
+                    verbose = parsed_args["search"]["blast"]["verbose"]
+                    overwrite = parsed_args["search"]["blast"]["overwrite"]
+                    minquality = parsed_args["search"]["blast"]["minquality"]
+                    forward_extension = parsed_args["search"]["blast"]["forward"]
+                    reverse_extension = parsed_args["search"]["blast"]["reverse"]
+                    keep_failed = parsed_args["search"]["blast"]["keep-failed"]
+                    min_corecov = parsed_args["search"]["blast"]["min-corecov"]
+                    if (forward_extension < 7) && (forward_extension > 0)
+                        @warn "Forward extension $forward_extension is short and may lead to false positives due to problem with ambigous trimming alignment - you've been warned!"
+                    end
+                    if (reverse_extension < 7) && (reverse_extension > 0)
+                        @warn "Reverse extension $reverse_extension is short and may lead to false positives due to problem with ambigous trimming alignment - you've been warned!"
+                    end
+                    # Process pseudo genes if provided
+                    db_p = Vector{Tuple{String, String}}()
+                    pseudo = parsed_args["search"]["blast"]["pseudo"]
+                    if !isempty(pseudo)
+                        for (name, seq) in blast.read_fasta(pseudo)
+                            push!(db_p, ("P"*name, seq))
+                        end
+                    end
+                    # Add regular genes
+                    for (name, seq) in blast.read_fasta(fasta_path)
+                        push!(db_p, (name, seq))
+                    end
+                    # Save combined database
+                    combined_fasta_path = blast.replace_extension(fasta_path, "fasta", tag="-combined")
+                    blast.save_to_fasta(db_p, combined_fasta_path)
+                    # Handle sequence extension based on extension parameters
+                    if forward_extension == 0 && reverse_extension == 0
+                        ext_fasta_path = combined_fasta_path
+                        @info "No sequence extension requested, using original sequences"
+                        empty_affixes = [(name="", prefix="", suffix="")]
+                        CSV.write(affixes_path, DataFrame(empty_affixes), delim='\t')
+                    else
+                        ext_fasta_path = blast.replace_extension(combined_fasta_path, "fasta", tag="-extended")
+                        if !isfile(ext_fasta_path) || overwrite
+                            @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
+                            demux = blast.load_csv(parsed_args["search"]["blast"]["input"])
+                            extended = accumulate_affixes(DB, demux,
+                                forward_extension=forward_extension,
+                                reverse_extension=reverse_extension)
+                            affixes = save_extended(extended, ext_fasta_path)
+                            CSV.write(affixes_path, DataFrame(affixes, [:name, :prefix, :suffix]), delim='\t')
+                            @info "Saved affixes in $affixes_path"
+                        else
+                            @info "Using existing extended sequences from $ext_fasta_path"
+                        end
+                    end
+                    # Run BLAST discovery
+                    blast_clusters = blast_discover(
+                        parsed_args["search"]["blast"]["input"],
+                        ext_fasta_path,
+                        max_dist=parsed_args["search"]["blast"]["maxdist"],
+                        min_edge=parsed_args["search"]["blast"]["edge"],
+                        min_scov=parsed_args["search"]["blast"]["subjectcov"],
+                        args=parsed_args["search"]["blast"]["args"],
+                        verbose=verbose,
+                        overwrite=overwrite
+                    )
+                    if forward_extension != 0 || reverse_extension != 0
+                        if isfile(affixes_path)
+                            @info "Loading affixes from $affixes_path"
+                            affixes = Tuple.(collect.(eachrow(CSV.read(affixes_path, DataFrame, delim='\t'))))
+                            if !any(occursin.("prefix", names(blast_clusters)))
+                                @info "Using affixes to trim extended sequences"
+                                affixes_df = DataFrame(affixes, [:sseqid, :prefix, :suffix])
+                                leftjoin!(blast_clusters, affixes_df, on=:sseqid)
+                                blast_clusters.prefix = coalesce.(blast_clusters.prefix, "")
+                                blast_clusters.suffix = coalesce.(blast_clusters.suffix, "")
+                            end
+                        end
+                    else
+                        if !any(occursin.("prefix", names(blast_clusters)))
+                            blast_clusters.prefix .= ""
+                            blast_clusters.suffix .= ""
+                        end
+                    end
+                    @info "Re-aligning gene cores and processing alleles"
+                    DBdict = Dict(DB)
+                    transform!(blast_clusters, :sseqid => ByRow(x -> DBdict[coalesce(String(x), "")]) => :db_seq)
+                    stats = AlignmentStats()
+                    transform!(blast_clusters,
+                        [:qseq, :prefix, :suffix, :db_seq, :sseqid] =>
+                        ByRow((qseq, prefix, suffix, db_seq, sseqid) ->
+                            blast.trim_and_align_sequence(
+                                coalesce(String(qseq), ""),
+                                coalesce(String(prefix), ""),
+                                coalesce(String(suffix), ""),
+                                coalesce(String(db_seq), ""),
+                                stats,
+                                min_quality=minquality,
+                                sseqid=coalesce(String(sseqid), "")
+                            )
+                        ) => [:aln_qseq, :aln_mismatch]
+                    )
+                    if !keep_failed
+                        before = nrow(blast_clusters)
+                        filter!(x -> !ismissing(x.aln_qseq) && (x.aln_qseq != "") && (x.aln_qseq != "nothing") && x.aln_mismatch >= 0, blast_clusters)
+                        @info "Dropped $(before - nrow(blast_clusters)) rows with failed/empty alignments (remaining: $(nrow(blast_clusters)))"
+                    end
+                    transform!(blast_clusters, [:aln_qseq, :db_seq] => ByRow((aq, ds) -> begin
+                        aq_s = coalesce(String(aq), "")
+                        ds_s = coalesce(String(ds), "")
+                        if isempty(aq_s) || isempty(ds_s)
+                            0.0
+                        else
+                            length(aq_s) / length(ds_s)
+                        end
+                    end) => :corecov)
+                    before_corecov = nrow(blast_clusters)
+                    filter!(x -> x.corecov >= min_corecov, blast_clusters)
+                    @info "Dropped $(before_corecov - nrow(blast_clusters)) rows with core coverage < $min_corecov (remaining: $(nrow(blast_clusters)))"
+                    # Lookup and flags
+                    seq_to_id = Dict(seq => id for (id, seq) in DBdict)
+                    nogaps(s) = replace(s,'-'=>"")
+                    transform!(blast_clusters, :aln_qseq => ByRow(seq -> begin
+                        query_seq = coalesce(nogaps(String(seq)), "")
+                        any(db_seq -> occursin(query_seq, db_seq), keys(seq_to_id))
+                    end) => :isin_db)
+                    if parsed_args["search"]["blast"]["isin"]
+                        @info "Filtering out truncated substrings of known alleles"
+                        truncation = filter(x -> (x.isin_db && x.aln_mismatch > 0), blast_clusters)
+                        @info "Found $(nrow(truncation)) truncated substrings"
+                        filter!(x -> !(x.isin_db && x.aln_mismatch > 0), blast_clusters)
+                    end
+                    transform!(groupby(blast_clusters, [:well, :case, :aln_qseq]), :full_count => sum => :count)
+                    transform!(groupby(blast_clusters, [:well, :case, :gene]), :count => (x -> x ./ maximum(x)) => :frequency)
+                    min_fullcount = parsed_args["search"]["blast"]["minfullcount"]
+                    min_fullfrequency = parsed_args["search"]["blast"]["minfullfreq"]
+                    min_length = parsed_args["search"]["blast"]["length"]
+                    filter!(x->x.full_count >= min_fullcount, blast_clusters)
+                    filter!(x->x.full_frequency >= min_fullfrequency, blast_clusters)
+                    filter!(x->length(x.qseq) >= min_length, blast_clusters)
+                    if !keep_failed
+                        filter!(x -> x.aln_mismatch >= 0, blast_clusters)
+                    end
+                    filter!(x -> x.aln_mismatch <= parsed_args["search"]["blast"]["maxdist"], blast_clusters)
+                    blast_clusters[:, :allele_name] = map(
+                        x -> (x.aln_mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.aln_qseq)*" Novel",
+                        eachrow(blast_clusters)
+                    )
+                    output = cli.always_gz(parsed_args["search"]["blast"]["output"])
+                    @info "Saving discovered gene sequences in compressed $output file"
+                    CSV.write(output, blast_clusters, compress=true, delim='\t')
+                elseif subcmd == "exact"
+                    @info "Exact search"
+                    extension = parsed_args["search"]["exact"]["extension"]
+                    limit = parsed_args["search"]["exact"]["limit"]
+                    refgenes = parsed_args["search"]["exact"]["refgene"]
+                    if length(refgenes) > 0
+                        @info "Using reference genes $refgenes"
+                    end
+                    table = load_demultiplex(parsed_args["search"]["exact"]["tsv"])
+                    if limit > 0
+                        @info "Limiting number of demultiplexed reads to $limit"
+                        table = table[1:limit,:]
+                    end
+                    db = load_fasta(parsed_args["search"]["exact"]["fasta"], validate=false)
+                    mincount = parsed_args["search"]["exact"]["mincount"]
+                    minratio = parsed_args["search"]["exact"]["minratio"]
+                    if mincount < TRUST_MINCOUNT
+                        @warn "Decreasing mincount below $TRUST_MINCOUNT may lead to false positives due to sequencing errors - you've been warned!"
+                    end
+                    top = parsed_args["search"]["exact"]["top"]
+                    affix = parsed_args["search"]["exact"]["affix"]
+                    local rss
+                    if extension !== nothing
+                        @info "Using extension mode with length $extension instead of RSS elements"
+                        rss = String[]
+                    else
+                        rss = split(parsed_args["search"]["exact"]["rss"], ',')
+                        validate_types(rss)
+                        @info "Extract RSS: $(join(rss,','))"
+                    end
+                    if top != 1
+                        @info "Uncollapsed mode enabled; at most $top full records will be returned."
+                    end
+                    gene = parsed_args["search"]["exact"]["gene"]
+                    expect = parsed_args["search"]["exact"]["expect"]
+                    deletion = parsed_args["search"]["exact"]["deletion"]
+                    min_allele_case_medratio = parsed_args["search"]["exact"]["min-allele-mratio"]
+                    min_gene_case_medratio = parsed_args["search"]["exact"]["min-gene-mratio"]
+                    expect_df = DataFrame(name=[], ratio=[])
+                    if expect !== nothing
+                        expect_df = CSV.read(expect, DataFrame, delim='\t')
+                        @assert all([name in names(expect_df) for name in ["name","ratio"]]) "File must contain following columns: name, ratio"
+                    end
+                    if nrow(expect_df) > 0
+                        @info "Using expect file with $(nrow(expect_df)) entries"
+                    end
+                    expect_dict = Dict(zip(expect_df.name, expect_df.ratio))
+                    deletion_df = DataFrame(name=[], ratio=[])
+                    if deletion !== nothing
+                        deletion_df = CSV.read(deletion, DataFrame, delim='\t')
+                        @assert all([name in names(deletion_df) for name in ["name","ratio"]]) "File must contain following columns: name, ratio"
+                    end
+                    if nrow(deletion_df) > 0
+                        @info "Using deletion_df file with $(nrow(expect_df)) entries"
+                    end
+                    deletion_df = Dict(zip(deletion_df.name, deletion_df.ratio))
+                    raw = parsed_args["search"]["exact"]["raw"]
+                    locus = parsed_args["search"]["exact"]["locus"]
+                    ref_fasta = parsed_args["search"]["exact"]["ref-fasta"]
+                    sequence_lookup = nothing
+                    if ref_fasta !== nothing
+                        sequence_lookup = exact.build_sequence_lookup(ref_fasta)
+                    end
+                    counts_df = exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio, expect_dict=expect_dict, affix=affix, rss=rss, extension=extension, N=top, raw=raw, sequence_lookup=sequence_lookup)
+                    sort!(counts_df, [:case, :db_name])
+                    if !parsed_args["search"]["exact"]["noplot"]
+                        if nrow(counts_df) > 0
+                            println(plotgenes(counts_df))
+                        else
+                            @warn "No exact matches to plot"
+                        end
+                    end
+                    @info "Excluding genes not starting with $locus for correct allele and gene count frequency calculation"
+                    transform!(groupby(counts_df, [:well, :case, :gene])) do group
+                        filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                        gene_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
+                        return DataFrame(gene_count = fill(gene_count, nrow(group)))
+                    end
+                    transform!(groupby(counts_df, [:well, :case])) do group
+                        filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                        case_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
+                        return DataFrame(case_count = fill(case_count, nrow(group)))
+                    end
+                    transform!(groupby(counts_df, [:gene])) do group
+                        filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                        cross_case_median_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
+                        return DataFrame(cross_case_median_count = fill(cross_case_median_count, nrow(group)))
+                    end
+                    transform!(groupby(counts_df, [:gene])) do group
+                        filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                        cross_case_median_gene_count = isempty(filtered_group) ? 0 : median(filtered_group.gene_count)
+                        return DataFrame(cross_case_median_gene_count = fill(cross_case_median_gene_count, nrow(group)))
+                    end
+                    transform!(groupby(counts_df, [:db_name])) do group
+                        filtered_group = filter(row -> startswith(row.db_name, locus), group)
+                        cross_case_median_allele_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
+                        return DataFrame(cross_case_median_allele_count = fill(cross_case_median_allele_count, nrow(group)))
+                    end
+                    counts_df[:,:allele_case_freq] = counts_df.count ./ counts_df.case_count
+                    counts_df[:,:gene_case_freq] = counts_df.gene_count ./ counts_df.case_count
+                    counts_df[:,:allele_to_cross_case_median_ratio] = counts_df.count ./ counts_df.cross_case_median_allele_count
+                    counts_df[:,:gene_to_cross_case_median_ratio] = counts_df.gene_count ./ counts_df.cross_case_median_gene_count
+                    transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
+                    filter!(x -> (x.allele_freq >= get_ratio_threshold(expect_dict, x, type="allele_freq")), counts_df)
+                    filter!(x -> (x.gene_case_freq >= get_ratio_threshold(deletion_df, x, type="gene_case_freq")), counts_df)
+                    min_allele_cross_case_ratio = parsed_args["search"]["exact"]["min-allele-mratio"]
+                    min_gene_cross_case_ratio = parsed_args["search"]["exact"]["min-gene-mratio"]
+                    filter!(x -> (x.allele_to_cross_case_median_ratio >= min_allele_cross_case_ratio), counts_df)
+                    filter!(x -> (x.gene_to_cross_case_median_ratio >= min_gene_cross_case_ratio), counts_df)
+                    output = cli.always_gz(parsed_args["search"]["exact"]["output"])
+                    if length(refgenes) > 0
+                        for refgene in refgenes
+                            counts_df = grouped_ratios(counts_df, refgene, count_col=:count)
+                            transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :ref_gene_count)
+                            counts_df = grouped_ratios(counts_df, refgene, count_col=:ref_gene_count)
+                        end
+                    end
+                    CSV.write(output, counts_df, compress=true, delim='\t')
+                    @info "Exact search data saved in compressed $output file"
+                elseif subcmd == "hsmm"
+                    @info "HSMM D detection"
+                    tsv = parsed_args["search"]["hsmm"]["tsv"]
+                    fasta = parsed_args["search"]["hsmm"]["fasta"]
+                    output = parsed_args["search"]["hsmm"]["output"]
+                    ratio = parsed_args["search"]["hsmm"]["ratio"]
+                    mincount = parsed_args["search"]["hsmm"]["mincount"]
+                    min_posterior = parsed_args["search"]["hsmm"]["min-posterior"]
+                    min_gene_len = parsed_args["search"]["hsmm"]["min-gene-len"]
+                    max_gene_len = parsed_args["search"]["hsmm"]["max-gene-len"]
+                    limit = parsed_args["search"]["hsmm"]["limit"]
+                    out_mincount = parsed_args["search"]["hsmm"]["out-mincount"]
+                    out_minratio = parsed_args["search"]["hsmm"]["out-minratio"]
+                    min_heptamer_prob_pre = parsed_args["search"]["hsmm"]["min-heptamer-prob-pre"]
+                    min_heptamer_prob_post = parsed_args["search"]["hsmm"]["min-heptamer-prob-post"]
+                    HSMM.run_hsmm(tsv, fasta, output; ratio=ratio, mincount=mincount, min_gene_len=min_gene_len, max_gene_len=max_gene_len, limit=limit, min_posterior=min_posterior, out_mincount=out_mincount, out_minratio=out_minratio, min_heptamer_prob_pre=min_heptamer_prob_pre, min_heptamer_prob_post=min_heptamer_prob_post)
+                end
+            end
+
+            # Deprecated commands (trim, hamming, nwpattern, pattern, regex) - handlers removed
+            # ===================================================================================
+            # The following old top-level handlers have been removed or migrated to groups:
+            # - trim: deprecated, not compiled
+            # - blast: now under search group
+            # - exact: now under search group
+            # - hsmm: now under search group
+            # - heptamer: now under search group
+            # - linkage: now under analyze group
+            # - haplotype: now under analyze group
+            # - bwa: now under analyze group
+            # - fasta export: now under table group (table fasta)
+            # - merge: now under fasta group (fasta merge)
+            # - diff: now under fasta group (fasta diff)
+            # - hash: now under fasta group (fasta hash)
+            # - collect: now under table group (table collect)
+            # - exclude: now under table group (table exclude)
+            # - hamming: deprecated, not compiled
+            # - nwpattern: deprecated, not compiled
+            # - pattern: deprecated, not compiled
+            # - regex: deprecated, not compiled
+
+            # Old/deprecated handlers below are commented out for reference:
+            
+            #= DEPRECATED - ALL HANDLERS BELOW ARE DISABLED
             if get(parsed_args, "%COMMAND%", "") == "blast"
                 parsed_args = apply_blast_presets!(parsed_args)
                 gene = parsed_args["blast"]["gene"]
@@ -772,32 +1055,9 @@ module immunediscover
                     novel_fasta=novel_fasta
                 )
             end
-            if get(parsed_args,"%COMMAND%","") == "fasta"
-                extract_sequences_to_fasta(
-                    parsed_args["fasta"]["input"],
-                    parsed_args["fasta"]["output"];
-                    colname = parsed_args["fasta"]["colname"],
-                    colseq = parsed_args["fasta"]["colseq"],
-                    coldesc = parsed_args["fasta"]["coldesc"],
-                    filter_pattern = parsed_args["fasta"]["filter"],
-                    desc_filter_pattern = parsed_args["fasta"]["desc-filter"],
-                    cleanup_pattern = parsed_args["fasta"]["cleanup"],
-                    sort_by_name = !parsed_args["fasta"]["no-sort"],
-                    mincase = parsed_args["fasta"]["mincase"],
-                    case_col = parsed_args["fasta"]["case-col"]
-                )
-            end
+            # (table→fasta export handled under table group below)
 
-            if get(parsed_args,"%COMMAND%","") == "merge"
-                merge_fasta_files(
-                    String.(parsed_args["merge"]["inputs"]),
-                    parsed_args["merge"]["output"];
-                    sort_by_name = !parsed_args["merge"]["no-sort"],
-                    cleanup_pattern = parsed_args["merge"]["cleanup"],
-                    prefer_first = !parsed_args["merge"]["prefer-last"],
-                    add_source_prefix = parsed_args["merge"]["add-source-prefix"]
-                )
-            end
+            # (fasta→merge/diff/hash handled under fasta group below)
 
             if get(parsed_args,"%COMMAND%","") == "table"
                 if get(parsed_args["table"],"%COMMAND%","") == "outerjoin"
@@ -932,6 +1192,209 @@ module immunediscover
                         parsed_args["table"]["select"]["output"];
                         columns=columns
                     )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "fasta"
+                    @info "Exporting TSV to FASTA"
+                    extract_sequences_to_fasta(
+                        parsed_args["table"]["fasta"]["input"],
+                        parsed_args["table"]["fasta"]["output"];
+                        colname = parsed_args["table"]["fasta"]["colname"],
+                        colseq = parsed_args["table"]["fasta"]["colseq"],
+                        coldesc = parsed_args["table"]["fasta"]["coldesc"],
+                        filter_pattern = parsed_args["table"]["fasta"]["filter"],
+                        desc_filter_pattern = parsed_args["table"]["fasta"]["desc-filter"],
+                        cleanup_pattern = parsed_args["table"]["fasta"]["cleanup"],
+                        sort_by_name = !parsed_args["table"]["fasta"]["no-sort"],
+                        mincase = parsed_args["table"]["fasta"]["mincase"],
+                        case_col = parsed_args["table"]["fasta"]["case-col"]
+                    )
+                elseif get(parsed_args["table"],"%COMMAND%","") == "collect"
+                    @info "Collecting TSV files"
+                    pattern = parsed_args["table"]["collect"]["pattern"]
+                    output = parsed_args["table"]["collect"]["output"]
+                    files = glob(pattern)
+                    @info "Found $(length(files)) files matching pattern $pattern"
+                    collected = []
+                    if length(files) > 0
+                        @info "Collecting files"
+                        first_file_columns = nothing
+                        for file in files
+                            df = CSV.File(file, delim='\t') |> DataFrame
+                            df[:, :file] .= file
+                            if first_file_columns === nothing
+                                first_file_columns = names(df)
+                            else
+                                @assert first_file_columns == names(df) "Column names in $file do not match first file"
+                            end
+                            push!(collected, df)
+                        end
+                        @info "Saving collected data in $output"
+                        collectd_df = vcat(collected...)
+                        CSV.write(output, collectd_df, delim='\t', compress=true)
+                    else
+                        @warn "No files found matching pattern $pattern"
+                    end
+                elseif get(parsed_args["table"],"%COMMAND%","") == "exclude"
+                    @info "Exclude"
+                    db = load_fasta(parsed_args["table"]["exclude"]["fasta"])
+                    colname = parsed_args["table"]["exclude"]["colname"]
+                    @info "Using $colname column"
+                    colseq = parsed_args["table"]["exclude"]["colseq"]
+                    @info "Using $colseq column"
+                    data = CSV.File(parsed_args["table"]["exclude"]["input"],delim='\t') |> DataFrame
+                    discard = Set{Tuple{String,String,String}}()
+                    for row in eachrow(data)
+                        for (name, seq) in db
+                            if occursin(row[colseq], seq)
+                                @info "Allele $(row[colname]) is a substring of $(name)"
+                                push!(discard, (name, row[colname], row[colseq]))
+                            end
+                            if occursin(seq, row[colseq])
+                                @info "Allele $(name) is a substring of $(row[colname])"
+                                push!(discard, (name, row[colname], row[colseq]))
+                            end
+                        end
+                    end
+                    for (name, allele_name, seq) in discard
+                        @info "Discarding fasta $allele_name with name $name"
+                        filter!(x->x[colseq] != seq, data)
+                    end
+                    output = cli.always_gz(parsed_args["table"]["exclude"]["output"])
+                    CSV.write(output, data, compress=true, delim='\t')
+                end
+            end
+
+            # fasta group
+            if get(parsed_args, "%COMMAND%", "") == "fasta"
+                subcmd = get(parsed_args["fasta"], "%COMMAND%", "")
+                if subcmd == "merge"
+                    merge_fasta_files(
+                        String.(parsed_args["fasta"]["merge"]["inputs"]),
+                        parsed_args["fasta"]["merge"]["output"];
+                        sort_by_name = !parsed_args["fasta"]["merge"]["no-sort"],
+                        cleanup_pattern = parsed_args["fasta"]["merge"]["cleanup"],
+                        prefer_first = !parsed_args["fasta"]["merge"]["prefer-last"],
+                        add_source_prefix = parsed_args["fasta"]["merge"]["add-source-prefix"]
+                    )
+                elseif subcmd == "diff"
+                    fasta_paths = parsed_args["fasta"]["diff"]["fasta"]
+                    fasta_files = [(file=file, records=immunediscover.load_fasta.(file)) for file in fasta_paths]
+                    sets = [(file=x, set=KeyedSet(reverse.(y))) for (x,y) in fasta_files]
+                    for i in eachindex(sets)
+                        for j in i+1:length(sets)
+                            println("Comparing $(sets[i].file) vs $(sets[j].file)")
+                            println("Union: $(length(union(sets[i].set, sets[j].set)))")
+                            println("Intersection: $(length(intersect(sets[i].set, sets[j].set)))")
+                            ab = last.(collect(setdiff(sets[i].set, sets[j].set)))
+                            ba = last.(collect(setdiff(sets[j].set, sets[i].set)))
+                            println("Difference ($(length(ab))): \n$(join(ab, "\n"))")
+                            println("Difference ($(length(ba))): \n$(join(ba, "\n"))")
+                        end
+                    end
+                elseif subcmd == "hash"
+                    @info "Hasing alleles"
+                    fastain = parsed_args["fasta"]["hash"]["fastain"]
+                    db = load_fasta(fastain)
+                    for (name, seq) in db
+                        newname = unique_name(name, seq)
+                        println(">$(newname)\n$(seq)")
+                    end
+                end
+            end
+
+            # analyze group
+            if get(parsed_args, "%COMMAND%", "") == "analyze"
+                subcmd = get(parsed_args["analyze"], "%COMMAND%", "")
+                if subcmd == "linkage"
+                    @info "Linkage analysis"
+                    tsv  = parsed_args["analyze"]["linkage"]["input"]
+                    edges_out  = cli.always_gz(parsed_args["analyze"]["linkage"]["edges"])
+                    case_col = parsed_args["analyze"]["linkage"]["case-col"]
+                    allele_col = parsed_args["analyze"]["linkage"]["allele-col"]
+                    min_donors = parsed_args["analyze"]["linkage"]["min-donors"]
+                    min_support = parsed_args["analyze"]["linkage"]["min-support"]
+                    jaccard_threshold = parsed_args["analyze"]["linkage"]["min-jaccard"]
+                    sim_mode = parsed_args["analyze"]["linkage"]["similarity"] == "r2" ? :r2 : :r
+                    sim_thresh = parsed_args["analyze"]["linkage"]["threshold"]
+                    min_cluster_size = parsed_args["analyze"]["linkage"]["min-cluster-size"]
+                    clusters_path = get(parsed_args["analyze"]["linkage"], "clusters", nothing)
+                    df = CSV.File(tsv, delim='\t') |> DataFrame
+                    @info "Loaded $(nrow(df)) rows from input file"
+                    edges, clusters, clusters_detailed = linkage.compute_edges_and_clusters(
+                        df; case_col=case_col, allele_col=allele_col, min_donors=min_donors,
+                        min_support=min_support, jaccard_threshold=jaccard_threshold,
+                        similarity=sim_mode, similarity_threshold=sim_thresh, min_cluster_size=min_cluster_size
+                    )
+                    CSV.write(edges_out, edges, compress=true, delim='\t')
+                    @info "Edges saved in compressed $edges_out file ($(nrow(edges)) pairs)"
+                    if clusters_path !== nothing
+                        all_cluster_rows = Vector{NamedTuple}()
+                        for (gid, cluster_df) in enumerate(clusters_detailed)
+                            for row in eachrow(cluster_df)
+                                push!(all_cluster_rows, (
+                                    group_id = gid,
+                                    allele = row.allele,
+                                    donors = row.donors,
+                                    n_donors = row.n_donors,
+                                    mean_n11 = row.mean_n11,
+                                    mean_n10 = row.mean_n10,
+                                    mean_n01 = row.mean_n01,
+                                    mean_n00 = row.mean_n00,
+                                    mean_r = row.mean_r,
+                                    max_r = row.max_r,
+                                    min_r = row.min_r
+                                ))
+                            end
+                        end
+                        CSV.write(clusters_path, DataFrame(all_cluster_rows), delim='\t')
+                        @info "Clusters saved in $(clusters_path) ($(length(clusters)) clusters, $(length(all_cluster_rows)) alleles)"
+                    end
+                elseif subcmd == "haplotype"
+                    @info "Haplotype inference"
+                    input_file = parsed_args["analyze"]["haplotype"]["input"]
+                    output_file = parsed_args["analyze"]["haplotype"]["output"]
+                    case_col = parsed_args["analyze"]["haplotype"]["case-col"]
+                    allele_col = parsed_args["analyze"]["haplotype"]["allele-col"]
+                    gene_col = parsed_args["analyze"]["haplotype"]["gene-col"]
+                    mincount = parsed_args["analyze"]["haplotype"]["mincount"]
+                    min_ratio = parsed_args["analyze"]["haplotype"]["min-ratio"]
+                    novel_fasta = get(parsed_args["analyze"]["haplotype"], "novel-fasta", nothing)
+                    haplotype.infer_haplotypes(
+                        input_file, output_file;
+                        case_col=case_col,
+                        allele_col=allele_col,
+                        gene_col=gene_col,
+                        mincount=mincount,
+                        min_ratio=min_ratio,
+                        novel_fasta=novel_fasta
+                    )
+                elseif subcmd == "bwa"
+                    @info "BWA search to filter candidates if they match correct chromosome"
+                    df = CSV.File(parsed_args["analyze"]["bwa"]["tsv"], delim='\t') |> DataFrame
+                    chromosome_name = parsed_args["analyze"]["bwa"]["chromosome"]
+                    outtsv = parsed_args["analyze"]["bwa"]["output"]
+                    genome = parsed_args["analyze"]["bwa"]["genome"]
+                    colname = parsed_args["analyze"]["bwa"]["colname"]
+                    colseq = parsed_args["analyze"]["bwa"]["colseq"]
+                    tag = parsed_args["analyze"]["bwa"]["tag"]
+                    @info "Using columns: $colname, $colseq"
+                    @info "Using genome: $genome"
+                    @info "Filter by chromosome: $chromosome_name and $tag tag"
+                    sequences = map(eachrow(df)) do row
+                        concatenated_sequence = concatenate_columns(row, colseq)
+                        (row[colname], concatenated_sequence)
+                    end
+                    indices, position, edit_distance, ref_sequence, orientation = bwa_sequences(genome, sequences, chromosome_name, tag=tag)
+                    df[:, :position] = position
+                    df[:, :edit_distance] = edit_distance
+                    df[:, :ref_sequence] = ref_sequence
+                    df[:, :orientation] = orientation
+                    @info "$(length(sequences))"
+                    @info "$(nrow(df)) sequences matched chromosome $chromosome_name"
+                    @info "$(length(indices)) sequences matched chromosome $chromosome_name"
+                    @info "$(indices[1:10])"
+                    @info "$(df[1:10,:])"
+                    CSV.write(outtsv, df[indices,:], compress=true, delim='\t')
+                    @info "Filtered result saved in $outtsv"
                 end
             end
 
@@ -1088,8 +1551,10 @@ module immunediscover
                     println(plotgenes(summarized))
                 end
             end
-        end
-    end
+            =#
+            # End of deprecated handlers block
+        end  # close if parsed_args !== nothing
+    end  # close function real_main
 
     """
         julia_main(args=[])::Cint
