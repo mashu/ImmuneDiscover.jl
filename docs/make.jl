@@ -13,6 +13,15 @@ makedocs(;
     warnonly = true,
     pages=[
         "Home" => "index.md",
+        "Commands" => "commands.md",
+        "User Guide" => [
+            "Workflows" => "workflows.md",
+            "Parameters" => "parameters.md",
+        ],
+        "Reference" => [
+            "Output Columns" => "columns.md",
+            "Troubleshooting" => "troubleshooting.md",
+        ],
     ],
 )
 
