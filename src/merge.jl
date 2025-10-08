@@ -34,6 +34,9 @@ module merge
         duplicate_sequences = Dict{String, Vector{Tuple{String, String}}}()
         total_sequences = 0
         
+        # Compile cleanup regex once before processing
+        cleanup_regex = cleanup_pattern !== nothing ? Regex(cleanup_pattern) : nothing
+        
         for (file_idx, input_file) in enumerate(input_files)
             @info "Processing file $file_idx/$(length(input_files)): $input_file"
             
@@ -58,8 +61,8 @@ module merge
                     sequence = string(FASTA.sequence(record))
                     
                     # Clean up name if cleanup pattern is specified
-                    if cleanup_pattern !== nothing && occursin(Regex(cleanup_pattern), name)
-                        name = strip(replace(name, Regex(cleanup_pattern) => ""))
+                    if cleanup_regex !== nothing && occursin(cleanup_regex, name)
+                        name = strip(replace(name, cleanup_regex => ""))
                     end
                     
                     # Add source prefix if requested

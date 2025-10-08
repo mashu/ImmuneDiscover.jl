@@ -263,7 +263,9 @@ module association
         # Apply case filtering if regex is provided
         filtered_genotypes = copy(genotypes)
         if case_filter_regex !== nothing
-            filter!(x -> startswith(x[case_col], Regex(case_filter_regex)), filtered_genotypes)
+            # Compile regex once before filtering
+            compiled_regex = Regex(case_filter_regex)
+            filter!(x -> startswith(x[case_col], compiled_regex), filtered_genotypes)
         end
         
         # Compute association matrices

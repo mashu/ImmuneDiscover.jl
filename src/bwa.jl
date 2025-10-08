@@ -105,6 +105,9 @@ module bwa
             ref_seqs_dict[genome_file] = load_reference_sequences(genome_file)
         end
         
+        # Compile tag regex once before the loop
+        tag_regex = Regex(tag)
+        
         @showprogress for (nallele, (name, sequence)) in enumerate(sequences)
             record = FASTA.Record(name, sequence)
             for (genome_file, aligner) in aligners
@@ -119,7 +122,7 @@ module bwa
                 alns = filter(x->x.score == max_score, alns)
                 descriptions = map(x->description(x, aligner), alns)
 
-                index = map(x->occursin(chromosome_name, x) && occursin(Regex(tag), x), descriptions)
+                index = map(x->occursin(chromosome_name, x) && occursin(tag_regex, x), descriptions)
                 match = descriptions[index]
                 nomatch = descriptions[.!index]
 

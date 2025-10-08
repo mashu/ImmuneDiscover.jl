@@ -119,7 +119,9 @@ module demultiplex
         if case_filter_regex !== nothing
             @info "Filtering cases with regex: $case_filter_regex"
             original_count = nrow(table)
-            filter!(x -> startswith(x.case, Regex(case_filter_regex)), table)
+            # Compile regex once before filtering
+            compiled_regex = Regex(case_filter_regex)
+            filter!(x -> startswith(x.case, compiled_regex), table)
             filtered_count = nrow(table)
             @info "Filtered from $original_count to $filtered_count rows ($(original_count - filtered_count) rows removed)"
         end

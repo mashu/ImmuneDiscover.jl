@@ -55,7 +55,8 @@ module fasta
         # Apply regex filter if specified
         if filter_pattern !== nothing
             @info "Filtering rows where $colname matches regex pattern '$filter_pattern'"
-            df = df[occursin.(Regex(filter_pattern), df[!, colname]), :]
+            filter_regex_prefilter = Regex(filter_pattern)
+            df = df[occursin.(filter_regex_prefilter, df[!, colname]), :]
             @info "After filtering: $(nrow(df)) rows remaining"
         end
         
@@ -65,7 +66,8 @@ module fasta
                 error("Description filter pattern specified but no coldesc column provided")
             end
             @info "Filtering rows where $coldesc matches regex pattern '$desc_filter_pattern'"
-            df = df[occursin.(Regex(desc_filter_pattern), df[!, coldesc]), :]
+            desc_regex_prefilter = Regex(desc_filter_pattern)
+            df = df[occursin.(desc_regex_prefilter, df[!, coldesc]), :]
             @info "After description filtering: $(nrow(df)) rows remaining"
         end
         
@@ -105,23 +107,28 @@ module fasta
         @info "Writing $(nrow(df)) sequences to $output_file"
         writer = FASTA.Writer(open(output_file, "w"))
         
+        # Compile regexes once before the loop
+        cleanup_regex = cleanup_pattern !== nothing ? Regex(cleanup_pattern) : nothing
+        filter_regex = filter_pattern !== nothing ? Regex(filter_pattern) : nothing
+        desc_filter_regex = desc_filter_pattern !== nothing ? Regex(desc_filter_pattern) : nothing
+        
         try
             for row in eachrow(df)
                 name = string(row[colname])
                 seq = string(row[colseq])
                 
                 # Clean up name using cleanup pattern (e.g., remove " Novel")
-                if cleanup_pattern !== nothing && occursin(Regex(cleanup_pattern), name)
+                if cleanup_regex !== nothing && occursin(cleanup_regex, name)
                     original_name = name
-                    name = strip(replace(name, Regex(cleanup_pattern) => ""))
+                    name = strip(replace(name, cleanup_regex => ""))
                     if name != original_name
                         @debug "Cleaned name: '$original_name' → '$name'"
                     end
                 end
                 
                 # Also clean up name if it contains the filter pattern (legacy behavior)
-                if filter_pattern !== nothing && occursin(Regex(filter_pattern), name)
-                    name = rstrip(replace(name, Regex(filter_pattern) => ""))
+                if filter_regex !== nothing && occursin(filter_regex, name)
+                    name = rstrip(replace(name, filter_regex => ""))
                 end
                 
                 # Add description if specified
@@ -129,8 +136,8 @@ module fasta
                     desc = string(row[coldesc])
                     if !isempty(desc)
                         # If desc_filter_pattern has capture groups, use only the captured part
-                        if desc_filter_pattern !== nothing
-                            match_result = match(Regex(desc_filter_pattern), desc)
+                        if desc_filter_regex !== nothing
+                            match_result = match(desc_filter_regex, desc)
                             if match_result !== nothing && !isempty(match_result.captures) && match_result.captures[1] !== nothing
                                 # Use first capture group if available
                                 desc = match_result.captures[1]
