@@ -174,7 +174,7 @@ module cli
                 help = "Search and discovery (blast, exact, hsmm, heptamer)"
                 action = :command
             "analyze"
-                help = "Analysis and QC (linkage, haplotype, bwa)"
+                help = "Analysis and QC (association, haplotype, bwa)"
                 action = :command
             "table"
                 help = "Table utilities (outerjoin, leftjoin, transform, aggregate, unique, sort, filter, select, fasta, collect, exclude)"
@@ -220,8 +220,8 @@ module cli
 
         # Analyze group
         @add_arg_table! s["analyze"] begin
-            "linkage"
-                help = "Analyze cross-donor co-occurrence (linkage) among alleles across cases"
+            "association"
+                help = "Analyze cross-donor association (co-occurrence) among alleles across cases"
                 action = :command
             "haplotype"
                 help = "Infer approximate haplotypes per case using diploid assumptions"
@@ -231,12 +231,12 @@ module cli
                 action = :command
         end
 
-        @add_arg_table! s["analyze"]["linkage"] begin
+        @add_arg_table! s["analyze"]["association"] begin
         "input"
             help = "TSV/TSV.GZ with columns: case and db_name (or specify columns)"
             required = true
         "edges"
-            help = "TSV.GZ to save pairwise edges table (metrics, p, q)"
+            help = "TSV.GZ to save pairwise edges table (phi coefficient and other metrics)"
             required = true
         "-C", "--case-col"
             help = "Name of column with donor/case id"
@@ -262,7 +262,7 @@ module cli
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--similarity"
-            help = "Similarity mode: r or r2"
+            help = "Similarity mode: r (phi coefficient) or r2 (phi squared)"
             default = "r"
             arg_type = String
             range_tester = (x->(x == "r") | (x == "r2"))

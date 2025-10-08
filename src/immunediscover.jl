@@ -15,7 +15,7 @@ module immunediscover
     # include("nwpattern.jl")  # deprecated command; not compiled
     include("blast.jl")
     include("keyedsets.jl")
-    include("linkage.jl")
+    include("association.jl")
     include("haplotype.jl")
     include("fasta.jl")
     include("merge.jl")
@@ -37,7 +37,7 @@ module immunediscover
     using .bwa
     using .blast
     using .keyedsets
-    using .linkage
+    using .association
     using .haplotype
     using .fasta
     using .merge
@@ -296,8 +296,8 @@ module immunediscover
             # analyze group
             if get(parsed_args, "%COMMAND%", "") == "analyze"
                 subcmd = get(parsed_args["analyze"], "%COMMAND%", "")
-                if subcmd == "linkage"
-                    linkage.handle_linkage(parsed_args, cli.always_gz)
+                if subcmd == "association"
+                    association.handle_association(parsed_args, cli.always_gz)
                 elseif subcmd == "haplotype"
                     haplotype.handle_haplotype(parsed_args)
                 elseif subcmd == "bwa"

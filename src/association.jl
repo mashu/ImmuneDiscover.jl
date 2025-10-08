@@ -1,4 +1,4 @@
-module linkage
+module association
     using DataFrames
     using Statistics
     using SpecialFunctions
@@ -6,14 +6,14 @@ module linkage
     using Clustering
     using CSV
 
-    export compute_linkage_matrices, build_similarity_matrix, perform_clustering, 
-           print_clusters, print_top_links, linkage_analysis, linkage_analysis_filtered,
-           compute_edges_and_clusters, handle_linkage
+    export compute_association_matrices, build_similarity_matrix, perform_clustering, 
+           print_clusters, print_top_links, association_analysis, association_analysis_filtered,
+           compute_edges_and_clusters, handle_association
 
     """
-        compute_linkage_matrices(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol)
+        compute_association_matrices(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol)
     
-    Compute linkage disequilibrium (R), Jaccard (J), and support (SUP) matrices from genotype data.
+    Compute phi coefficient (R), Jaccard (J), and support (SUP) matrices from genotype data.
     
     # Arguments
     - `genotypes`: DataFrame with genotype data
@@ -23,11 +23,11 @@ module linkage
     # Returns
     - `alleles`: Vector of unique allele names
     - `donors`: Vector of unique donor/case names  
-    - `R`: Linkage disequilibrium matrix (Float64 with missings)
+    - `R`: Phi coefficient matrix (Pearson correlation for binary data, Float64 with missings)
     - `J`: Jaccard co-presence matrix
     - `SUP`: Support matrix (co-presence counts)
     """
-    function compute_linkage_matrices(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol)
+    function compute_association_matrices(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol)
         alleles = sort(unique(genotypes[!, allele_col]))
         donors = sort(unique(genotypes[!, case_col]))
         
@@ -79,13 +79,13 @@ module linkage
                                SUP::Matrix{Int}; similarity_mode::Symbol=:r, 
                                min_support::Int=3, jaccard_threshold::Float64=0.2)
     
-    Build similarity matrix from linkage disequilibrium data with filtering.
+    Build similarity matrix from phi coefficient data with filtering.
     
     # Arguments
-    - `R`: Linkage disequilibrium matrix
+    - `R`: Phi coefficient matrix
     - `J`: Jaccard co-presence matrix  
     - `SUP`: Support matrix (co-presence counts)
-    - `similarity_mode`: :r2 (LD-style) or :r (positive correlation only)
+    - `similarity_mode`: :r2 (correlation squared) or :r (positive correlation only)
     - `min_support`: Minimum co-presence count required
     - `jaccard_threshold`: Minimum Jaccard index required
     
@@ -190,11 +190,11 @@ module linkage
                        J::Matrix{Float64}, SUP::Matrix{Int}, alleles::Vector; 
                        top_k::Int=30, similarity_mode::Symbol=:r)
     
-    Print top pairwise links with statistics.
+    Print top pairwise associations with statistics.
     
     # Arguments
     - `S`: Similarity matrix
-    - `R`: Linkage disequilibrium matrix
+    - `R`: Phi coefficient matrix
     - `J`: Jaccard co-presence matrix
     - `SUP`: Support matrix
     - `alleles`: Vector of allele names
@@ -215,7 +215,7 @@ module linkage
             end
         end
         sort!(pairs, by = x -> x[4], rev = true)
-        println("Top links (r, S=", String(similarity_mode), ", Jaccard, support):")
+        println("Top associations (r, S=", String(similarity_mode), ", Jaccard, support):")
         for k in 1:min(top_k, length(pairs))
             (i, j, r, s, jac, sup) = pairs[k]
             println(alleles[i], " -- ", alleles[j], "\tr=", round(r, digits=3), "\tS=", round(s, digits=3), "\tJ=", round(jac, digits=3), "\tn11=", sup)
@@ -223,13 +223,13 @@ module linkage
     end
 
     """
-        linkage_analysis(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol;
-                       similarity_mode::Symbol=:r, min_support::Int=3, 
-                       jaccard_threshold::Float64=0.2, similarity_threshold::Float64=0.6,
-                       min_cluster_size::Int=3, top_k::Int=30, print_results::Bool=true,
-                       case_filter_regex::Union{String, Nothing}=nothing)
+        association_analysis(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol;
+                           similarity_mode::Symbol=:r, min_support::Int=3, 
+                           jaccard_threshold::Float64=0.2, similarity_threshold::Float64=0.6,
+                           min_cluster_size::Int=3, top_k::Int=30, print_results::Bool=true,
+                           case_filter_regex::Union{String, Nothing}=nothing)
     
-    Complete linkage analysis pipeline.
+    Complete association analysis pipeline.
     
     # Arguments
     - `genotypes`: DataFrame with genotype data
@@ -247,14 +247,14 @@ module linkage
     # Returns
     - `alleles`: Vector of unique allele names
     - `donors`: Vector of unique donor/case names
-    - `R`: Linkage disequilibrium matrix
+    - `R`: Phi coefficient matrix
     - `J`: Jaccard co-presence matrix
     - `SUP`: Support matrix
     - `S`: Similarity matrix
     - `clusters`: Vector of cluster indices
     - `hc`: Hierarchical clustering object
     """
-    function linkage_analysis(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol;
+    function association_analysis(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol;
                              similarity_mode::Symbol=:r, min_support::Int=3, 
                              jaccard_threshold::Float64=0.2, similarity_threshold::Float64=0.6,
                              min_cluster_size::Int=3, top_k::Int=30, print_results::Bool=true,
@@ -266,8 +266,8 @@ module linkage
             filter!(x -> startswith(x[case_col], Regex(case_filter_regex)), filtered_genotypes)
         end
         
-        # Compute linkage matrices
-        alleles, donors, R, J, SUP = compute_linkage_matrices(filtered_genotypes, case_col, allele_col)
+        # Compute association matrices
+        alleles, donors, R, J, SUP = compute_association_matrices(filtered_genotypes, case_col, allele_col)
         
         # Build similarity matrix
         S = build_similarity_matrix(R, J, SUP; 
@@ -294,8 +294,8 @@ module linkage
                                   similarity::Symbol=:r, similarity_threshold::Float64=0.5,
                                   min_cluster_size::Int=3)
     
-    Compute pairwise metrics table (edges) and complete-linkage clusters using positive-only r similarity 
-    gated by co-presence (Jaccard) and support (n11). Returns (edges_df, clusters, clusters_detailed).
+    Compute pairwise association metrics table (edges) and complete-linkage clusters using phi coefficient 
+    similarity gated by co-presence (Jaccard) and support (n11). Returns (edges_df, clusters, clusters_detailed).
     
     This function provides compatibility with the existing CLI interface.
     Note: Case filtering should be applied at the demultiplex stage, not here.
@@ -319,7 +319,7 @@ module linkage
         - donors: comma-separated list of donors having this allele
         - n_donors: number of donors having this allele
         - mean_n11, mean_n10, mean_n01, mean_n00: average pairwise counts
-        - mean_r, max_r, min_r: average, maximum, and minimum linkage disequilibrium r values
+        - mean_r, max_r, min_r: average, maximum, and minimum phi coefficient values
     """
     function compute_edges_and_clusters(df::DataFrame; 
                                       case_col::AbstractString="case", 
@@ -340,8 +340,8 @@ module linkage
         valid_alleles = allele_counts[allele_counts.count .>= min_donors, allele_sym]
         filtered_df = filter(x -> x[allele_sym] in valid_alleles, df)
         
-        # Run linkage analysis
-        alleles, donors, R, J, SUP, S, clusters, hc = linkage_analysis(
+        # Run association analysis
+        alleles, donors, R, J, SUP, S, clusters, hc = association_analysis(
             filtered_df, case_sym, allele_sym;
             similarity_mode=similarity,
             min_support=min_support,
@@ -457,14 +457,14 @@ module linkage
     end
 
     """
-        linkage_analysis_filtered(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol;
-                                 similarity_mode::Symbol=:r, min_support::Int=3, 
-                                 jaccard_threshold::Float64=0.2, similarity_threshold::Float64=0.6,
-                                 min_cluster_size::Int=3, top_k::Int=30, print_results::Bool=true,
-                                 case_filter_regex::String="[ACDERF]")
+        association_analysis_filtered(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol;
+                                     similarity_mode::Symbol=:r, min_support::Int=3, 
+                                     jaccard_threshold::Float64=0.2, similarity_threshold::Float64=0.6,
+                                     min_cluster_size::Int=3, top_k::Int=30, print_results::Bool=true,
+                                     case_filter_regex::String="[ACDERF]")
     
-    Convenience function for linkage analysis with case filtering.
-    Equivalent to calling linkage_analysis with the specified case_filter_regex.
+    Convenience function for association analysis with case filtering.
+    Equivalent to calling association_analysis with the specified case_filter_regex.
     
     # Arguments
     - `genotypes`: DataFrame with genotype data
@@ -482,19 +482,19 @@ module linkage
     # Returns
     - `alleles`: Vector of unique allele names
     - `donors`: Vector of unique donor/case names
-    - `R`: Linkage disequilibrium matrix
+    - `R`: Phi coefficient matrix
     - `J`: Jaccard co-presence matrix
     - `SUP`: Support matrix
     - `S`: Similarity matrix
     - `clusters`: Vector of cluster indices
     - `hc`: Hierarchical clustering object
     """
-    function linkage_analysis_filtered(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol;
-                                      similarity_mode::Symbol=:r, min_support::Int=3, 
-                                      jaccard_threshold::Float64=0.2, similarity_threshold::Float64=0.6,
-                                      min_cluster_size::Int=3, top_k::Int=30, print_results::Bool=true,
-                                      case_filter_regex::String="[ACDERF]")
-        return linkage_analysis(genotypes, case_col, allele_col;
+    function association_analysis_filtered(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol;
+                                          similarity_mode::Symbol=:r, min_support::Int=3, 
+                                          jaccard_threshold::Float64=0.2, similarity_threshold::Float64=0.6,
+                                          min_cluster_size::Int=3, top_k::Int=30, print_results::Bool=true,
+                                          case_filter_regex::String="[ACDERF]")
+        return association_analysis(genotypes, case_col, allele_col;
                               similarity_mode=similarity_mode, min_support=min_support,
                               jaccard_threshold=jaccard_threshold, similarity_threshold=similarity_threshold,
                               min_cluster_size=min_cluster_size, top_k=top_k, print_results=print_results,
@@ -502,23 +502,23 @@ module linkage
     end
 
     """
-        handle_linkage(parsed_args, always_gz)
+        handle_association(parsed_args, always_gz)
 
-    Handle linkage command from CLI arguments
+    Handle association command from CLI arguments
     """
-    function handle_linkage(parsed_args, always_gz)
-        @info "Linkage analysis"
-        tsv = parsed_args["analyze"]["linkage"]["input"]
-        edges_out = always_gz(parsed_args["analyze"]["linkage"]["edges"])
-        case_col = parsed_args["analyze"]["linkage"]["case-col"]
-        allele_col = parsed_args["analyze"]["linkage"]["allele-col"]
-        min_donors = parsed_args["analyze"]["linkage"]["min-donors"]
-        min_support = parsed_args["analyze"]["linkage"]["min-support"]
-        jaccard_threshold = parsed_args["analyze"]["linkage"]["min-jaccard"]
-        sim_mode = parsed_args["analyze"]["linkage"]["similarity"] == "r2" ? :r2 : :r
-        sim_thresh = parsed_args["analyze"]["linkage"]["threshold"]
-        min_cluster_size = parsed_args["analyze"]["linkage"]["min-cluster-size"]
-        clusters_path = get(parsed_args["analyze"]["linkage"], "clusters", nothing)
+    function handle_association(parsed_args, always_gz)
+        @info "Association analysis"
+        tsv = parsed_args["analyze"]["association"]["input"]
+        edges_out = always_gz(parsed_args["analyze"]["association"]["edges"])
+        case_col = parsed_args["analyze"]["association"]["case-col"]
+        allele_col = parsed_args["analyze"]["association"]["allele-col"]
+        min_donors = parsed_args["analyze"]["association"]["min-donors"]
+        min_support = parsed_args["analyze"]["association"]["min-support"]
+        jaccard_threshold = parsed_args["analyze"]["association"]["min-jaccard"]
+        sim_mode = parsed_args["analyze"]["association"]["similarity"] == "r2" ? :r2 : :r
+        sim_thresh = parsed_args["analyze"]["association"]["threshold"]
+        min_cluster_size = parsed_args["analyze"]["association"]["min-cluster-size"]
+        clusters_path = get(parsed_args["analyze"]["association"], "clusters", nothing)
         
         df = CSV.File(tsv, delim='\t') |> DataFrame
         @info "Loaded $(nrow(df)) rows from input file"
