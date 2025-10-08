@@ -8,7 +8,7 @@ module heptamer
     include("data.jl")
     using .data
 
-    export extract_heptamers, summarize, load_heptamers
+    export extract_heptamers, summarize, load_heptamers, handle_heptamer
 
     """
         find_heptamer(suffix, heptamer_iter; max_dist=1, heptamer_length=7)
@@ -137,6 +137,36 @@ module heptamer
         collapse_df_filtered = collapse_df[((collapse_df.ratio .>= ratio) .& (collapse_df.allele_count .>= count)),:]
         unique_df = sort(unique(sort(collapse_df_filtered,:full_count,rev=true), [:new_name, :sequence, :case,:heptamer,:allele_count]),[:case,:new_name])
         unique_df
+    end
+
+    """
+        handle_heptamer(parsed_args, immunediscover_module, always_gz)
+
+    Handle heptamer command from CLI arguments
+    """
+    function handle_heptamer(parsed_args, immunediscover_module, always_gz)
+        @info "Extracting heptamers"
+        heptamers = load_heptamers(parsed_args["search"]["heptamer"]["json"])
+        chain = parsed_args["search"]["heptamer"]["chain"]
+        @info "Parsing for $(chain)"
+        @info "Using heptamers $(join(heptamers[chain],','))"
+        db = immunediscover_module.load_fasta(parsed_args["search"]["heptamer"]["fasta"])
+        @info "Loaded $(length(db)) query sequences"
+        table = immunediscover_module.load_demultiplex(parsed_args["search"]["heptamer"]["tsv"])
+        data = extract_heptamers(table, db, heptamers[chain]; 
+                                 max_dist=parsed_args["search"]["heptamer"]["maxdist"], 
+                                 b=parsed_args["search"]["heptamer"]["begin"]+1, 
+                                 e=parsed_args["search"]["heptamer"]["end"])
+        output = always_gz(parsed_args["search"]["heptamer"]["output"])
+        CSV.write(output, data, compress=true, delim='\t')
+        @info "Heptamer data saved in compressed $output file"
+        @info "Summarizing"
+        data_df = CSV.File(output, delim='\t') |> DataFrame
+        unique_summary = summarize(data_df, db, 
+                                   ratio=parsed_args["search"]["heptamer"]["ratio"],
+                                   count=parsed_args["search"]["heptamer"]["mincount"])
+        CSV.write(parsed_args["search"]["heptamer"]["summary"], unique_summary, delim='\t')
+        @info "Summary heptamer data saved in compressed $(parsed_args["search"]["heptamer"]["summary"]) file"
     end
 
 end

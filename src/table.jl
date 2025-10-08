@@ -2,8 +2,10 @@ module table
     using CSV
     using DataFrames
     using Logging
+    using Glob
 
     export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv, sort_tsv, select_tsv
+    export handle_table
 
     """
         outerjoin_tsv(left_file, right_file, output_file; left_keys, right_keys, left_prefix, right_prefix, left_select, right_select)
@@ -551,5 +553,212 @@ module table
         @info "Selected data saved to: $output_gz"
         
         return selected_df
+    end
+
+    """
+        handle_table(parsed_args, immunediscover_module, always_gz)
+
+    Handle table group commands (dispatcher for table subcommands)
+    """
+    function handle_table(parsed_args, immunediscover_module, always_gz)
+        subcmd = get(parsed_args["table"], "%COMMAND%", "")
+        
+        if subcmd == "outerjoin"
+            @info "Performing outer join"
+            left_keys = split(parsed_args["table"]["outerjoin"]["keys"], ",")
+            right_keys = get(parsed_args["table"]["outerjoin"], "right-keys", nothing)
+            if right_keys !== nothing
+                right_keys = split(right_keys, ",")
+            end
+            left_prefix = get(parsed_args["table"]["outerjoin"], "left-prefix", nothing)
+            right_prefix = get(parsed_args["table"]["outerjoin"], "right-prefix", nothing)
+            left_select = get(parsed_args["table"]["outerjoin"], "left-select", nothing)
+            right_select = get(parsed_args["table"]["outerjoin"], "right-select", nothing)
+            
+            if left_select !== nothing
+                left_select = split(left_select, ",")
+            end
+            if right_select !== nothing
+                right_select = split(right_select, ",")
+            end
+            
+            outerjoin_tsv(
+                parsed_args["table"]["outerjoin"]["left"],
+                parsed_args["table"]["outerjoin"]["right"],
+                parsed_args["table"]["outerjoin"]["output"];
+                left_keys=left_keys,
+                right_keys=right_keys,
+                left_prefix=left_prefix,
+                right_prefix=right_prefix,
+                left_select=left_select,
+                right_select=right_select
+            )
+        elseif subcmd == "leftjoin"
+            @info "Performing left join"
+            left_keys = split(parsed_args["table"]["leftjoin"]["keys"], ",")
+            right_keys = get(parsed_args["table"]["leftjoin"], "right-keys", nothing)
+            if right_keys !== nothing
+                right_keys = split(right_keys, ",")
+            end
+            left_prefix = get(parsed_args["table"]["leftjoin"], "left-prefix", nothing)
+            right_prefix = get(parsed_args["table"]["leftjoin"], "right-prefix", nothing)
+            left_select = get(parsed_args["table"]["leftjoin"], "left-select", nothing)
+            right_select = get(parsed_args["table"]["leftjoin"], "right-select", nothing)
+            
+            if left_select !== nothing
+                left_select = split(left_select, ",")
+            end
+            if right_select !== nothing
+                right_select = split(right_select, ",")
+            end
+            
+            leftjoin_tsv(
+                parsed_args["table"]["leftjoin"]["left"],
+                parsed_args["table"]["leftjoin"]["right"],
+                parsed_args["table"]["leftjoin"]["output"];
+                left_keys=left_keys,
+                right_keys=right_keys,
+                left_prefix=left_prefix,
+                right_prefix=right_prefix,
+                left_select=left_select,
+                right_select=right_select
+            )
+        elseif subcmd == "transform"
+            @info "Transforming TSV file"
+            new_column = get(parsed_args["table"]["transform"], "new-column", nothing)
+            transform_tsv(
+                parsed_args["table"]["transform"]["input"],
+                parsed_args["table"]["transform"]["output"];
+                column=parsed_args["table"]["transform"]["column"],
+                pattern=parsed_args["table"]["transform"]["pattern"],
+                replacement=parsed_args["table"]["transform"]["replacement"],
+                new_column=new_column
+            )
+        elseif subcmd == "aggregate"
+            @info "Aggregating TSV file"
+            group_by = split(parsed_args["table"]["aggregate"]["group-by"], ",")
+            keep_columns = get(parsed_args["table"]["aggregate"], "keep-columns", nothing)
+            if keep_columns !== nothing
+                keep_columns = split(keep_columns, ",")
+            end
+            count_column = get(parsed_args["table"]["aggregate"], "count-column", "count")
+            aggregate_tsv(
+                parsed_args["table"]["aggregate"]["input"],
+                parsed_args["table"]["aggregate"]["output"];
+                group_by=group_by,
+                keep_columns=keep_columns,
+                count_column=count_column
+            )
+        elseif subcmd == "unique"
+            @info "Creating unique rows"
+            columns = split(parsed_args["table"]["unique"]["columns"], ",")
+            unique_tsv(
+                parsed_args["table"]["unique"]["input"],
+                parsed_args["table"]["unique"]["output"];
+                columns=columns
+            )
+        elseif subcmd == "sort"
+            @info "Sorting TSV file"
+            columns = split(parsed_args["table"]["sort"]["columns"], ",")
+            reverse = get(parsed_args["table"]["sort"], "reverse", false)
+            sort_tsv(
+                parsed_args["table"]["sort"]["input"],
+                parsed_args["table"]["sort"]["output"];
+                columns=columns,
+                reverse=reverse
+            )
+        elseif subcmd == "filter"
+            @info "Filtering TSV file"
+            column = parsed_args["table"]["filter"]["column"]
+            pattern = get(parsed_args["table"]["filter"], "pattern", nothing)
+            operator = get(parsed_args["table"]["filter"], "operator", nothing)
+            threshold = get(parsed_args["table"]["filter"], "threshold", nothing)
+            
+            filter_tsv(
+                parsed_args["table"]["filter"]["input"],
+                parsed_args["table"]["filter"]["output"],
+                column;
+                pattern=pattern,
+                operator=operator,
+                threshold=threshold
+            )
+        elseif subcmd == "select"
+            @info "Selecting columns from TSV file"
+            columns = split(parsed_args["table"]["select"]["columns"], ",")
+            
+            select_tsv(
+                parsed_args["table"]["select"]["input"],
+                parsed_args["table"]["select"]["output"];
+                columns=columns
+            )
+        elseif subcmd == "fasta"
+            @info "Exporting TSV to FASTA"
+            immunediscover_module.fasta.extract_sequences_to_fasta(
+                parsed_args["table"]["fasta"]["input"],
+                parsed_args["table"]["fasta"]["output"];
+                colname = parsed_args["table"]["fasta"]["colname"],
+                colseq = parsed_args["table"]["fasta"]["colseq"],
+                coldesc = parsed_args["table"]["fasta"]["coldesc"],
+                filter_pattern = parsed_args["table"]["fasta"]["filter"],
+                desc_filter_pattern = parsed_args["table"]["fasta"]["desc-filter"],
+                cleanup_pattern = parsed_args["table"]["fasta"]["cleanup"],
+                sort_by_name = !parsed_args["table"]["fasta"]["no-sort"],
+                mincase = parsed_args["table"]["fasta"]["mincase"],
+                case_col = parsed_args["table"]["fasta"]["case-col"]
+            )
+        elseif subcmd == "collect"
+            @info "Collecting TSV files"
+            pattern = parsed_args["table"]["collect"]["pattern"]
+            output = parsed_args["table"]["collect"]["output"]
+            files = glob(pattern)
+            @info "Found $(length(files)) files matching pattern $pattern"
+            collected = []
+            if length(files) > 0
+                @info "Collecting files"
+                first_file_columns = nothing
+                for file in files
+                    df = CSV.File(file, delim='\t') |> DataFrame
+                    df[:, :file] .= file
+                    if first_file_columns === nothing
+                        first_file_columns = names(df)
+                    else
+                        @assert first_file_columns == names(df) "Column names in $file do not match first file"
+                    end
+                    push!(collected, df)
+                end
+                @info "Saving collected data in $output"
+                collectd_df = vcat(collected...)
+                CSV.write(output, collectd_df, delim='\t', compress=true)
+            else
+                @warn "No files found matching pattern $pattern"
+            end
+        elseif subcmd == "exclude"
+            @info "Exclude"
+            db = immunediscover_module.load_fasta(parsed_args["table"]["exclude"]["fasta"])
+            colname = parsed_args["table"]["exclude"]["colname"]
+            @info "Using $colname column"
+            colseq = parsed_args["table"]["exclude"]["colseq"]
+            @info "Using $colseq column"
+            data = CSV.File(parsed_args["table"]["exclude"]["input"], delim='\t') |> DataFrame
+            discard = Set{Tuple{String,String,String}}()
+            for row in eachrow(data)
+                for (name, seq) in db
+                    if occursin(row[colseq], seq)
+                        @info "Allele $(row[colname]) is a substring of $(name)"
+                        push!(discard, (name, row[colname], row[colseq]))
+                    end
+                    if occursin(seq, row[colseq])
+                        @info "Allele $(name) is a substring of $(row[colname])"
+                        push!(discard, (name, row[colname], row[colseq]))
+                    end
+                end
+            end
+            for (name, allele_name, seq) in discard
+                @info "Discarding fasta $allele_name with name $name"
+                filter!(x->x[colseq] != seq, data)
+            end
+            output = always_gz(parsed_args["table"]["exclude"]["output"])
+            CSV.write(output, data, compress=true, delim='\t')
+        end
     end
 end

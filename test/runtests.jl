@@ -9,10 +9,7 @@ using immunediscover.demultiplex
 using immunediscover.simulate
 using immunediscover.data
 using immunediscover.profile
-using immunediscover.trim
 using immunediscover.exact
-using immunediscover.hamming
-using immunediscover.patterns
 using immunediscover.heptamer
 using immunediscover.keyedsets
 using immunediscover.blast
@@ -21,7 +18,6 @@ using immunediscover.fasta
 using immunediscover.merge
 using immunediscover.haplotype
 using immunediscover.bwa
-using immunediscover.regex
 using Glob
 
 # Initialize a dictionary to track test outcomes
@@ -186,13 +182,14 @@ test_outcomes = Dict(
         @testset "exact.jl" begin
             # CLI
             empty!(ARGS)
-            append!(ARGS, ["exact", "test.tsv.gz", "novel.fasta", "test_exact.tsv.gz"])
+            append!(ARGS, ["search", "exact", "test.tsv.gz", "novel.fasta", "test_exact.tsv.gz"])
             parsed_args = cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "exact"
-            @test parsed_args["exact"]["tsv"] == "test.tsv.gz"
-            @test parsed_args["exact"]["fasta"] == "novel.fasta"
-            @test parsed_args["exact"]["output"] == "test_exact.tsv.gz"
-            @test parsed_args["exact"]["gene"] == "V"
+            @test parsed_args["%COMMAND%"] == "search"
+            @test parsed_args["search"]["%COMMAND%"] == "exact"
+            @test parsed_args["search"]["exact"]["tsv"] == "test.tsv.gz"
+            @test parsed_args["search"]["exact"]["fasta"] == "novel.fasta"
+            @test parsed_args["search"]["exact"]["output"] == "test_exact.tsv.gz"
+            @test parsed_args["search"]["exact"]["gene"] == "V"
 
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
@@ -213,28 +210,6 @@ test_outcomes = Dict(
             @test length(flanking.sequence) == length(sequence)
         end
 
-        @testset "hamming.jl" begin
-            # CLI
-            empty!(ARGS)
-            append!(ARGS, ["hamming", "test.tsv.gz", "novel.fasta", "test_hamming.tsv.gz", "--maxdist", "10", "-f", "genomic_sequence"])
-            parsed_args = cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "hamming"
-            @test parsed_args["hamming"]["tsv"] == "test.tsv.gz"
-            @test parsed_args["hamming"]["fasta"] == "novel.fasta"
-            @test parsed_args["hamming"]["output"] == "test_hamming.tsv.gz"
-            @test parsed_args["hamming"]["maxdist"] == 10
-            @test parsed_args["hamming"]["column"] == "genomic_sequence"
-
-            # Module
-            table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            db = data.load_fasta("novel.fasta", validate=false)
-            mincount = 1
-            minfreq = 0.01
-            counts = hamming.hamming_search(table, db, max_dist=10, column="genomic_sequence", check_bounds=true, umi=false)
-            summary = hamming.summarize(counts, db, min_count=mincount, cluster_ratio=minfreq)
-            @test nrow(counts) > 0
-            @test nrow(summary) > 0
-        end
 
         @testset "profile.jl" begin
             # Get heptamer sequences from simulated data
@@ -249,106 +224,46 @@ test_outcomes = Dict(
             @test size(prof) == (4, length(first(motifs)))
         end
 
-        @testset "trim.jl" begin
-            # Argument Parsing Tests
-            empty!(ARGS)
-            append!(ARGS, ["trim", "test.tsv.gz", "novel.fasta", "test_trim.tsv", "-l", "7"])
-            parsed_args = cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "trim"
-            @test parsed_args["trim"]["input"] == "test.tsv.gz"
-            @test parsed_args["trim"]["fasta"] == "novel.fasta"
-            @test parsed_args["trim"]["output"] == "test_trim.tsv"
-            @test parsed_args["trim"]["length"] == 7
 
-            # Get test sequence from simulated data
-            table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            read = first(table.genomic_sequence)
-            db = data.load_fasta("novel.fasta", validate=false)
-            println("Number of sequences in database: ", length(db))
-            motifs = [string(db[i][2][1:7]) for i in 1:min(3, length(db))]
-            println("Extracted motifs: ", motifs)
-
-            # Generating profiles for motifs
-            prof_start = profile.motif_profile(motifs)
-            prof_stop = prof_start
-
-            # Find Max Probability Position Tests
-            start = trim.find_maxprob_pos(read, prof_start)
-            @test start > 0
-            stop = trim.find_maxprob_pos(read[start+size(prof_start,2):end], prof_stop)
-            @test stop > 0
-
-            # Test trim_profiles
-            trimmed_profs = trim.trim_profiles(motifs, 3)
-            @test length(trimmed_profs) == 2
-            @test all(size.(trimmed_profs) .== Ref((4, 3)))
-        end
-
-        @testset "pattern.jl" begin
-            # CLI
-            empty!(ARGS)
-            append!(ARGS, ["pattern", "test.tsv.gz", "novel.fasta", "test_pattern.tsv.gz"])
-            parsed_args = cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "pattern"
-            @test parsed_args["pattern"]["input"] == "test.tsv.gz"
-            @test parsed_args["pattern"]["fasta"] == "novel.fasta"
-            @test parsed_args["pattern"]["output"] == "test_pattern.tsv.gz"
-
-            # Module tests
-            table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            db = data.load_fasta("novel.fasta", validate=false)
-            db_df = DataFrame(db, [:id, :seq])
-            db_df.gene = [split(x, "_")[1] for x in db_df.id]
-            blacklist = first(groupby(db_df, :gene))  # Use first group as blacklist
-
-            @test split_kmers("ATCGATCG", 3) == ["CGA", "GAT"]
-            @test isempty(split_kmers("", 3))
-            @test isempty(split_kmers("ATCG", 5))
-
-            # Test find_unique_fragments
-            group_df = DataFrame(seq = ["ATCGATCG", "ATCGATCGAAA", "ATCGATCGCCCC"])
-            outgroup_df = DataFrame(seq = ["AATTCCGG", "TTAACCG"])
-            fragments = find_unique_fragments(group_df, outgroup_df; fragment_size = 4, max_fragment_size = 4)
-            @test length(fragments) > 0
-        end
 
         @testset "heptamer.jl" begin
             # CLI
             empty!(ARGS)
-            append!(ARGS, ["heptamer", "test.tsv.gz", "novel.fasta", "test_heptamer.tsv.gz", "test_summary.tsv"])
+            append!(ARGS, ["search", "heptamer", "test.tsv.gz", "novel.fasta", "test_heptamer.tsv.gz", "test_summary.tsv"])
             parsed_args = cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "heptamer"
-                @test parsed_args["heptamer"]["tsv"] == "test.tsv.gz"
-                @test parsed_args["heptamer"]["fasta"] == "novel.fasta"
-                @test parsed_args["heptamer"]["output"] == "test_heptamer.tsv.gz"
-                @test parsed_args["heptamer"]["summary"] == "test_summary.tsv"
-                @test parsed_args["heptamer"]["chain"] == "IGHV"
+            @test parsed_args["%COMMAND%"] == "search"
+            @test parsed_args["search"]["%COMMAND%"] == "heptamer"
+            @test parsed_args["search"]["heptamer"]["tsv"] == "test.tsv.gz"
+            @test parsed_args["search"]["heptamer"]["fasta"] == "novel.fasta"
+            @test parsed_args["search"]["heptamer"]["output"] == "test_heptamer.tsv.gz"
+            @test parsed_args["search"]["heptamer"]["summary"] == "test_summary.tsv"
+            @test parsed_args["search"]["heptamer"]["chain"] == "IGHV"
 
-                # Preparing test data from simulation
-                table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-                db = data.load_fasta("novel.fasta", validate=false)
-                heptamers = heptamer.load_heptamers(parsed_args["heptamer"]["json"])
+            # Preparing test data from simulation
+            table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
+            db = data.load_fasta("novel.fasta", validate=false)
+            heptamers = heptamer.load_heptamers(parsed_args["search"]["heptamer"]["json"])
 
-                # Extract Heptamers Tests
-                heptamer_df = heptamer.extract_heptamers(
-                    table,
-                    db,
-                    heptamers[parsed_args["heptamer"]["chain"]];
-                    max_dist=parsed_args["heptamer"]["maxdist"],
-                    b=parsed_args["heptamer"]["begin"]+1,
-                    e=parsed_args["heptamer"]["end"]
-                )
-                @test nrow(heptamer_df) > 0
+            # Extract Heptamers Tests
+            heptamer_df = heptamer.extract_heptamers(
+                table,
+                db,
+                heptamers[parsed_args["search"]["heptamer"]["chain"]];
+                max_dist=parsed_args["search"]["heptamer"]["maxdist"],
+                b=parsed_args["search"]["heptamer"]["begin"]+1,
+                e=parsed_args["search"]["heptamer"]["end"]
+            )
+            @test nrow(heptamer_df) > 0
 
-                # Summarize Heptamers Tests
-                summary_df = heptamer.summarize(
-                    heptamer_df,
-                    db,
-                    ratio=parsed_args["heptamer"]["ratio"],
-                    count=parsed_args["heptamer"]["mincount"]
-                )
-                @test nrow(summary_df) > 0
-            end
+            # Summarize Heptamers Tests
+            summary_df = heptamer.summarize(
+                heptamer_df,
+                db,
+                ratio=parsed_args["search"]["heptamer"]["ratio"],
+                count=parsed_args["search"]["heptamer"]["mincount"]
+            )
+            @test nrow(summary_df) > 0
+        end
         else
             println("Skipping remaining tests due to failed dependencies")
         end
@@ -369,15 +284,16 @@ test_outcomes = Dict(
     end
 
     @testset "fasta.jl" begin
-        # CLI
+        # CLI - fasta export is now under table group
         empty!(ARGS)
-        append!(ARGS, ["fasta", "test.tsv.gz", "test_fasta_output.fasta"])
+        append!(ARGS, ["table", "fasta", "test.tsv.gz", "test_fasta_output.fasta"])
         parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "fasta"
-        @test parsed_args["fasta"]["input"] == "test.tsv.gz"
-        @test parsed_args["fasta"]["output"] == "test_fasta_output.fasta"
-        @test parsed_args["fasta"]["colname"] == "allele_name"
-        @test parsed_args["fasta"]["colseq"] == "seq"
+        @test parsed_args["%COMMAND%"] == "table"
+        @test parsed_args["table"]["%COMMAND%"] == "fasta"
+        @test parsed_args["table"]["fasta"]["input"] == "test.tsv.gz"
+        @test parsed_args["table"]["fasta"]["output"] == "test_fasta_output.fasta"
+        @test parsed_args["table"]["fasta"]["colname"] == "allele_name"
+        @test parsed_args["table"]["fasta"]["colseq"] == "seq"
 
         # Module - test with generated data
         test_data = DataFrame(
@@ -410,13 +326,14 @@ test_outcomes = Dict(
     end
 
     @testset "merge.jl" begin
-        # CLI
+        # CLI - merge is now under fasta group
         empty!(ARGS)
-        append!(ARGS, ["merge", "test_merge_output.fasta", "file1.fasta", "file2.fasta"])
+        append!(ARGS, ["fasta", "merge", "test_merge_output.fasta", "file1.fasta", "file2.fasta"])
         parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "merge"
-        @test parsed_args["merge"]["output"] == "test_merge_output.fasta"
-        @test parsed_args["merge"]["inputs"] == ["file1.fasta", "file2.fasta"]
+        @test parsed_args["%COMMAND%"] == "fasta"
+        @test parsed_args["fasta"]["%COMMAND%"] == "merge"
+        @test parsed_args["fasta"]["merge"]["output"] == "test_merge_output.fasta"
+        @test parsed_args["fasta"]["merge"]["inputs"] == ["file1.fasta", "file2.fasta"]
 
         # Module - test with generated FASTA files
         # Create test FASTA files
@@ -464,16 +381,17 @@ test_outcomes = Dict(
     end
 
     @testset "haplotype.jl" begin
-        # CLI
+        # CLI - haplotype is now under analyze group
         empty!(ARGS)
-        append!(ARGS, ["haplotype", "test_haplotype_input.tsv", "test_haplotype_output.tsv"])
+        append!(ARGS, ["analyze", "haplotype", "test_haplotype_input.tsv", "test_haplotype_output.tsv"])
         parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "haplotype"
-        @test parsed_args["haplotype"]["input"] == "test_haplotype_input.tsv"
-        @test parsed_args["haplotype"]["output"] == "test_haplotype_output.tsv"
-        @test parsed_args["haplotype"]["case-col"] == "case"
-        @test parsed_args["haplotype"]["allele-col"] == "db_name"
-        @test parsed_args["haplotype"]["gene-col"] == "gene"
+        @test parsed_args["%COMMAND%"] == "analyze"
+        @test parsed_args["analyze"]["%COMMAND%"] == "haplotype"
+        @test parsed_args["analyze"]["haplotype"]["input"] == "test_haplotype_input.tsv"
+        @test parsed_args["analyze"]["haplotype"]["output"] == "test_haplotype_output.tsv"
+        @test parsed_args["analyze"]["haplotype"]["case-col"] == "case"
+        @test parsed_args["analyze"]["haplotype"]["allele-col"] == "db_name"
+        @test parsed_args["analyze"]["haplotype"]["gene-col"] == "gene"
 
         # Module - test with generated data
         # Create test data that mimics exact search output
@@ -515,17 +433,18 @@ test_outcomes = Dict(
     end
 
     @testset "blast.jl" begin
-        # CLI
+        # CLI - blast is now under search group
         empty!(ARGS)
-        append!(ARGS, ["blast", "test_blast_input.tsv", "test_blast_db.fasta", "test_blast_output.tsv"])
+        append!(ARGS, ["search", "blast", "test_blast_input.tsv", "test_blast_db.fasta", "test_blast_output.tsv"])
         parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "blast"
-        @test parsed_args["blast"]["input"] == "test_blast_input.tsv"
-        @test parsed_args["blast"]["fasta"] == "test_blast_db.fasta"
-        @test parsed_args["blast"]["output"] == "test_blast_output.tsv"
-        @test parsed_args["blast"]["minfullcount"] == 5
-        @test parsed_args["blast"]["minfullfreq"] == 0.1
-        @test parsed_args["blast"]["subjectcov"] == 0.1
+        @test parsed_args["%COMMAND%"] == "search"
+        @test parsed_args["search"]["%COMMAND%"] == "blast"
+        @test parsed_args["search"]["blast"]["input"] == "test_blast_input.tsv"
+        @test parsed_args["search"]["blast"]["fasta"] == "test_blast_db.fasta"
+        @test parsed_args["search"]["blast"]["output"] == "test_blast_output.tsv"
+        @test parsed_args["search"]["blast"]["minfullcount"] == 5
+        @test parsed_args["search"]["blast"]["minfullfreq"] == 0.1
+        @test parsed_args["search"]["blast"]["subjectcov"] == 0.1
 
         # Module - test utility functions that don't require BLAST
         # Test read_fasta function
@@ -564,16 +483,17 @@ test_outcomes = Dict(
     end
 
     @testset "bwa.jl" begin
-        # CLI
+        # CLI - bwa is now under analyze group
         empty!(ARGS)
-        append!(ARGS, ["bwa", "test_bwa_input.tsv", "test_bwa_output.tsv", "genome1.fasta", "genome2.fasta"])
+        append!(ARGS, ["analyze", "bwa", "test_bwa_input.tsv", "test_bwa_output.tsv", "genome1.fasta", "genome2.fasta"])
         parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "bwa"
-        @test parsed_args["bwa"]["tsv"] == "test_bwa_input.tsv"
-        @test parsed_args["bwa"]["output"] == "test_bwa_output.tsv"
-        @test parsed_args["bwa"]["genome"] == ["genome1.fasta", "genome2.fasta"]
-        @test parsed_args["bwa"]["chromosome"] == "chromosome 14"
-        @test parsed_args["bwa"]["colname"] == "best_name"
+        @test parsed_args["%COMMAND%"] == "analyze"
+        @test parsed_args["analyze"]["%COMMAND%"] == "bwa"
+        @test parsed_args["analyze"]["bwa"]["tsv"] == "test_bwa_input.tsv"
+        @test parsed_args["analyze"]["bwa"]["output"] == "test_bwa_output.tsv"
+        @test parsed_args["analyze"]["bwa"]["genome"] == ["genome1.fasta", "genome2.fasta"]
+        @test parsed_args["analyze"]["bwa"]["chromosome"] == "chromosome 14"
+        @test parsed_args["analyze"]["bwa"]["colname"] == "best_name"
 
         # Module - test utility functions that don't require BWA
         # Test create_aligner function (this will fail without actual genome files, but we can test the structure)
@@ -618,70 +538,15 @@ test_outcomes = Dict(
         end
     end
 
-    @testset "regex.jl" begin
-        # CLI
-        empty!(ARGS)
-        append!(ARGS, ["regex", "test_regex_input.tsv", "test_regex_query.fasta", "test_regex_output.tsv"])
-        parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "regex"
-        @test parsed_args["regex"]["tsv"] == "test_regex_input.tsv"
-        @test parsed_args["regex"]["fasta"] == "test_regex_query.fasta"
-        @test parsed_args["regex"]["output"] == "test_regex_output.tsv"
-        @test parsed_args["regex"]["insert-minlen"] == 15
-        @test parsed_args["regex"]["insert-maxlen"] == 40
-        @test parsed_args["regex"]["flank-mincount"] == 50
-        @test parsed_args["regex"]["flank-frequency"] == 0.5
-
-        # Module - test utility functions
-        # Test longest_common_substring function
-        result = regex.longest_common_substring("ATCGATCG", "GATCGATC")
-        @test result == "ATCGATC"  # The actual longest common substring
-        
-        result = regex.longest_common_substring("AAAA", "BBBB")
-        @test result == ""
-        
-        result = regex.longest_common_substring("", "ATCG")
-        @test result == ""
-        
-        # Test flanks function
-        query = "ATCG"
-        target = "GGGATCGTTT"
-        result = regex.flanks(query, target, nprefix=2, nsuffix=2)
-        @test result == ("GG", "TT")
-        
-        # Test with query not found
-        query = "XXXX"
-        target = "GGGATCGTTT"
-        result = regex.flanks(query, target, nprefix=2, nsuffix=2)
-        @test result == ("", "")  # The function returns empty strings when not found
-        
-        # Test CSV loading for regex input
-        test_regex_data = DataFrame(
-            name = ["read1", "read2"],
-            sequence = ["ATCGATCG", "GCTAGCTA"],
-            well = ["A1", "A2"],
-            case = ["case1", "case2"]
-        )
-        CSV.write("test_regex_input.tsv", test_regex_data, delim='\t')
-        
-        loaded_df = CSV.read("test_regex_input.tsv", DataFrame, delim='\t')
-        @test nrow(loaded_df) == 2
-        @test "name" ∈ names(loaded_df)
-        @test "sequence" ∈ names(loaded_df)
-        
-        # Clean up test files
-        for file in ["test_regex_input.tsv"]
-            isfile(file) && rm(file)
-        end
-    end
 
     @testset "diff.jl" begin
-        # CLI
+        # CLI - diff is now under fasta group
         empty!(ARGS)
-        append!(ARGS, ["diff", "file1.fasta", "file2.fasta", "file3.fasta"])
+        append!(ARGS, ["fasta", "diff", "file1.fasta", "file2.fasta", "file3.fasta"])
         parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "diff"
-        @test parsed_args["diff"]["fasta"] == ["file1.fasta", "file2.fasta", "file3.fasta"]
+        @test parsed_args["%COMMAND%"] == "fasta"
+        @test parsed_args["fasta"]["%COMMAND%"] == "diff"
+        @test parsed_args["fasta"]["diff"]["fasta"] == ["file1.fasta", "file2.fasta", "file3.fasta"]
 
         # Module - test the diff functionality
         # Create test FASTA files
@@ -746,13 +611,14 @@ test_outcomes = Dict(
     end
 
     @testset "collect.jl" begin
-        # CLI
+        # CLI - collect is now under table group
         empty!(ARGS)
-        append!(ARGS, ["collect", "test_*.tsv", "test_collected.tsv"])
+        append!(ARGS, ["table", "collect", "test_*.tsv", "test_collected.tsv"])
         parsed_args = cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "collect"
-        @test parsed_args["collect"]["pattern"] == "test_*.tsv"
-        @test parsed_args["collect"]["output"] == "test_collected.tsv"
+        @test parsed_args["%COMMAND%"] == "table"
+        @test parsed_args["table"]["%COMMAND%"] == "collect"
+        @test parsed_args["table"]["collect"]["pattern"] == "test_*.tsv"
+        @test parsed_args["table"]["collect"]["output"] == "test_collected.tsv"
 
         # Module - test the collect functionality
         # Create test TSV files with the same structure
@@ -848,8 +714,7 @@ test_outcomes = Dict(
 
     # Cleanup test files
     for file in ["test.fasta", "reference.fasta", "novel.fasta", "test_indices.tsv",
-                 "test.tsv.gz", "test_exact.tsv.gz", "test_hamming.tsv.gz",
-                 "test_trim.tsv", "test_pattern.tsv.gz", "test_heptamer.tsv.gz",
+                 "test.tsv.gz", "test_exact.tsv.gz", "test_heptamer.tsv.gz",
                  "test_summary.tsv"]
         isfile(file) && rm(file)
     end

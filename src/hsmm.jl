@@ -888,6 +888,38 @@ function run_hsmm(tsv::String, fasta::String, output::String;
     return collapsed
 end
 
+"""
+    handle_hsmm(parsed_args)
+
+Handle HSMM command from CLI arguments
+"""
+function handle_hsmm(parsed_args)
+    @info "HSMM D detection"
+    tsv = parsed_args["search"]["hsmm"]["tsv"]
+    fasta = parsed_args["search"]["hsmm"]["fasta"]
+    output = parsed_args["search"]["hsmm"]["output"]
+    ratio = parsed_args["search"]["hsmm"]["ratio"]
+    mincount = parsed_args["search"]["hsmm"]["mincount"]
+    min_posterior = parsed_args["search"]["hsmm"]["min-posterior"]
+    min_gene_len = parsed_args["search"]["hsmm"]["min-gene-len"]
+    max_gene_len = parsed_args["search"]["hsmm"]["max-gene-len"]
+    limit = parsed_args["search"]["hsmm"]["limit"]
+    out_mincount = parsed_args["search"]["hsmm"]["out-mincount"]
+    out_minratio = parsed_args["search"]["hsmm"]["out-minratio"]
+    min_heptamer_prob_pre = parsed_args["search"]["hsmm"]["min-heptamer-prob-pre"]
+    min_heptamer_prob_post = parsed_args["search"]["hsmm"]["min-heptamer-prob-post"]
+    
+    run_hsmm(tsv, fasta, output; 
+             ratio=ratio, mincount=mincount, 
+             min_gene_len=min_gene_len, max_gene_len=max_gene_len, 
+             limit=limit, min_posterior=min_posterior, 
+             out_mincount=out_mincount, out_minratio=out_minratio, 
+             min_heptamer_prob_pre=min_heptamer_prob_pre, 
+             min_heptamer_prob_post=min_heptamer_prob_post)
+end
+
+export handle_hsmm
+
 end # module HSMM
 
 

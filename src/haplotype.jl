@@ -17,7 +17,7 @@ using CSV
 using Statistics
 using FASTX
 
-export infer_haplotypes
+export infer_haplotypes, handle_haplotype
 
 """
     load_novel_alleles(fasta_path::String) -> Set{String}
@@ -274,6 +274,33 @@ function infer_haplotypes(input_file::String, output_file::String;
     @info "  Results saved to: $output_file"
     
     return results_df
+end
+
+"""
+    handle_haplotype(parsed_args)
+
+Handle haplotype command from CLI arguments
+"""
+function handle_haplotype(parsed_args)
+    @info "Haplotype inference"
+    input_file = parsed_args["analyze"]["haplotype"]["input"]
+    output_file = parsed_args["analyze"]["haplotype"]["output"]
+    case_col = parsed_args["analyze"]["haplotype"]["case-col"]
+    allele_col = parsed_args["analyze"]["haplotype"]["allele-col"]
+    gene_col = parsed_args["analyze"]["haplotype"]["gene-col"]
+    mincount = parsed_args["analyze"]["haplotype"]["mincount"]
+    min_ratio = parsed_args["analyze"]["haplotype"]["min-ratio"]
+    novel_fasta = get(parsed_args["analyze"]["haplotype"], "novel-fasta", nothing)
+    
+    infer_haplotypes(
+        input_file, output_file;
+        case_col=case_col,
+        allele_col=allele_col,
+        gene_col=gene_col,
+        mincount=mincount,
+        min_ratio=min_ratio,
+        novel_fasta=novel_fasta
+    )
 end
 
 end # module

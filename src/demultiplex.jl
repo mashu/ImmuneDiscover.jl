@@ -3,8 +3,12 @@ module demultiplex
     using FASTX
     using DataFrames
     using Statistics
+    using UnicodePlots
+    using Logging
     include("data.jl")
     using .data
+
+    export demux, handle_demultiplex
 
     """
         demux(fastq_path, indices_path, array_index=""; min_length=0, save_fastq_files=false)
@@ -93,5 +97,54 @@ module demultiplex
         sort!(stats, :well)
 
         return records_df[:, [:well, :case, :name, :genomic_sequence]], stats
+    end
+
+    """
+        handle_demultiplex(parsed_args, always_gz)
+
+    Handle demultiplex command from CLI arguments
+    """
+    function handle_demultiplex(parsed_args, always_gz)
+        @info "Demultiplexing"
+        table, stats = demux(
+            parsed_args["demultiplex"]["fastq"],
+            parsed_args["demultiplex"]["indices"],
+            parsed_args["demultiplex"]["forwardarrayindex"],
+            min_length=parsed_args["demultiplex"]["length"],
+            save_fastq_files=parsed_args["demultiplex"]["split"]
+        )
+        
+        # Apply case filtering if regex is provided
+        case_filter_regex = get(parsed_args["demultiplex"], "case-filter-regex", nothing)
+        if case_filter_regex !== nothing
+            @info "Filtering cases with regex: $case_filter_regex"
+            original_count = nrow(table)
+            filter!(x -> startswith(x.case, Regex(case_filter_regex)), table)
+            filtered_count = nrow(table)
+            @info "Filtered from $original_count to $filtered_count rows ($(original_count - filtered_count) rows removed)"
+        end
+        
+        # Calculate and display demultiplexing summary
+        unique_cases = length(Base.unique(table.case))
+        unique_wells = length(Base.unique(table.well))
+        unique_well_case_pairs = length(Base.unique(zip(table.well, table.case)))
+        total_sequences = nrow(table)
+        
+        @info "Demultiplexing summary:"
+        @info "  - Total sequences demultiplexed: $total_sequences"
+        @info "  - Unique cases: $unique_cases"
+        @info "  - Unique wells: $unique_wells"
+        @info "  - Unique well-case pairs: $unique_well_case_pairs"
+        
+        logfile = "$(parsed_args["demultiplex"]["output"]).log"
+        CSV.write(logfile, stats, delim='\t')
+        count_df = combine(groupby(table, :case), :case => length => :count)
+        sort!(count_df, :count, rev=true)
+        @info "Demultiplexing statistics"
+        println(barplot(count_df.case, count_df.count))
+        output = always_gz(parsed_args["demultiplex"]["output"])
+        CSV.write(output, table, compress=true, delim='\t')
+        @info "Demultiplexing data saved in compressed $output file"
+        @info "Demultiplexing detailed statistics saved in $logfile file"
     end
 end

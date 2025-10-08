@@ -8,7 +8,7 @@ module linkage
 
     export compute_linkage_matrices, build_similarity_matrix, perform_clustering, 
            print_clusters, print_top_links, linkage_analysis, linkage_analysis_filtered,
-           compute_edges_and_clusters
+           compute_edges_and_clusters, handle_linkage
 
     """
         compute_linkage_matrices(genotypes::DataFrame, case_col::Symbol, allele_col::Symbol)
@@ -499,6 +499,61 @@ module linkage
                               jaccard_threshold=jaccard_threshold, similarity_threshold=similarity_threshold,
                               min_cluster_size=min_cluster_size, top_k=top_k, print_results=print_results,
                               case_filter_regex=case_filter_regex)
+    end
+
+    """
+        handle_linkage(parsed_args, always_gz)
+
+    Handle linkage command from CLI arguments
+    """
+    function handle_linkage(parsed_args, always_gz)
+        @info "Linkage analysis"
+        tsv = parsed_args["analyze"]["linkage"]["input"]
+        edges_out = always_gz(parsed_args["analyze"]["linkage"]["edges"])
+        case_col = parsed_args["analyze"]["linkage"]["case-col"]
+        allele_col = parsed_args["analyze"]["linkage"]["allele-col"]
+        min_donors = parsed_args["analyze"]["linkage"]["min-donors"]
+        min_support = parsed_args["analyze"]["linkage"]["min-support"]
+        jaccard_threshold = parsed_args["analyze"]["linkage"]["min-jaccard"]
+        sim_mode = parsed_args["analyze"]["linkage"]["similarity"] == "r2" ? :r2 : :r
+        sim_thresh = parsed_args["analyze"]["linkage"]["threshold"]
+        min_cluster_size = parsed_args["analyze"]["linkage"]["min-cluster-size"]
+        clusters_path = get(parsed_args["analyze"]["linkage"], "clusters", nothing)
+        
+        df = CSV.File(tsv, delim='\t') |> DataFrame
+        @info "Loaded $(nrow(df)) rows from input file"
+        
+        edges, clusters, clusters_detailed = compute_edges_and_clusters(
+            df; case_col=case_col, allele_col=allele_col, min_donors=min_donors,
+            min_support=min_support, jaccard_threshold=jaccard_threshold,
+            similarity=sim_mode, similarity_threshold=sim_thresh, min_cluster_size=min_cluster_size
+        )
+        
+        CSV.write(edges_out, edges, compress=true, delim='\t')
+        @info "Edges saved in compressed $edges_out file ($(nrow(edges)) pairs)"
+        
+        if clusters_path !== nothing
+            all_cluster_rows = Vector{NamedTuple}()
+            for (gid, cluster_df) in enumerate(clusters_detailed)
+                for row in eachrow(cluster_df)
+                    push!(all_cluster_rows, (
+                        group_id = gid,
+                        allele = row.allele,
+                        donors = row.donors,
+                        n_donors = row.n_donors,
+                        mean_n11 = row.mean_n11,
+                        mean_n10 = row.mean_n10,
+                        mean_n01 = row.mean_n01,
+                        mean_n00 = row.mean_n00,
+                        mean_r = row.mean_r,
+                        max_r = row.max_r,
+                        min_r = row.min_r
+                    ))
+                end
+            end
+            CSV.write(clusters_path, DataFrame(all_cluster_rows), delim='\t')
+            @info "Clusters saved in $(clusters_path) ($(length(clusters)) clusters, $(length(all_cluster_rows)) alleles)"
+        end
     end
 
 end

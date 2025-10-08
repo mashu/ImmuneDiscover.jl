@@ -169,5 +169,43 @@ module bwa
         return result, position, edit_distance, ref_sequence, orientation
     end
 
-    export bwa_sequences
+    """
+        handle_bwa(parsed_args, immunediscover_module, always_gz)
+
+    Handle BWA command from CLI arguments
+    """
+    function handle_bwa(parsed_args, immunediscover_module, always_gz)
+        @info "BWA search to filter candidates if they match correct chromosome"
+        df = CSV.File(parsed_args["analyze"]["bwa"]["tsv"], delim='\t') |> DataFrame
+        chromosome_name = parsed_args["analyze"]["bwa"]["chromosome"]
+        outtsv = parsed_args["analyze"]["bwa"]["output"]
+        genome = parsed_args["analyze"]["bwa"]["genome"]
+        colname = parsed_args["analyze"]["bwa"]["colname"]
+        colseq = parsed_args["analyze"]["bwa"]["colseq"]
+        tag = parsed_args["analyze"]["bwa"]["tag"]
+        @info "Using columns: $colname, $colseq"
+        @info "Using genome: $genome"
+        @info "Filter by chromosome: $chromosome_name and $tag tag"
+        
+        sequences = map(eachrow(df)) do row
+            concatenated_sequence = immunediscover_module.concatenate_columns(row, colseq)
+            (row[colname], concatenated_sequence)
+        end
+        
+        indices, position, edit_distance, ref_sequence, orientation = bwa_sequences(genome, sequences, chromosome_name, tag=tag)
+        df[:, :position] = position
+        df[:, :edit_distance] = edit_distance
+        df[:, :ref_sequence] = ref_sequence
+        df[:, :orientation] = orientation
+        @info "$(length(sequences))"
+        @info "$(nrow(df)) sequences matched chromosome $chromosome_name"
+        @info "$(length(indices)) sequences matched chromosome $chromosome_name"
+        @info "$(indices[1:10])"
+        @info "$(df[1:10,:])"
+        
+        CSV.write(outtsv, df[indices,:], compress=true, delim='\t')
+        @info "Filtered result saved in $outtsv"
+    end
+
+    export bwa_sequences, handle_bwa
 end

@@ -4,7 +4,9 @@ module exact
     using ProgressMeter
     using Folds
     using FASTX
-
+    using UnicodePlots
+    using Statistics
+    
     function filter_tuple_by_types(types_as_strings, mandatory_key; tuple_data)
         # Ensure mandatory_key is a valid option
         if mandatory_key ∉ ["prefix", "suffix"]
@@ -269,5 +271,181 @@ module exact
         return sequence_lookup
     end
 
-    export grouped_ratios, transform_counts, build_sequence_lookup
+    """
+        handle_exact(parsed_args, immunediscover_module, always_gz)
+
+    Handle exact search command from CLI arguments
+    """
+    function handle_exact(parsed_args, immunediscover_module, always_gz)
+        
+        @info "Exact search"
+        extension = parsed_args["search"]["exact"]["extension"]
+        limit = parsed_args["search"]["exact"]["limit"]
+        refgenes = parsed_args["search"]["exact"]["refgene"]
+        if length(refgenes) > 0
+            @info "Using reference genes $refgenes"
+        end
+        
+        table = immunediscover_module.load_demultiplex(parsed_args["search"]["exact"]["tsv"])
+        if limit > 0
+            @info "Limiting number of demultiplexed reads to $limit"
+            table = table[1:limit,:]
+        end
+        
+        db = immunediscover_module.load_fasta(parsed_args["search"]["exact"]["fasta"], validate=false)
+        mincount = parsed_args["search"]["exact"]["mincount"]
+        minratio = parsed_args["search"]["exact"]["minratio"]
+        
+        TRUST_MINCOUNT = 5
+        if mincount < TRUST_MINCOUNT
+            @warn "Decreasing mincount below $TRUST_MINCOUNT may lead to false positives due to sequencing errors - you've been warned!"
+        end
+        
+        top = parsed_args["search"]["exact"]["top"]
+        affix = parsed_args["search"]["exact"]["affix"]
+        
+        local rss
+        if extension !== nothing
+            @info "Using extension mode with length $extension instead of RSS elements"
+            rss = String[]
+        else
+            rss = split(parsed_args["search"]["exact"]["rss"], ',')
+            immunediscover_module.validate_types(rss)
+            @info "Extract RSS: $(join(rss,','))"
+        end
+        
+        if top != 1
+            @info "Uncollapsed mode enabled; at most $top full records will be returned."
+        end
+        
+        gene = parsed_args["search"]["exact"]["gene"]
+        expect = parsed_args["search"]["exact"]["expect"]
+        deletion = parsed_args["search"]["exact"]["deletion"]
+        min_allele_case_medratio = parsed_args["search"]["exact"]["min-allele-mratio"]
+        min_gene_case_medratio = parsed_args["search"]["exact"]["min-gene-mratio"]
+        
+        # Load expect if provided
+        expect_df = DataFrame(name=[], ratio=[])
+        if expect !== nothing
+            expect_df = CSV.read(expect, DataFrame, delim='\t')
+            @assert all([name in names(expect_df) for name in ["name","ratio"]]) "File must contain following columns: name, ratio"
+        end
+        if nrow(expect_df) > 0
+            @info "Using expect file with $(nrow(expect_df)) entries"
+        end
+        expect_dict = Dict(zip(expect_df.name, expect_df.ratio))
+        
+        # Load deletions if provided
+        deletion_df = DataFrame(name=[], ratio=[])
+        if deletion !== nothing
+            deletion_df = CSV.read(deletion, DataFrame, delim='\t')
+            @assert all([name in names(deletion_df) for name in ["name","ratio"]]) "File must contain following columns: name, ratio"
+        end
+        if nrow(deletion_df) > 0
+            @info "Using deletion_df file with $(nrow(expect_df)) entries"
+        end
+        deletion_dict = Dict(zip(deletion_df.name, deletion_df.ratio))
+        
+        raw = parsed_args["search"]["exact"]["raw"]
+        locus = parsed_args["search"]["exact"]["locus"]
+        ref_fasta = parsed_args["search"]["exact"]["ref-fasta"]
+        
+        # Build sequence lookup if reference FASTA is provided
+        sequence_lookup = nothing
+        if ref_fasta !== nothing
+            sequence_lookup = build_sequence_lookup(ref_fasta)
+        end
+        
+        counts_df = immunediscover_module.exact.exact_search(table, db, gene, 
+                                                             mincount=mincount, minratio=minratio, 
+                                                             expect_dict=expect_dict, affix=affix, 
+                                                             rss=rss, extension=extension, N=top, 
+                                                             raw=raw, sequence_lookup=sequence_lookup)
+        sort!(counts_df, [:case, :db_name])
+        
+        if !parsed_args["search"]["exact"]["noplot"]
+            if nrow(counts_df) > 0
+                println(immunediscover_module.plotgenes(counts_df))
+            else
+                @warn "No exact matches to plot"
+            end
+        end
+        
+        # Add gene count frequency (aggregation with alleles starting with locus only)
+        @info "Excluding genes not starting with $locus for correct allele and gene count frequency calculation"
+        
+        # Calculate gene counts per well/case/gene
+        transform!(groupby(counts_df, [:well, :case, :gene])) do group
+            filtered_group = filter(row -> startswith(row.db_name, locus), group)
+            gene_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
+            return DataFrame(gene_count = fill(gene_count, nrow(group)))
+        end
+        
+        # Calculate total counts per well/case
+        transform!(groupby(counts_df, [:well, :case])) do group
+            filtered_group = filter(row -> startswith(row.db_name, locus), group)
+            case_count = isempty(filtered_group) ? 0 : sum(filtered_group.count)
+            return DataFrame(case_count = fill(case_count, nrow(group)))
+        end
+        
+        # Calculate median count per gene across ALL cases
+        transform!(groupby(counts_df, [:gene])) do group
+            filtered_group = filter(row -> startswith(row.db_name, locus), group)
+            cross_case_median_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
+            return DataFrame(cross_case_median_count = fill(cross_case_median_count, nrow(group)))
+        end
+        
+        # Calculate median gene_count for each gene across all cases
+        transform!(groupby(counts_df, [:gene])) do group
+            filtered_group = filter(row -> startswith(row.db_name, locus), group)
+            cross_case_median_gene_count = isempty(filtered_group) ? 0 : median(filtered_group.gene_count)
+            return DataFrame(cross_case_median_gene_count = fill(cross_case_median_gene_count, nrow(group)))
+        end
+        
+        # Calculate median allele count for each allele (db_name) across all cases
+        transform!(groupby(counts_df, [:db_name])) do group
+            filtered_group = filter(row -> startswith(row.db_name, locus), group)
+            cross_case_median_allele_count = isempty(filtered_group) ? 0 : median(filtered_group.count)
+            return DataFrame(cross_case_median_allele_count = fill(cross_case_median_allele_count, nrow(group)))
+        end
+        
+        # Frequencies within a case
+        counts_df[:,:allele_case_freq] = counts_df.count ./ counts_df.case_count
+        counts_df[:,:gene_case_freq] = counts_df.gene_count ./ counts_df.case_count
+        
+        # Ratios compared to cross-case medians
+        counts_df[:,:allele_to_cross_case_median_ratio] = counts_df.count ./ counts_df.cross_case_median_allele_count
+        counts_df[:,:gene_to_cross_case_median_ratio] = counts_df.gene_count ./ counts_df.cross_case_median_gene_count
+        
+        # Calculate allele frequency within gene (per case)
+        transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
+        
+        # Apply original filters
+        filter!(x -> (x.allele_freq >= immunediscover_module.get_ratio_threshold(expect_dict, x, type="allele_freq")), counts_df)
+        filter!(x -> (x.gene_case_freq >= immunediscover_module.get_ratio_threshold(deletion_dict, x, type="gene_case_freq")), counts_df)
+        
+        # Use the existing min-allele-mratio and min-gene-mratio parameters for cross-case comparisons
+        min_allele_cross_case_ratio = parsed_args["search"]["exact"]["min-allele-mratio"]
+        min_gene_cross_case_ratio = parsed_args["search"]["exact"]["min-gene-mratio"]
+        
+        # Filter out alleles/genes that are much lower than expected across all cases
+        filter!(x -> (x.allele_to_cross_case_median_ratio >= min_allele_cross_case_ratio), counts_df)
+        filter!(x -> (x.gene_to_cross_case_median_ratio >= min_gene_cross_case_ratio), counts_df)
+        
+        output = always_gz(parsed_args["search"]["exact"]["output"])
+        
+        # Compute refgene ratios
+        if length(refgenes) > 0
+            for refgene in refgenes
+                counts_df = grouped_ratios(counts_df, refgene, count_col=:count)
+                transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :ref_gene_count)
+                counts_df = grouped_ratios(counts_df, refgene, count_col=:ref_gene_count)
+            end
+        end
+        
+        CSV.write(output, counts_df, compress=true, delim='\t')
+        @info "Exact search data saved in compressed $output file"
+    end
+
+    export grouped_ratios, transform_counts, build_sequence_lookup, handle_exact
 end

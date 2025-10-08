@@ -3,7 +3,7 @@ module merge
     using Logging
     using DataStructures
 
-    export merge_fasta_files
+    export merge_fasta_files, handle_merge
 
     """
         merge_fasta_files(input_files, output_file; kwargs...)
@@ -144,6 +144,22 @@ module merge
     """
     function merge_fasta_files(input_file1::String, input_file2::String, output_file::String; kwargs...)
         return merge_fasta_files([input_file1, input_file2], output_file; kwargs...)
+    end
+
+    """
+        handle_merge(parsed_args)
+
+    Handle merge command from CLI arguments
+    """
+    function handle_merge(parsed_args)
+        merge_fasta_files(
+            String.(parsed_args["fasta"]["merge"]["inputs"]),
+            parsed_args["fasta"]["merge"]["output"];
+            sort_by_name = !parsed_args["fasta"]["merge"]["no-sort"],
+            cleanup_pattern = parsed_args["fasta"]["merge"]["cleanup"],
+            prefer_first = !parsed_args["fasta"]["merge"]["prefer-last"],
+            add_source_prefix = parsed_args["fasta"]["merge"]["add-source-prefix"]
+        )
     end
 
 end
