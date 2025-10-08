@@ -9,6 +9,7 @@ module bwa
     using DataFrames
     using CSV
     using BioSequences
+    using CodecZlib
 
     function description(aln::BurrowsWheelerAligner.LibBWA.mem_aln_t, aligner::BurrowsWheelerAligner.Aligner)
         anns = BurrowsWheelerAligner.LibBWA.unsafe_load(aligner.index.bns).anns
@@ -53,17 +54,40 @@ module bwa
 
     Load reference sequences from a FASTA file into a dictionary.
     Keys are sequence identifiers, values are the actual sequences.
+    Supports both compressed (.gz) and uncompressed FASTA files.
     """
     function load_reference_sequences(fasta_path::String)
         ref_seqs = Dict{String, String}()
         @info "Loading reference sequences from $fasta_path"
-        open(FASTA.Reader, fasta_path) do reader
-            for record in reader
-                seq_id = FASTA.identifier(record)
-                seq = FASTA.sequence(String, record)
-                ref_seqs[seq_id] = seq
+        
+        # Check if file is gzip-compressed by extension
+        if endswith(fasta_path, ".gz")
+            @info "Detected gzip-compressed file, decompressing on-the-fly"
+            open(fasta_path) do file
+                stream = GzipDecompressorStream(file)
+                reader = FASTA.Reader(stream)
+                try
+                    for record in reader
+                        seq_id = FASTA.identifier(record)
+                        seq = FASTA.sequence(String, record)
+                        ref_seqs[seq_id] = seq
+                    end
+                finally
+                    close(reader)
+                    close(stream)
+                end
+            end
+        else
+            # Uncompressed file
+            open(FASTA.Reader, fasta_path) do reader
+                for record in reader
+                    seq_id = FASTA.identifier(record)
+                    seq = FASTA.sequence(String, record)
+                    ref_seqs[seq_id] = seq
+                end
             end
         end
+        
         @info "Loaded $(length(ref_seqs)) reference sequences"
         return ref_seqs
     end
