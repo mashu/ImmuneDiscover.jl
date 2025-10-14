@@ -704,7 +704,8 @@ module table
                 cleanup_pattern = parsed_args["table"]["fasta"]["cleanup"],
                 sort_by_name = !parsed_args["table"]["fasta"]["no-sort"],
                 mincase = parsed_args["table"]["fasta"]["mincase"],
-                case_col = parsed_args["table"]["fasta"]["case-col"]
+                case_col = parsed_args["table"]["fasta"]["case-col"],
+                unique_sequences = parsed_args["table"]["fasta"]["unique-sequences"]
             )
         elseif subcmd == "collect"
             @info "Collecting TSV files"

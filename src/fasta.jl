@@ -1,7 +1,6 @@
 module fasta
     using CSV
     using DataFrames
-    using FASTX
     using Logging
 
     export extract_sequences_to_fasta, handle_fasta_diff, handle_fasta_hash
@@ -25,6 +24,7 @@ module fasta
     - `sort_by_name::Bool=true`: Sort alleles by name before saving
     - `mincase::Int=1`: Minimum number of donors (cases) that must have this allele to include it in output
     - `case_col::String="case"`: Name of the column containing donor/case identifiers
+    - `unique_sequences::Bool=false`: Keep only unique sequences (ignore names, use first encountered name)
     """
     function extract_sequences_to_fasta(input_file::String, output_file::String;
                                        colname::String="allele_name",
@@ -35,7 +35,8 @@ module fasta
                                        cleanup_pattern::Union{String,Nothing}=nothing,
                                        sort_by_name::Bool=true,
                                        mincase::Int=1,
-                                       case_col::String="case")
+                                       case_col::String="case",
+                                       unique_sequences::Bool=false)
         
         @info "Extracting sequences to FASTA format"
         df = CSV.File(input_file, delim='\t') |> DataFrame
@@ -108,22 +109,32 @@ module fasta
             @info "Removed $(before_unique - after_unique) duplicate records (by $colname and sequence columns)"
         end
         
+        # If unique_sequences is true, keep only the first occurrence of each unique sequence
+        if unique_sequences
+            @info "Extracting unique sequences (ignoring sequence names)"
+            before_seq_unique = nrow(df)
+            df = DataFrames.unique(df, colseq_list)
+            after_seq_unique = nrow(df)
+            if before_seq_unique != after_seq_unique
+                @info "Removed $(before_seq_unique - after_seq_unique) duplicate sequences with different names"
+            end
+        end
+        
         # Sort by name if requested
         if sort_by_name
             @info "Sorting alleles by name"
             df = sort(df, colname)
         end
         
-        # Create FASTA records and write to file
+        # Create FASTA records and write to file (single-line format)
         @info "Writing $(nrow(df)) sequences to $output_file"
-        writer = FASTA.Writer(open(output_file, "w"))
         
         # Compile regexes once before the loop
         cleanup_regex = cleanup_pattern !== nothing ? Regex(cleanup_pattern) : nothing
         filter_regex = filter_pattern !== nothing ? Regex(filter_pattern) : nothing
         desc_filter_regex = desc_filter_pattern !== nothing ? Regex(desc_filter_pattern) : nothing
         
-        try
+        open(output_file, "w") do io
             for row in eachrow(df)
                 name = string(row[colname])
                 # Concatenate sequences from all columns in colseq_list
@@ -168,12 +179,10 @@ module fasta
                     end
                 end
                 
-                # Create and write FASTA record
-                record = FASTARecord(name, seq)
-                write(writer, record)
+                # Write FASTA record in single-line format
+                println(io, ">$name")
+                println(io, seq)
             end
-        finally
-            close(writer)
         end
         
         @info "Successfully extracted $(nrow(df)) unique sequences to $output_file"

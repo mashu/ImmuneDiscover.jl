@@ -897,6 +897,9 @@ module cli
             help = "Column name with donor/case identifiers"
             default = "case"
             arg_type = String
+        "--unique-sequences"
+            help = "Keep only unique sequences (ignore sequence names, use first encountered name)"
+            action = :store_true
         end
 
         # FASTA group (operations on FASTA files)
