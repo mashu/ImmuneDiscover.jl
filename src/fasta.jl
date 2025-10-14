@@ -17,7 +17,7 @@ module fasta
 
     # Keyword Arguments
     - `colname::String="allele_name"`: Name of the column with sequence names/IDs
-    - `colseq::String="seq"`: Name of the column with sequences
+    - `colseq::String="seq"`: Name of the column(s) with sequences. Can be a single column name or comma-separated list for concatenation
     - `coldesc::Union{String,Nothing}=nothing`: Optional column with descriptions for FASTA headers
     - `filter_pattern::Union{String,Nothing}=nothing`: Optional regex pattern to filter colname column
     - `desc_filter_pattern::Union{String,Nothing}=nothing`: Optional regex pattern to filter coldesc column (use capture groups to include description in FASTA header)
@@ -40,9 +40,18 @@ module fasta
         @info "Extracting sequences to FASTA format"
         df = CSV.File(input_file, delim='\t') |> DataFrame
         
+        # Parse colseq as comma-separated list of columns
+        colseq_list = strip.(split(colseq, ','))
+        
         # Assert that the input file has the required columns
         @assert colname ∈ names(df) "Input file must have $colname column"
-        @assert colseq ∈ names(df) "Input file must have $colseq column"
+        for seq_col in colseq_list
+            @assert seq_col ∈ names(df) "Input file must have $seq_col column"
+        end
+        
+        if length(colseq_list) > 1
+            @info "Using multiple sequence columns for concatenation: $(join(colseq_list, ", "))"
+        end
         
         # Check if description column is specified and exists
         if coldesc !== nothing
@@ -76,25 +85,27 @@ module fasta
             @assert case_col ∈ names(df) "Input file must have $case_col column when mincase > 1"
             @info "Filtering alleles present in at least $mincase donors"
             
-            # Count unique donors per allele (combination of colname and colseq)
-            allele_donor_counts = combine(groupby(df, [colname, colseq]), 
+            # Count unique donors per allele (combination of colname and all colseq columns)
+            grouping_cols = [colname; colseq_list]
+            allele_donor_counts = combine(groupby(df, grouping_cols), 
                                         case_col => (x -> length(unique(x))) => :donor_count)
             
             # Filter alleles that meet the minimum donor count
-            qualifying_alleles = allele_donor_counts[allele_donor_counts.donor_count .>= mincase, [colname, colseq]]
+            qualifying_alleles = allele_donor_counts[allele_donor_counts.donor_count .>= mincase, grouping_cols]
             
             # Join back to get all rows for qualifying alleles
-            df = innerjoin(df, qualifying_alleles, on=[colname, colseq])
+            df = innerjoin(df, qualifying_alleles, on=grouping_cols)
             
             @info "After mincase filtering (≥$mincase donors): $(nrow(df)) rows remaining"
         end
         
         # Remove duplicates based on both name and sequence columns
         before_unique = nrow(df)
-        df = DataFrames.unique(df, [colname, colseq])
+        unique_cols = [colname; colseq_list]
+        df = DataFrames.unique(df, unique_cols)
         after_unique = nrow(df)
         if before_unique != after_unique
-            @info "Removed $(before_unique - after_unique) duplicate records (by $colname and $colseq)"
+            @info "Removed $(before_unique - after_unique) duplicate records (by $colname and sequence columns)"
         end
         
         # Sort by name if requested
@@ -115,7 +126,8 @@ module fasta
         try
             for row in eachrow(df)
                 name = string(row[colname])
-                seq = string(row[colseq])
+                # Concatenate sequences from all columns in colseq_list
+                seq = join([string(row[col]) for col in colseq_list], "")
                 
                 # Clean up name using cleanup pattern (e.g., remove " Novel")
                 if cleanup_regex !== nothing && occursin(cleanup_regex, name)

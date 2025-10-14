@@ -866,7 +866,7 @@ module cli
             default = "allele_name"
             arg_type = String
         "-s", "--colseq"
-            help = "Column name with nucleotide sequences"
+            help = "Column name(s) with nucleotide sequences (comma-separated for concatenation)"
             default = "seq"
             arg_type = String
         "-d", "--coldesc"
