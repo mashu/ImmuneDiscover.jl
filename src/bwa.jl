@@ -75,11 +75,43 @@ module bwa
     end
 
     """
+        calculate_leading_n_from_cigar(cigar::String) -> Int
+
+    Calculate the number of leading 'N' operations in the CIGAR string.
+    These represent skipped regions at the start that should be skipped in extraction.
+    """
+    function calculate_leading_n_from_cigar(cigar::String)
+        if isempty(cigar)
+            return 0
+        end
+        
+        num_str = ""
+        for ch in cigar
+            if '0' <= ch <= '9'
+                num_str *= ch
+            else
+                if !isempty(num_str)
+                    len = parse(Int, num_str)
+                    # If first operation is N, return its length
+                    if ch == 'N'
+                        return len
+                    else
+                        # First operation is not N, so no leading N
+                        return 0
+                    end
+                end
+            end
+        end
+        return 0
+    end
+
+    """
         calculate_ref_span_from_cigar(cigar::String) -> Int
 
-    Calculate the span on the reference sequence from a CIGAR string.
+    Calculate the total span on the reference sequence from a CIGAR string.
     Operations that consume reference: M, D, N, X, =
     Operations that don't consume reference: I, S, H, P
+    Note: N (skipped region) IS INCLUDED to get the full genomic span
     """
     function calculate_ref_span_from_cigar(cigar::String)
         if isempty(cigar)
@@ -95,7 +127,7 @@ module bwa
             else
                 if !isempty(num_str)
                     len = parse(Int, num_str)
-                    # Operations that consume reference bases
+                    # Operations that consume reference bases (including N for skipped regions)
                     if ch in ('M', 'D', 'N', 'X', '=')
                         ref_span += len
                     end
@@ -231,15 +263,29 @@ module bwa
                     cigar_str = get_cigar_string(best_aln)
                     cigar[nallele] = cigar_str
                     ref_span = calculate_ref_span_from_cigar(cigar_str)
+                    leading_n = calculate_leading_n_from_cigar(cigar_str)
                     
                     # Use ref_span if available, otherwise fall back to query length
                     extraction_length = ref_span > 0 ? ref_span : length(sequence)
+                    
+                    # Adjust start position for leading N operations
+                    # For forward strand: leading N means skip those reference bases at the start
+                    # For reverse strand: leading N in CIGAR (which is in query orientation after RC)
+                    # represents query bases at the END of the original query (before RC)
+                    # These map to reference bases BEFORE pos, so we need to extract from earlier
+                    if is_reverse
+                        # For reverse strand, go back by leading_n to include those bases
+                        adjusted_pos = best_aln.pos - leading_n
+                    else
+                        # For forward strand, skip forward by leading_n
+                        adjusted_pos = best_aln.pos + leading_n
+                    end
                     
                     # Extract reference sequence at alignment position
                     extracted_seq = extract_ref_subsequence(
                         ref_seqs_dict[genome_file], 
                         ref_name, 
-                        best_aln.pos, 
+                        adjusted_pos, 
                         extraction_length
                     )
                     
