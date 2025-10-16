@@ -45,6 +45,68 @@ module bwa
         end
     end
 
+    """
+        get_cigar_string(aln::mem_aln_t) -> String
+
+    Extract CIGAR string from BWA alignment structure.
+    BWA stores CIGAR as array of uint32 where lower 4 bits = operation, upper 28 bits = length.
+    """
+    function get_cigar_string(aln::BurrowsWheelerAligner.LibBWA.mem_aln_t)
+        if aln.n_cigar == 0
+            return ""
+        end
+        
+        # CIGAR operations: 0=M, 1=I, 2=D, 3=N, 4=S, 5=H, 6=P, 7=X, 8==
+        cigar_ops = ['M', 'I', 'D', 'N', 'S', 'H', 'P', 'X', '=']
+        
+        cigar_str = ""
+        for i in 1:aln.n_cigar
+            cigar_val = unsafe_load(aln.cigar, i)
+            # Lower 4 bits = operation, upper 28 bits = length
+            op_code = cigar_val & 0x0f
+            op_len = cigar_val >> 4
+            
+            if op_code + 1 <= length(cigar_ops)
+                cigar_str *= string(op_len) * cigar_ops[op_code + 1]
+            end
+        end
+        
+        return cigar_str
+    end
+
+    """
+        calculate_ref_span_from_cigar(cigar::String) -> Int
+
+    Calculate the span on the reference sequence from a CIGAR string.
+    Operations that consume reference: M, D, N, X, =
+    Operations that don't consume reference: I, S, H, P
+    """
+    function calculate_ref_span_from_cigar(cigar::String)
+        if isempty(cigar)
+            return 0
+        end
+        
+        ref_span = 0
+        num_str = ""
+        
+        for ch in cigar
+            if '0' <= ch <= '9'
+                num_str *= ch
+            else
+                if !isempty(num_str)
+                    len = parse(Int, num_str)
+                    # Operations that consume reference bases
+                    if ch in ('M', 'D', 'N', 'X', '=')
+                        ref_span += len
+                    end
+                    num_str = ""
+                end
+            end
+        end
+        
+        return ref_span
+    end
+
     function create_aligner(genome_path)::Vector{Tuple{String, BurrowsWheelerAligner.Aligner}}
         return [(path, BurrowsWheelerAligner.Aligner(path)) for path in genome_path]
     end
@@ -122,6 +184,7 @@ module bwa
         edit_distance = fill(-1, length(sequences))  # -1 indicates no alignment
         ref_sequence = fill("", length(sequences))
         orientation = fill("", length(sequences))
+        cigar = fill("", length(sequences))
         
         # Load reference sequences from FASTA files
         ref_seqs_dict = Dict{String, Dict{String, String}}()
@@ -164,12 +227,20 @@ module bwa
                     # Set orientation: + for forward, - for reverse
                     orientation[nallele] = is_reverse ? "-" : "+"
                     
+                    # Get CIGAR string and calculate actual reference span
+                    cigar_str = get_cigar_string(best_aln)
+                    cigar[nallele] = cigar_str
+                    ref_span = calculate_ref_span_from_cigar(cigar_str)
+                    
+                    # Use ref_span if available, otherwise fall back to query length
+                    extraction_length = ref_span > 0 ? ref_span : length(sequence)
+                    
                     # Extract reference sequence at alignment position
                     extracted_seq = extract_ref_subsequence(
                         ref_seqs_dict[genome_file], 
                         ref_name, 
                         best_aln.pos, 
-                        length(sequence)
+                        extraction_length
                     )
                     
                     # If alignment is on reverse strand, reverse complement the reference
@@ -193,7 +264,7 @@ module bwa
         end
         CSV.write("/tmp/discarded.tsv", DataFrame(name=discarded), delim='\t')
         @info "Discarded sequence names written to /tmp/discarded.tsv"
-        return result, position, edit_distance, ref_sequence, orientation
+        return result, position, edit_distance, ref_sequence, orientation, cigar
     end
 
     """
@@ -219,11 +290,12 @@ module bwa
             (row[colname], concatenated_sequence)
         end
         
-        indices, position, edit_distance, ref_sequence, orientation = bwa_sequences(genome, sequences, chromosome_name, tag=tag)
+        indices, position, edit_distance, ref_sequence, orientation, cigar_str = bwa_sequences(genome, sequences, chromosome_name, tag=tag)
         df[:, :position] = position
         df[:, :edit_distance] = edit_distance
         df[:, :ref_sequence] = ref_sequence
         df[:, :orientation] = orientation
+        df[:, :cigar] = cigar_str
         @info "$(length(sequences))"
         @info "$(nrow(df)) sequences matched chromosome $chromosome_name"
         @info "$(length(indices)) sequences matched chromosome $chromosome_name"
