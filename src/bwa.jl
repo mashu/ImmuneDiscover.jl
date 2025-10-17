@@ -208,6 +208,27 @@ module bwa
         return ref_seq[start_pos:end_pos]
     end
 
+    """
+        hamming_distance(seq1::String, seq2::String) -> Int
+
+    Calculate Hamming distance between two sequences of equal length.
+    Returns -1 if sequences have different lengths.
+    """
+    function hamming_distance(seq1::String, seq2::String)
+        if length(seq1) != length(seq2)
+            return -1
+        end
+        
+        distance = 0
+        for (c1, c2) in zip(seq1, seq2)
+            if c1 != c2
+                distance += 1
+            end
+        end
+        
+        return distance
+    end
+
     function bwa_sequences(genome_path, sequences, chromosome_name; tag="Primary Assembly")
         result = zeros(Bool, length(sequences))
         aligners = create_aligner(genome_path)
@@ -252,9 +273,6 @@ module bwa
                     is_reverse = is_reverse_strand(best_aln)
                     
                     position[nallele] = "$(ref_name):$(best_aln.pos)"
-                    # Extract NM (edit distance) from packed field: bits 10-31 contain NM
-                    # Format: is_rev:1, is_alt:1, mapq:8, NM:22
-                    edit_distance[nallele] = best_aln.is_rev_is_alt_mapq_NM >> 10 & 0x003fffff
                     
                     # Set orientation: + for forward, - for reverse
                     orientation[nallele] = is_reverse ? "-" : "+"
@@ -295,6 +313,16 @@ module bwa
                         ref_sequence[nallele] = reverse_complement_seq(extracted_seq)
                     else
                         ref_sequence[nallele] = extracted_seq
+                    end
+                    
+                    # Calculate Hamming distance between query and reference sequences
+                    # Use Hamming distance when lengths match, otherwise fall back to BWA's NM
+                    if length(sequence) == length(ref_sequence[nallele])
+                        edit_distance[nallele] = hamming_distance(sequence, ref_sequence[nallele])
+                    else
+                        # Fall back to BWA's NM field: bits 10-31 contain NM
+                        # Format: is_rev:1, is_alt:1, mapq:8, NM:22
+                        edit_distance[nallele] = best_aln.is_rev_is_alt_mapq_NM >> 10 & 0x003fffff
                     end
                 else
                     bad_chromosome = first(nomatch)
