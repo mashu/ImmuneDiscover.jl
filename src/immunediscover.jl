@@ -142,7 +142,11 @@ module immunediscover
                     @info "Discovery with BLAST assignments"
                     # Load paths and parameters
                     fasta_path = parsed_args["search"]["blast"]["fasta"]
-                    affixes_path = fasta_path * ".affixes"
+                    # Use a hidden working directory next to the input FASTA to avoid cluttering original data
+                    work_dir = joinpath(dirname(fasta_path), ".immunediscover")
+                    isdir(work_dir) || mkpath(work_dir)
+                    file_stem = split(basename(fasta_path), '.')[1]
+                    affixes_path = joinpath(work_dir, file_stem * ".affixes")
                     DB = load_fasta(fasta_path, validate=false)
                     # Parameters
                     verbose = parsed_args["search"]["blast"]["verbose"]
@@ -171,7 +175,7 @@ module immunediscover
                         push!(db_p, (name, seq))
                     end
                     # Save combined database
-                    combined_fasta_path = blast.replace_extension(fasta_path, "fasta", tag="-combined")
+                    combined_fasta_path = joinpath(work_dir, file_stem * "-combined.fasta")
                     blast.save_to_fasta(db_p, combined_fasta_path)
                     # Handle sequence extension based on extension parameters
                     if forward_extension == 0 && reverse_extension == 0
@@ -180,7 +184,7 @@ module immunediscover
                         empty_affixes = [(name="", prefix="", suffix="")]
                         CSV.write(affixes_path, DataFrame(empty_affixes), delim='\t')
                     else
-                        ext_fasta_path = blast.replace_extension(combined_fasta_path, "fasta", tag="-extended")
+                        ext_fasta_path = joinpath(work_dir, file_stem * "-combined-extended.fasta")
                         if !isfile(ext_fasta_path) || overwrite
                             @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
                             demux = blast.load_csv(parsed_args["search"]["blast"]["input"])
