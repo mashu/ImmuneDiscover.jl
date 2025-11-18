@@ -218,7 +218,6 @@ module cli
                 arg_type = String
         end
 
-        # Analyze group
         @add_arg_table! s["analyze"] begin
             "association"
                 help = "Analyze cross-donor association (co-occurrence) among alleles across cases"
@@ -740,6 +739,19 @@ module cli
         "--extension"
             help = "Length of extension on RSS side instead of RSS elements"
             arg_type = Int
+        "--border"
+            help = "Number of nucleotides from both read ends forming a border; reject if extension overlaps"
+            arg_type = Int
+            default = 0
+            range_tester = (x->x >= 0)
+        "--adjust-per-gene-extension"
+            help = "Auto-reduce extension per gene and side to avoid crossing the border"
+            action = :store_true
+        "--adjust-percent"
+            help = "Target fraction (0-1] of reads per gene that should be safe (no border overlap) when calibrating per-gene extension"
+            arg_type = Float64
+            default = 1.0
+            range_tester = (x-> (x > 0.0) & (x <= 1.0))
         "--raw"
             help = "Unfiltered exact search results for diagnostics"
             arg_type = String

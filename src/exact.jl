@@ -7,6 +7,14 @@ module exact
     using UnicodePlots
     using Statistics
     
+    # Typed rows for border statistics (row tables)
+    const BORDER_ROW = NamedTuple{(:case, :gene, :matched_total, :accepted_total, :rejected_border, :rejected_ratio), Tuple{String, String, Int, Int, Int, Float64}}
+    const BORDER_GENE_ROW = NamedTuple{(:gene, :mean_rejected_ratio, :matched_total, :rejected_border, :num_donors), Tuple{String, Float64, Int, Int, Int}}
+
+    # Stores the most recent border-overlap statistics produced by exact_search
+    const LAST_BORDER_STATS = Ref(Vector{BORDER_ROW}())
+    const LAST_BORDER_GENE_STATS = Ref(Vector{BORDER_GENE_ROW}())
+    
     function filter_tuple_by_types(types_as_strings, mandatory_key; tuple_data)
         # Ensure mandatory_key is a valid option
         if mandatory_key ∉ ["prefix", "suffix"]
@@ -38,6 +46,26 @@ module exact
         result_tuple = NamedTuple{Tuple(Symbol.(keys(selected_data)))}(values(selected_data))
 
         return result_tuple
+    end
+
+    # Merge helper for per-(gene) minimum integer values
+    function merge_min!(dst::Dict{String,Int}, src::Dict{String,Int})
+        for (k, v) in src
+            if haskey(dst, k)
+                dst[k] = min(dst[k], v)
+            else
+                dst[k] = v
+            end
+        end
+        return dst
+    end
+
+    # Merge helper for per-(case,gene) integer counters
+    function merge_counts!(dst::Dict{Tuple{String,String},Int}, src::Dict{Tuple{String,String},Int})
+        for (k, v) in src
+            dst[k] = get(dst, k, 0) + v
+        end
+        return dst
     end
 
     """
@@ -97,6 +125,72 @@ module exact
         end
     end
 
+    # Overload supporting per-side extension overrides (prefix/suffix independently)
+    function extract_flanking(genomic_sequence::String, range::Tuple{Int, Int}, gene_type::String, n::Int,
+                              extension::Union{Int,Nothing}, prefix_ext::Union{Int,Nothing}, suffix_ext::Union{Int,Nothing})
+        start_pos, end_pos = range
+        if start_pos < 1 || end_pos > length(genomic_sequence) || start_pos > end_pos
+            error("Invalid range")
+        end
+
+        sequence = genomic_sequence[start_pos:end_pos]
+
+        if extension === nothing
+            # Fall back to RSS extraction if extension not provided
+            return extract_flanking(genomic_sequence, range, gene_type, n, extension)
+        end
+
+        # Effective per-side extensions (fallback to global extension if side-specific is nothing)
+        left_ext = prefix_ext === nothing ? extension : prefix_ext
+        right_ext = suffix_ext === nothing ? extension : suffix_ext
+
+        if gene_type == "V"
+            prefix = start_pos > n ? genomic_sequence[(start_pos - n):(start_pos - 1)] : genomic_sequence[1:(start_pos - 1)]
+            extension_seq = genomic_sequence[end_pos + 1:min(end_pos + right_ext, length(genomic_sequence))]
+            return (prefix=prefix, sequence=sequence, suffix=extension_seq)
+        elseif gene_type == "J"
+            extension_seq = genomic_sequence[max(1, start_pos - left_ext):(start_pos - 1)]
+            suffix = genomic_sequence[end_pos + 1:min(end_pos + n, length(genomic_sequence))]
+            return (prefix=extension_seq, sequence=sequence, suffix=suffix)
+        elseif gene_type == "D"
+            prefix = genomic_sequence[max(1, start_pos - left_ext):(start_pos - 1)]
+            suffix = genomic_sequence[end_pos + 1:min(end_pos + right_ext, length(genomic_sequence))]
+            return (prefix=prefix, sequence=sequence, suffix=suffix)
+        else
+            error("Invalid gene type")
+        end
+    end
+
+    # Determine whether the requested extension overlaps read-end border regions
+    function extension_overlaps_border(start_pos::Int, end_pos::Int, read_length::Int, gene_type::String, extension::Int, border::Int)
+        if border <= 0 || extension <= 0
+            return false
+        end
+
+        left_border_end = min(border, read_length)
+        right_border_start = max(1, read_length - border + 1)
+
+        if gene_type == "V"
+            ext_start = end_pos + 1
+            ext_end = min(end_pos + extension, read_length)
+            return (ext_start <= ext_end) && (ext_end >= right_border_start)
+        elseif gene_type == "J"
+            ext_start = max(1, start_pos - extension)
+            ext_end = start_pos - 1
+            return (ext_start <= ext_end) && (ext_start <= left_border_end)
+        elseif gene_type == "D"
+            left_ext_start = max(1, start_pos - extension)
+            left_ext_end = start_pos - 1
+            right_ext_start = end_pos + 1
+            right_ext_end = min(end_pos + extension, read_length)
+            left_overlap = (left_ext_start <= left_ext_end) && (left_ext_start <= left_border_end)
+            right_overlap = (right_ext_start <= right_ext_end) && (right_ext_end >= right_border_start)
+            return left_overlap || right_overlap
+        else
+            error("Invalid gene type")
+        end
+    end
+
     # Custom function to sort and select top N rows for each group
     function sort_and_select_top_n(df, N)
         sorted_df = sort(df, :flank_count, rev=true)
@@ -132,19 +226,169 @@ module exact
         rss::Vector{String}: Vector of RSS sequence names to filter by
         N::Int: Number of top records to return for each group
     """
-    function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=13, rss=["heptamer", "spacer", "nonamer"], extension=nothing, N=10, raw=nothing, expect_dict=Dict{String,Float64}(), sequence_lookup=nothing)
+    function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=13, rss=["heptamer", "spacer", "nonamer"], extension=nothing, N=10, raw=nothing, expect_dict=Dict{String,Float64}(), sequence_lookup=nothing, border::Int=0, adjust_per_gene_extension::Bool=false, adjust_percent::Float64=1.0)
         @info "Using mincount: $mincount, minratio: $minratio for genes: $gene"
         @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
+        # Optional pre-pass: calibrate per-gene per-side extension to avoid border overlaps
+        per_gene_prefix = Dict{String,Int}()
+        per_gene_suffix = Dict{String,Int}()
+        if extension !== nothing && border > 0 && adjust_per_gene_extension
+            @info "Calibrating per-gene extension (prefix/suffix) targeting ≥ $(Int(round(adjust_percent*100)))% safe (no-border) reads"
+            # Collect allowed lengths per gene and side
+            p_cal = Progress(nrow(table))
+            tmp = Folds.map(eachrow(table)) do row
+                next!(p_cal)
+                local pre = Dict{String,Vector{Int}}()
+                local suf = Dict{String,Vector{Int}}()
+                read_length = length(row.genomic_sequence)
+                left_border_end = min(border, read_length)
+                right_border_start = max(1, read_length - border + 1)
+                @inbounds for (name, seq) in query
+                    match = findfirst(seq, row.genomic_sequence)
+                    if match !== nothing
+                        start_pos = minimum(match)
+                        end_pos = maximum(match)
+                        gene_base = first(split(string(name), '*'))
+                        if gene == "V"
+                            allowed_suf = max(0, right_border_start - 1 - end_pos)
+                            vec = get!(suf, gene_base, Int[])
+                            push!(vec, min(extension, allowed_suf))
+                        elseif gene == "J"
+                            allowed_pre = max(0, start_pos - 1 - left_border_end)
+                            vec = get!(pre, gene_base, Int[])
+                            push!(vec, min(extension, allowed_pre))
+                        elseif gene == "D"
+                            allowed_pre = max(0, start_pos - 1 - left_border_end)
+                            allowed_suf = max(0, right_border_start - 1 - end_pos)
+                            vecp = get!(pre, gene_base, Int[])
+                            vecs = get!(suf, gene_base, Int[])
+                            push!(vecp, min(extension, allowed_pre))
+                            push!(vecs, min(extension, allowed_suf))
+                        else
+                            error("Invalid gene type")
+                        end
+                    end
+                end
+                (pre=pre, suf=suf)
+            end
+            # Merge per-row dictionaries concatenating vectors
+            pre_vals = Dict{String,Vector{Int}}()
+            suf_vals = Dict{String,Vector{Int}}()
+            for r in tmp
+                for (g, v) in r.pre
+                    if haskey(pre_vals, g)
+                        append!(pre_vals[g], v)
+                    else
+                        pre_vals[g] = copy(v)
+                    end
+                end
+                for (g, v) in r.suf
+                    if haskey(suf_vals, g)
+                        append!(suf_vals[g], v)
+                    else
+                        suf_vals[g] = copy(v)
+                    end
+                end
+            end
+            # Helper to compute (1 - p) quantile via order statistic
+            function safe_quantile(values::Vector{Int}, p::Float64)
+                if isempty(values)
+                    return extension
+                end
+                n = length(values)
+                sorted = sort(values)
+                # index for (1 - p) quantile, ensure within [1,n]
+                idx = max(1, min(n, ceil(Int, (1 - p) * n)))
+                return sorted[idx]
+            end
+            # Compute per-gene chosen extensions (cap by requested extension implicitly already applied)
+            if gene == "V"
+                for (g, arr) in suf_vals
+                    per_gene_suffix[g] = safe_quantile(arr, adjust_percent)
+                end
+            elseif gene == "J"
+                for (g, arr) in pre_vals
+                    per_gene_prefix[g] = safe_quantile(arr, adjust_percent)
+                end
+            elseif gene == "D"
+                for (g, arr) in pre_vals
+                    per_gene_prefix[g] = safe_quantile(arr, adjust_percent)
+                end
+                for (g, arr) in suf_vals
+                    per_gene_suffix[g] = safe_quantile(arr, adjust_percent)
+                end
+            else
+                error("Invalid gene type")
+            end
+            @info "Per-gene extension calibrated for $(length(union(collect(keys(per_gene_prefix)), collect(keys(per_gene_suffix))))) genes"
+        end
+
         p = Progress(nrow(table))
         result = Folds.map(eachrow(table)) do row
             next!(p)
             case = row.case
             well = row.well
             matches = Vector{NamedTuple}()
+            totals = Dict{Tuple{String,String},Int}()  # (case,gene) => matched_total
+            accepted = Dict{Tuple{String,String},Int}()  # (case,gene) => accepted_total
             @inbounds for (name, seq) in query
                 match = findfirst(seq, row.genomic_sequence)
                 if match !== nothing
-                    flanks = extract_flanking(row.genomic_sequence, (minimum(match), maximum(match)), gene, affix, extension)
+                    start_pos = minimum(match)
+                    end_pos = maximum(match)
+
+                    # Track total potential matches only in extension mode with border logic
+                    if extension !== nothing && border > 0
+                        gene_base = first(split(string(name), '*'))
+                        key = (string(case), gene_base)
+                        totals[key] = get(totals, key, 0) + 1
+                        # Apply border rejection: either global extension or per-gene side-specific calibrated extension
+                        if adjust_per_gene_extension
+                            read_length = length(row.genomic_sequence)
+                            left_border_end = min(border, read_length)
+                            right_border_start = max(1, read_length - border + 1)
+                            if gene == "V"
+                                suffE = get(per_gene_suffix, gene_base, extension)
+                                right_ext_end = min(end_pos + suffE, read_length)
+                                if right_ext_end >= right_border_start
+                                    continue
+                                end
+                            elseif gene == "J"
+                                prefE = get(per_gene_prefix, gene_base, extension)
+                                left_ext_start = max(1, start_pos - prefE)
+                                if left_ext_start <= left_border_end
+                                    continue
+                                end
+                            elseif gene == "D"
+                                prefE = get(per_gene_prefix, gene_base, extension)
+                                suffE = get(per_gene_suffix, gene_base, extension)
+                                left_ext_start = max(1, start_pos - prefE)
+                                right_ext_end = min(end_pos + suffE, read_length)
+                                if (left_ext_start <= left_border_end) || (right_ext_end >= right_border_start)
+                                    continue
+                                end
+                            else
+                                error("Invalid gene type")
+                            end
+                        else
+                            if extension_overlaps_border(start_pos, end_pos, length(row.genomic_sequence), gene, extension, border)
+                                # Reject this read due to border overlap
+                                continue
+                            end
+                        end
+                        accepted[key] = get(accepted, key, 0) + 1
+                    end
+
+                    # Use per-gene per-side extension if available
+                    local flanks
+                    if extension !== nothing && adjust_per_gene_extension && (border > 0)
+                        gene_base = first(split(string(name), '*'))
+                        prefE = get(per_gene_prefix, gene_base, extension)
+                        suffE = get(per_gene_suffix, gene_base, extension)
+                        flanks = extract_flanking(row.genomic_sequence, (start_pos, end_pos), gene, affix, extension, prefE, suffE)
+                    else
+                        flanks = extract_flanking(row.genomic_sequence, (start_pos, end_pos), gene, affix, extension)
+                    end
                     local filtered_flanks
                     if extension !== nothing
                         filtered_flanks = flanks
@@ -152,16 +396,86 @@ module exact
                         filtered_flanks = gene == "V" ? filter_tuple_by_types(rss, "prefix", tuple_data = flanks) : gene == "J" ? filter_tuple_by_types(rss, "suffix", tuple_data = flanks) : flanks
                     end
                     meta = (well=string(well), case=string(case), db_name=string(name))
-                    push!(matches, merge(meta, filtered_flanks))
+                    if extension !== nothing
+                        # Include lengths of prefix and suffix for transparency in extension mode
+                        local prefix_len = length(filtered_flanks.prefix)
+                        local suffix_len = length(filtered_flanks.suffix)
+                        push!(matches, merge(meta, merge(filtered_flanks, (prefix_len=prefix_len, suffix_len=suffix_len))))
+                    else
+                        push!(matches, merge(meta, filtered_flanks))
+                    end
                 end
             end
-            matches
+            (matches=matches, totals=totals, accepted=accepted)
         end
-        valid_results = [r for r in result if r != []]
-        if isempty(valid_results)
+        # Gather accepted matches
+        valid_match_lists = [r.matches for r in result if r.matches != []]
+        if isempty(valid_match_lists)
             result_df = DataFrame()
         else
-            result_df = DataFrame(reduce(vcat, valid_results))
+            result_df = DataFrame(reduce(vcat, valid_match_lists))
+        end
+
+        # Compute border-overlap statistics when applicable
+        if extension !== nothing && border > 0
+            # Combine per-row dictionaries
+            totals_all = Dict{Tuple{String,String},Int}()
+            accepted_all = Dict{Tuple{String,String},Int}()
+            for r in result
+                if !isempty(r.totals)
+                    merge_counts!(totals_all, r.totals)
+                end
+                if !isempty(r.accepted)
+                    merge_counts!(accepted_all, r.accepted)
+                end
+            end
+
+            if isempty(totals_all)
+                LAST_BORDER_STATS[] = BORDER_ROW[]
+                LAST_BORDER_GENE_STATS[] = BORDER_GENE_ROW[]
+            else
+                # Build typed rows from dictionaries
+                stats_rows = BORDER_ROW[]
+                total_matched = 0
+                total_rejected = 0
+                for (c, g) in union(collect(keys(totals_all)), collect(keys(accepted_all)))
+                    m = get(totals_all, (c, g), 0)
+                    a = get(accepted_all, (c, g), 0)
+                    r = m - a
+                    ratio = m > 0 ? r / m : 0.0
+                    push!(stats_rows, (case=c, gene=g, matched_total=m, accepted_total=a, rejected_border=r, rejected_ratio=ratio))
+                    total_matched += m
+                    total_rejected += r
+                end
+
+                total_pct = total_matched > 0 ? round(100 * total_rejected / total_matched; digits=2) : 0.0
+                @info "Border filter rejected $(total_rejected) of $(total_matched) potential matches ($(total_pct)%)"
+
+                LAST_BORDER_STATS[] = stats_rows
+
+                # Per-gene summary averaged across donors
+                # Aggregate via Dicts to avoid DataFrames
+                sum_ratio = Dict{String,Float64}()
+                sum_matched = Dict{String,Int}()
+                sum_rejected = Dict{String,Int}()
+                num_donors = Dict{String,Int}()
+                for row in stats_rows
+                    g = row.gene
+                    sum_ratio[g] = get(sum_ratio, g, 0.0) + row.rejected_ratio
+                    sum_matched[g] = get(sum_matched, g, 0) + row.matched_total
+                    sum_rejected[g] = get(sum_rejected, g, 0) + row.rejected_border
+                    num_donors[g] = get(num_donors, g, 0) + 1
+                end
+                gene_rows = BORDER_GENE_ROW[]
+                for g in keys(sum_ratio)
+                    mean_r = num_donors[g] > 0 ? sum_ratio[g] / num_donors[g] : 0.0
+                    push!(gene_rows, (gene=g, mean_rejected_ratio=mean_r, matched_total=sum_matched[g], rejected_border=sum_rejected[g], num_donors=num_donors[g]))
+                end
+                LAST_BORDER_GENE_STATS[] = gene_rows
+            end
+        else
+            LAST_BORDER_STATS[] = BORDER_ROW[]
+            LAST_BORDER_GENE_STATS[] = BORDER_GENE_ROW[]
         end
 
         # Compute counts
@@ -186,7 +500,8 @@ module exact
 
         sort!(df, [:full_count, :count], rev=[true, true])
         # Collapse individual rows into unique rows before filtering
-        udf = sort(unique(df),[:well, :case, :gene])
+        # Keep unique combinations that preserve flanking sequence differences
+        udf = sort(unique(df),[:well, :case, :gene, :db_name, :sequence])
         # Filter by count and ratio
         # Function get_ratio is used to disable filtering by ratio for certain genes in expect_dict
         filter!(row -> (row.full_count >= mincount) & (row.full_ratio >= get_ratio(expect_dict, row, minratio)), udf)  # Order is important here to filter first on smaller numbers
@@ -280,6 +595,9 @@ module exact
         
         @info "Exact search"
         extension = parsed_args["search"]["exact"]["extension"]
+        border = get(parsed_args["search"]["exact"], "border", 0)
+        adjust_per_gene_extension = get(parsed_args["search"]["exact"], "adjust-per-gene-extension", false)
+        adjust_percent = get(parsed_args["search"]["exact"], "adjust-percent", 1.0)
         limit = parsed_args["search"]["exact"]["limit"]
         refgenes = parsed_args["search"]["exact"]["refgene"]
         if length(refgenes) > 0
@@ -360,7 +678,7 @@ module exact
                                                              mincount=mincount, minratio=minratio, 
                                                              expect_dict=expect_dict, affix=affix, 
                                                              rss=rss, extension=extension, N=top, 
-                                                             raw=raw, sequence_lookup=sequence_lookup)
+                                                             raw=raw, sequence_lookup=sequence_lookup, border=border, adjust_per_gene_extension=adjust_per_gene_extension, adjust_percent=adjust_percent)
         sort!(counts_df, [:case, :db_name])
         
         if !parsed_args["search"]["exact"]["noplot"]
@@ -445,6 +763,8 @@ module exact
         
         CSV.write(output, counts_df, compress=true, delim='\t')
         @info "Exact search data saved in compressed $output file"
+
+        # No additional stats files are written; totals were reported via @info earlier
     end
 
     export grouped_ratios, transform_counts, build_sequence_lookup, handle_exact
