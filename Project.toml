@@ -1,7 +1,7 @@
 name = "immunediscover"
 uuid = "ede02418-ba61-46a9-a923-ddac3116c86d"
 authors = ["Mateusz Kaduk <mateusz.kaduk@gmail.com> and contributors"]
-version = "0.0.67"
+version = "0.0.68"
 
 [deps]
 ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
@@ -23,6 +23,7 @@ JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 Kmers = "445028e4-d31f-4f27-89ad-17affd83fc22"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 MD5 = "6ac74813-4b46-53a4-afec-0b5dc9d7885c"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
@@ -34,6 +35,7 @@ XAM = "d759349c-bcba-11e9-07c2-5b90f8f05f7c"
 
 [compat]
 Clustering = "0.15.8"
+PrecompileTools = "1"
 SpecialFunctions = "2.5.1"
 
 [extras]

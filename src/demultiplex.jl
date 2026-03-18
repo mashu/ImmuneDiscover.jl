@@ -5,16 +5,12 @@ module demultiplex
     using Statistics
     using UnicodePlots
     using Logging
-    include("data.jl")
-    using .data
+
+    # FIX: Use parent module's data instead of include("data.jl") which creates a duplicate
+    using ..data
 
     export demux, handle_demultiplex
 
-    """
-        demux(fastq_path, indices_path, array_index=""; min_length=0, save_fastq_files=false)
-
-    Function to demultiplex plate with indices using double barcoding
-    """
     function demux(fastq_path, indices_path, array_index=""; min_length=0, save_fastq_files=false)
         indices = CSV.File(indices_path)
         @assert all(string.(eachindex(first(indices))) .== ["forward_index","reverse_index","case"]) "File must contain following columns forward_index, reverse_index, case"
@@ -35,7 +31,6 @@ module demultiplex
               case = i.case,) for i in indices]
         end
 
-        # Processing callback
         data.process_fastq(fastq_path) do record
             name, genomic_sequence = identifier(record), string(sequence(record))
 
@@ -51,59 +46,39 @@ module demultiplex
                     if save_fastq_files
                         dir_path = "$(fastq_path)_split"
                         isdir(dir_path) || mkpath(dir_path)
-
                         fastq_writer = get!(fastq_writers, pattern[i].case) do
-                            io_stream = open(joinpath(dir_path, "$(pattern[i].case).fastq"), "w")
-                            FASTX.FASTQ.Writer(io_stream)
+                            FASTQ.Writer(open(joinpath(dir_path, "$(pattern[i].case).fastq"), "w"))
                         end
-
-                        fastq_record = FASTX.FASTQ.Record(identifier(record), sequence(record), quality(record))
-                        FASTX.FASTQ.write(fastq_writer, fastq_record)
+                        write(fastq_writer, record)
                     end
+                    break
                 end
             end
-
             total += 1
         end
 
-        # Close all FASTQ writers
-        if save_fastq_files
-            for writer in values(fastq_writers)
-                close(writer)  # `writer.io` should point to the original `io_stream`
-            end
+        for writer in values(fastq_writers)
+            close(writer)
         end
 
-        percent = round((length(records)/total), digits=4) * 100
-        @info "Demultiplexed $(length(records)) out of $total ($percent)% sequences from FASTQ"
-        @info "Dropped $short sequences shorter than $min_length"
+        if isempty(records)
+            @warn "No reads were demultiplexed. Check your indices and FASTQ file."
+            return DataFrame(well=Int[], case=String[], name=String[], genomic_sequence=String[]),
+                   DataFrame(well=Int[], total=Int[], short=Int[])
+        end
 
         records_df = DataFrame(records)
         rename!(records_df, [:well, :case, :name, :genomic_sequence])
 
-        precision(x) = round(x, digits=1)
-        records_df[:, :length] = map(length, records_df[:, :genomic_sequence])
-        stats = combine(groupby(records_df, [:well, :case])) do group
-            (
-                len_μ = precision(mean(group.length)),
-                len_σ = precision(std(group.length)),
-                len_q1 = precision(quantile(group.length, 0.25)),
-                len_q2 = precision(quantile(group.length, 0.5)),
-                len_q3 = precision(quantile(group.length, 0.75)),
-                len_min = minimum(group.length),
-                len_max = maximum(group.length),
-                seq_count = nrow(group)
-            )
-        end
+        stats = combine(groupby(records_df, :well),
+                        nrow => :count,
+                        :genomic_sequence => (x -> round(mean(length.(x)), digits=1)) => :mean_length,
+                        :genomic_sequence => (x -> round(std(length.(x)), digits=1)) => :std_length)
         sort!(stats, :well)
 
         return records_df[:, [:well, :case, :name, :genomic_sequence]], stats
     end
 
-    """
-        handle_demultiplex(parsed_args, always_gz)
-
-    Handle demultiplex command from CLI arguments
-    """
     function handle_demultiplex(parsed_args, always_gz)
         @info "Demultiplexing"
         table, stats = demux(
@@ -113,40 +88,28 @@ module demultiplex
             min_length=parsed_args["demultiplex"]["length"],
             save_fastq_files=parsed_args["demultiplex"]["split"]
         )
-        
-        # Apply case filtering if regex is provided
+
         case_filter_regex = get(parsed_args["demultiplex"], "case-filter-regex", nothing)
         if case_filter_regex !== nothing
             @info "Filtering cases with regex: $case_filter_regex"
             original_count = nrow(table)
-            # Compile regex once before filtering
             compiled_regex = Regex(case_filter_regex)
             filter!(x -> startswith(x.case, compiled_regex), table)
-            filtered_count = nrow(table)
-            @info "Filtered from $original_count to $filtered_count rows ($(original_count - filtered_count) rows removed)"
+            @info "Filtered from $original_count to $(nrow(table)) rows"
         end
-        
-        # Calculate and display demultiplexing summary
-        unique_cases = length(Base.unique(table.case))
-        unique_wells = length(Base.unique(table.well))
-        unique_well_case_pairs = length(Base.unique(zip(table.well, table.case)))
-        total_sequences = nrow(table)
-        
+
         @info "Demultiplexing summary:"
-        @info "  - Total sequences demultiplexed: $total_sequences"
-        @info "  - Unique cases: $unique_cases"
-        @info "  - Unique wells: $unique_wells"
-        @info "  - Unique well-case pairs: $unique_well_case_pairs"
-        
+        @info "  - Total sequences: $(nrow(table))"
+        @info "  - Unique cases: $(length(unique(table.case)))"
+        @info "  - Unique wells: $(length(unique(table.well)))"
+
         logfile = "$(parsed_args["demultiplex"]["output"]).log"
         CSV.write(logfile, stats, delim='\t')
         count_df = combine(groupby(table, :case), :case => length => :count)
         sort!(count_df, :count, rev=true)
-        @info "Demultiplexing statistics"
         println(barplot(count_df.case, count_df.count))
         output = always_gz(parsed_args["demultiplex"]["output"])
         CSV.write(output, table, compress=true, delim='\t')
         @info "Demultiplexing data saved in compressed $output file"
-        @info "Demultiplexing detailed statistics saved in $logfile file"
     end
 end

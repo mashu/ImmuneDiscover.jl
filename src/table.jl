@@ -7,46 +7,35 @@ module table
     export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv, sort_tsv, select_tsv
     export handle_table
 
-    """
-        outerjoin_tsv(left_file, right_file, output_file; left_keys, right_keys, left_prefix, right_prefix, left_select, right_select)
+    # --- Unified join implementation to eliminate redundancy ---
 
-    Perform outer join on two TSV files by specified key columns.
-    
-    # Arguments
-    - `left_file`: Path to the left TSV file
-    - `right_file`: Path to the right TSV file  
-    - `output_file`: Path for the output TSV file
-    - `left_keys`: Vector of column names to join on from left file
-    - `right_keys`: Vector of column names to join on from right file (defaults to left_keys)
-    - `left_prefix`: Optional prefix for left file columns (defaults to basename of left_file)
-    - `right_prefix`: Optional prefix for right file columns (defaults to basename of right_file)
-    - `left_select`: Optional vector of column names to select from left file (defaults to all columns)
-    - `right_select`: Optional vector of column names to select from right file (defaults to all columns)
     """
-    function outerjoin_tsv(left_file, right_file, output_file; 
-                           left_keys, right_keys=nothing, left_prefix=nothing, right_prefix=nothing, 
-                           left_select=nothing, right_select=nothing)
-        
+        join_tsv(left_file, right_file, output_file; how, left_keys, right_keys, left_prefix, right_prefix, left_select, right_select)
+
+    Perform a join (outer or left) on two TSV files by specified key columns.
+    Dispatches on `how` to select join type.
+    """
+    function join_tsv(left_file, right_file, output_file;
+                      how::Symbol,
+                      left_keys, right_keys=nothing, left_prefix=nothing, right_prefix=nothing,
+                      left_select=nothing, right_select=nothing)
+
         @info "Loading left file: $left_file"
         left_df = CSV.File(left_file, delim='\t') |> DataFrame
-        
+
         @info "Loading right file: $right_file"
         right_df = CSV.File(right_file, delim='\t') |> DataFrame
-        
-        # Use left_keys as right_keys if not specified
+
         if right_keys === nothing
             right_keys = left_keys
         end
-        
-        # Set default prefixes to nothing (no prefixing by default)
         if left_prefix === nothing
             left_prefix = ""
         end
         if right_prefix === nothing
             right_prefix = ""
         end
-        
-        # Select columns if specified
+
         if left_select !== nothing
             @info "Selecting columns from left file: $left_select"
             left_df = left_df[:, left_select]
@@ -55,128 +44,49 @@ module table
             @info "Selecting columns from right file: $right_select"
             right_df = right_df[:, right_select]
         end
-        
+
         @info "Left file: $(nrow(left_df)) rows, $(ncol(left_df)) columns"
         @info "Right file: $(nrow(right_df)) rows, $(ncol(right_df)) columns"
         @info "Join keys - Left: $left_keys, Right: $right_keys"
-        @info "Prefixes - Left: $left_prefix, Right: $right_prefix"
-        
-        # Add prefixes to column names (except join keys) only if prefix is not empty
+
         left_df_prefixed = copy(left_df)
         right_df_prefixed = copy(right_df)
-        
+
         for col in names(left_df)
             if !(col in left_keys) && !isempty(left_prefix)
-                new_name = "$(left_prefix)_$(col)"
-                rename!(left_df_prefixed, col => new_name)
+                rename!(left_df_prefixed, col => "$(left_prefix)_$(col)")
             end
         end
-        
         for col in names(right_df)
             if !(col in right_keys) && !isempty(right_prefix)
-                new_name = "$(right_prefix)_$(col)"
-                rename!(right_df_prefixed, col => new_name)
+                rename!(right_df_prefixed, col => "$(right_prefix)_$(col)")
             end
         end
-        
-        # Perform outer join
-        @info "Performing outer join"
-        result_df = outerjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
-        
+
+        @info "Performing $how join"
+        result_df = if how === :outer
+            outerjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
+        elseif how === :left
+            leftjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
+        else
+            error("Unsupported join type: $how. Use :outer or :left.")
+        end
+
         @info "Result: $(nrow(result_df)) rows, $(ncol(result_df)) columns"
-        
-        # Save result
+
         output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
         CSV.write(output_gz, result_df, compress=true, delim='\t')
         @info "Output saved to: $output_gz"
-        
         return result_df
     end
 
-    """
-        leftjoin_tsv(left_file, right_file, output_file; left_keys, right_keys, left_prefix, right_prefix, left_select, right_select)
+    # Public API delegates to the unified implementation
+    function outerjoin_tsv(left_file, right_file, output_file; kwargs...)
+        join_tsv(left_file, right_file, output_file; how=:outer, kwargs...)
+    end
 
-    Perform left join on two TSV files by specified key columns.
-    
-    # Arguments
-    - `left_file`: Path to the left TSV file
-    - `right_file`: Path to the right TSV file  
-    - `output_file`: Path for the output TSV file
-    - `left_keys`: Vector of column names to join on from left file
-    - `right_keys`: Vector of column names to join on from right file (defaults to left_keys)
-    - `left_prefix`: Optional prefix for left file columns (defaults to basename of left_file)
-    - `right_prefix`: Optional prefix for right file columns (defaults to basename of right_file)
-    - `left_select`: Optional vector of column names to select from left file (defaults to all columns)
-    - `right_select`: Optional vector of column names to select from right file (defaults to all columns)
-    """
-    function leftjoin_tsv(left_file, right_file, output_file; 
-                          left_keys, right_keys=nothing, left_prefix=nothing, right_prefix=nothing, 
-                          left_select=nothing, right_select=nothing)
-        
-        @info "Loading left file: $left_file"
-        left_df = CSV.File(left_file, delim='\t') |> DataFrame
-        
-        @info "Loading right file: $right_file"
-        right_df = CSV.File(right_file, delim='\t') |> DataFrame
-        
-        # Use left_keys as right_keys if not specified
-        if right_keys === nothing
-            right_keys = left_keys
-        end
-        
-        # Set default prefixes to nothing (no prefixing by default)
-        if left_prefix === nothing
-            left_prefix = ""
-        end
-        if right_prefix === nothing
-            right_prefix = ""
-        end
-        
-        # Select columns if specified
-        if left_select !== nothing
-            @info "Selecting columns from left file: $left_select"
-            left_df = left_df[:, left_select]
-        end
-        if right_select !== nothing
-            @info "Selecting columns from right file: $right_select"
-            right_df = right_df[:, right_select]
-        end
-        
-        @info "Left file: $(nrow(left_df)) rows, $(ncol(left_df)) columns"
-        @info "Right file: $(nrow(right_df)) rows, $(ncol(right_df)) columns"
-        @info "Join keys - Left: $left_keys, Right: $right_keys"
-        @info "Prefixes - Left: $left_prefix, Right: $right_prefix"
-        
-        # Add prefixes to column names (except join keys) only if prefix is not empty
-        left_df_prefixed = copy(left_df)
-        right_df_prefixed = copy(right_df)
-        
-        for col in names(left_df)
-            if !(col in left_keys) && !isempty(left_prefix)
-                new_name = "$(left_prefix)_$(col)"
-                rename!(left_df_prefixed, col => new_name)
-            end
-        end
-        
-        for col in names(right_df)
-            if !(col in right_keys) && !isempty(right_prefix)
-                new_name = "$(right_prefix)_$(col)"
-                rename!(right_df_prefixed, col => new_name)
-            end
-        end
-        
-        # Perform left join
-        @info "Performing left join"
-        result_df = leftjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
-        
-        @info "Result: $(nrow(result_df)) rows, $(ncol(result_df)) columns"
-        
-        # Save result
-        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
-        CSV.write(output_gz, result_df, compress=true, delim='\t')
-        @info "Output saved to: $output_gz"
-        
-        return result_df
+    function leftjoin_tsv(left_file, right_file, output_file; kwargs...)
+        join_tsv(left_file, right_file, output_file; how=:left, kwargs...)
     end
 
     # Helper function to get basename without extension
@@ -191,134 +101,112 @@ module table
     end
 
     """
-        filter_tsv(input_file, output_file, column; pattern=nothing, operator=nothing, threshold=nothing)
+        is_numeric_column(col)
 
-    Filter TSV file by column using regex or numeric operations.
-    Mode is automatically detected based on provided parameters:
-    - If `pattern` is provided: regex mode (string filtering)
-    - If `operator` and `threshold` are provided: numeric mode (numeric filtering)
-    
-    # Arguments
-    - `input_file`: Path to the input TSV file
-    - `output_file`: Path for the output TSV file
-    - `column`: Name of the column to filter on
-    - `pattern`: Regex pattern for string filtering (optional)
-    - `operator`: Numeric operator - "<", "<=", ">=", ">" (optional)
-    - `threshold`: Numeric threshold value (optional)
+    Check if a DataFrame column contains numeric data by inspecting its non-missing type.
+    Uses dispatch-friendly pattern instead of eltype/isa.
     """
-    function filter_tsv(input_file, output_file, column; pattern=nothing, operator=nothing, threshold=nothing)
-        
-        @info "Loading input file: $input_file"
-        df = CSV.File(input_file, delim='\t') |> DataFrame
-        
-        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
-        
-        # Check if column exists
-        if !(column in names(df))
-            error("Column '$column' not found in input file. Available columns: $(join(names(df), ", "))")
+    function is_numeric_column(col)
+        for val in col
+            ismissing(val) && continue
+            return val isa Number
         end
-        
-        # Auto-detect mode based on provided parameters
-        if pattern !== nothing && (operator !== nothing || threshold !== nothing)
-            error("Cannot use both regex pattern and numeric operator/threshold. Choose one filtering method.")
-        elseif pattern !== nothing
-            # Regex mode
-            @info "Filtering column '$column' using regex pattern: $pattern"
-            # Compile regex once before the loop for performance
-            regex = Regex(pattern)
-            # Handle missing values by skipping them (treating them as not matching the pattern)
-            filter_mask = map(x -> ismissing(x) ? false : occursin(regex, x), df[!, column])
-        elseif operator !== nothing && threshold !== nothing
-            # Numeric mode
-            # Check if column can be converted to numeric
-            numeric_values = try
-                # Try to convert to numeric, handling both string and already numeric columns
-                if eltype(df[!, column]) <: Number
-                    df[!, column]
-                else
-                    parse.(Float64, string.(df[!, column]))
-                end
-            catch
-                error("Column '$column' cannot be converted to numeric values for filtering")
-            end
-            
-            @info "Filtering column '$column' using numeric operation: $operator $threshold"
-            
-            # Apply numeric filter based on operator, handling missing values
-            if operator == "<"
-                filter_mask = map(x -> ismissing(x) ? false : x < threshold, numeric_values)
-            elseif operator == "<="
-                filter_mask = map(x -> ismissing(x) ? false : x <= threshold, numeric_values)
-            elseif operator == ">="
-                filter_mask = map(x -> ismissing(x) ? false : x >= threshold, numeric_values)
-            elseif operator == ">"
-                filter_mask = map(x -> ismissing(x) ? false : x > threshold, numeric_values)
-            else
-                error("Invalid operator: $operator. Must be one of: <, <=, >=, >")
-            end
-        else
-            error("Must provide either --pattern for regex filtering or both --operator and --threshold for numeric filtering")
-        end
-        
-        # Apply filter
-        filtered_df = df[filter_mask, :]
-        
-        original_count = nrow(df)
-        filtered_count = nrow(filtered_df)
-        removed_count = original_count - filtered_count
-        
-        @info "Filter results: $filtered_count rows kept, $removed_count rows removed"
-        
-        # Save result
-        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
-        CSV.write(output_gz, filtered_df, compress=true, delim='\t')
-        @info "Filtered data saved to: $output_gz"
-        
-        return filtered_df
+        return false
     end
 
     """
-        transform_tsv(input_file, output_file, column; pattern, replacement, new_column=nothing)
+        parse_numeric_value(val)
 
-    Transform a TSV file by applying regex pattern with capture groups to replace matched strings.
-    Optionally add a new column with captured groups.
-    
-    # Arguments
-    - `input_file`: Path to the input TSV file
-    - `output_file`: Path for the output TSV file
-    - `column`: Name of the column to transform
-    - `pattern`: Regex pattern with capture groups (e.g., "ID_(\\d+)_(\\w+)" to capture ID_123_ABC)
-    - `replacement`: Replacement string using capture groups (e.g., "\\1-\\2" to get "123-ABC")
-    - `new_column`: Optional name for new column containing captured groups (e.g., "extracted_id")
+    Attempt to parse a value as Float64. Returns nothing on failure (no try-catch).
     """
-    function transform_tsv(input_file, output_file; column, pattern, replacement, new_column=nothing)
-        
+    function parse_numeric_value(val)
+        ismissing(val) && return nothing
+        val isa Number && return Float64(val)
+        result = tryparse(Float64, string(val))
+        return result
+    end
+
+    """
+        filter_tsv(input_file, output_file, column; pattern=nothing, operator=nothing, threshold=nothing)
+
+    Filter TSV file by column using regex or numeric operations.
+    """
+    function filter_tsv(input_file, output_file, column; pattern=nothing, operator=nothing, threshold=nothing)
+
         @info "Loading input file: $input_file"
         df = CSV.File(input_file, delim='\t') |> DataFrame
-        
+
         @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
-        
-        # Check if column exists
+
         if !(column in names(df))
             error("Column '$column' not found in input file. Available columns: $(join(names(df), ", "))")
         end
-        
+
+        if pattern !== nothing && (operator !== nothing || threshold !== nothing)
+            error("Cannot use both regex pattern and numeric operator/threshold. Choose one filtering method.")
+        elseif pattern !== nothing
+            @info "Filtering column '$column' using regex pattern: $pattern"
+            regex = Regex(pattern)
+            filter_mask = map(x -> ismissing(x) ? false : occursin(regex, string(x)), df[!, column])
+        elseif operator !== nothing && threshold !== nothing
+            # FIX: Use dispatch-friendly numeric detection instead of eltype
+            col_data = df[!, column]
+            if is_numeric_column(col_data)
+                numeric_values = col_data
+            else
+                # FIX: Use tryparse instead of try-catch for numeric conversion
+                parsed = [parse_numeric_value(x) for x in col_data]
+                if any(isnothing, parsed)
+                    error("Column '$column' cannot be converted to numeric values for filtering")
+                end
+                numeric_values = [p for p in parsed]
+            end
+
+            @info "Filtering column '$column' using numeric operation: $operator $threshold"
+
+            compare_fn = if operator == "<"
+                (x, t) -> ismissing(x) ? false : x < t
+            elseif operator == "<="
+                (x, t) -> ismissing(x) ? false : x <= t
+            elseif operator == ">="
+                (x, t) -> ismissing(x) ? false : x >= t
+            elseif operator == ">"
+                (x, t) -> ismissing(x) ? false : x > t
+            else
+                error("Invalid operator: $operator. Must be one of: <, <=, >=, >")
+            end
+            filter_mask = map(x -> compare_fn(x, threshold), numeric_values)
+        else
+            error("Must provide either --pattern for regex filtering or both --operator and --threshold for numeric filtering")
+        end
+
+        filtered_df = df[filter_mask, :]
+        @info "Filter results: $(nrow(filtered_df)) rows kept, $(nrow(df) - nrow(filtered_df)) rows removed"
+
+        output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
+        CSV.write(output_gz, filtered_df, compress=true, delim='\t')
+        @info "Filtered data saved to: $output_gz"
+        return filtered_df
+    end
+
+    function transform_tsv(input_file, output_file; column, pattern, replacement, new_column=nothing)
+        @info "Loading input file: $input_file"
+        df = CSV.File(input_file, delim='\t') |> DataFrame
+        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
+
+        if !(column in names(df))
+            error("Column '$column' not found in input file. Available columns: $(join(names(df), ", "))")
+        end
+
         @info "Transforming column '$column' using pattern: $pattern"
-        @info "Replacement pattern: $replacement"
-        
-        # Apply regex transformation
+        regex = Regex(pattern)
         original_values = df[!, column]
-        @info "Julia replacement pattern: $replacement"
-        
-        # Manual regex replacement with capture groups
         transformed_values = String[]
         extracted_values = String[]
-        regex = Regex(pattern)
-        
+
         for value in original_values
             m = match(regex, string(value))
             if m !== nothing
-                # Replace \1, \2, etc. with actual capture groups
                 result = replacement
                 for i in 1:length(m.captures)
                     if m.captures[i] !== nothing
@@ -326,11 +214,8 @@ module table
                     end
                 end
                 push!(transformed_values, result)
-                
-                # Extract captured groups for new column if requested
                 if new_column !== nothing
-                    extracted = join([m.captures[i] for i in 1:length(m.captures) if m.captures[i] !== nothing], "")
-                    push!(extracted_values, extracted)
+                    push!(extracted_values, join([c for c in m.captures if c !== nothing], ""))
                 else
                     push!(extracted_values, "")
                 end
@@ -339,78 +224,46 @@ module table
                 push!(extracted_values, "")
             end
         end
-        
-        # Count how many values were actually changed
-        changed_count = sum(original_values .!= transformed_values)
+
+        changed_count = sum(string.(original_values) .!= transformed_values)
         @info "Transformed $changed_count values in column '$column'"
-        
-        # Update the dataframe
         df[!, column] = transformed_values
-        
-        # Add new column with extracted values if requested
         if new_column !== nothing
             df[!, new_column] = extracted_values
-            @info "Added new column '$new_column' with extracted values"
+            @info "Added new column '$new_column'"
         end
-        
-        # Save result
+
         output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
         CSV.write(output_gz, df, compress=true, delim='\t')
         @info "Transformed data saved to: $output_gz"
-        
         return df
     end
 
-    """
-        aggregate_tsv(input_file, output_file; group_by, keep_columns=nothing, count_column="count")
-
-    Aggregate unique rows by selected columns, optionally keeping specific columns and adding a count.
-    
-    # Arguments
-    - `input_file`: Path to the input TSV file
-    - `output_file`: Path for the output TSV file
-    - `group_by`: Vector of column names to group by
-    - `keep_columns`: Optional vector of additional columns to keep (defaults to all non-group columns)
-    - `count_column`: Name for the count column (defaults to "count")
-    """
     function aggregate_tsv(input_file, output_file; group_by, keep_columns=nothing, count_column="count")
-        
         @info "Loading input file: $input_file"
         df = CSV.File(input_file, delim='\t') |> DataFrame
-        
         @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
-        
-        # Check if group_by columns exist
+
         for col in group_by
             if !(col in names(df))
                 error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
             end
         end
-        
-        # Determine which columns to keep
+
         if keep_columns === nothing
-            # Keep all columns that are not in group_by
             keep_columns = [col for col in names(df) if !(col in group_by)]
         else
-            # Check if keep_columns exist
             for col in keep_columns
                 if !(col in names(df))
                     error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
                 end
             end
         end
-        
-        @info "Grouping by: $group_by"
-        @info "Keeping columns: $keep_columns"
-        
-        # Select only the columns we need
+
         selected_columns = vcat(group_by, keep_columns)
         df_selected = df[:, selected_columns]
-        
-        # Group by the specified columns and count
         grouped_df = combine(groupby(df_selected, group_by), nrow => count_column)
-        
-        # Add any additional columns that were kept (taking first value from each group)
+
         if !isempty(keep_columns)
             for col in keep_columns
                 if !(col in names(grouped_df))
@@ -419,210 +272,67 @@ module table
                 end
             end
         end
-        
-        original_count = nrow(df)
-        aggregated_count = nrow(grouped_df)
-        @info "Aggregated from $original_count rows to $aggregated_count unique groups"
-        
-        # Save result
+
+        @info "Aggregated from $(nrow(df)) rows to $(nrow(grouped_df)) unique groups"
         output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
         CSV.write(output_gz, grouped_df, compress=true, delim='\t')
-        @info "Aggregated data saved to: $output_gz"
-        
         return grouped_df
     end
 
-    """
-        unique_tsv(input_file, output_file; columns)
-
-    Create unique rows by selecting specific columns (like SELECT DISTINCT).
-    
-    # Arguments
-    - `input_file`: Path to the input TSV file
-    - `output_file`: Path for the output TSV file
-    - `columns`: Vector of column names to select for uniqueness
-    """
     function unique_tsv(input_file, output_file; columns)
-        
         @info "Loading input file: $input_file"
         df = CSV.File(input_file, delim='\t') |> DataFrame
-        
-        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
-        
-        # Check if columns exist
         for col in columns
             if !(col in names(df))
-                error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
+                error("Column '$col' not found. Available: $(join(names(df), ", "))")
             end
         end
-        
-        @info "Selecting unique rows based on columns: $columns"
-        
-        # Select only the specified columns and get unique rows
         unique_df = unique(df[:, columns])
-        
-        original_count = nrow(df)
-        unique_count = nrow(unique_df)
-        removed_count = original_count - unique_count
-        
-        @info "Unique rows: $unique_count rows (removed $removed_count duplicates)"
-        
-        # Save result
+        @info "Unique rows: $(nrow(unique_df)) (removed $(nrow(df) - nrow(unique_df)) duplicates)"
         output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
         CSV.write(output_gz, unique_df, compress=true, delim='\t')
-        @info "Unique data saved to: $output_gz"
-        
         return unique_df
     end
 
-    """
-        sort_tsv(input_file, output_file; columns, reverse=false)
-
-    Sort a TSV file by specified columns.
-    
-    # Arguments
-    - `input_file`: Path to the input TSV file
-    - `output_file`: Path for the output TSV file
-    - `columns`: Vector of column names to sort by (in order of priority)
-    - `reverse`: Whether to sort in descending order (defaults to false for ascending)
-    """
     function sort_tsv(input_file, output_file; columns, reverse=false)
-        
         @info "Loading input file: $input_file"
         df = CSV.File(input_file, delim='\t') |> DataFrame
-        
-        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
-        
-        # Check if columns exist
         for col in columns
             if !(col in names(df))
-                error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
+                error("Column '$col' not found. Available: $(join(names(df), ", "))")
             end
         end
-        
-        @info "Sorting by columns: $columns"
-        @info "Sort order: $(reverse ? "descending" : "ascending")"
-        
-        # Sort the dataframe
         sort!(df, columns, rev=reverse)
-        
-        @info "Sorted $(nrow(df)) rows"
-        
-        # Save result
+        @info "Sorted $(nrow(df)) rows by $columns ($(reverse ? "desc" : "asc"))"
         output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
         CSV.write(output_gz, df, compress=true, delim='\t')
-        @info "Sorted data saved to: $output_gz"
-        
         return df
     end
 
-    """
-        select_tsv(input_file, output_file; columns)
-
-    Select specific columns from a TSV file and save to output file.
-    
-    # Arguments
-    - `input_file`: Path to the input TSV file
-    - `output_file`: Path for the output TSV file
-    - `columns`: Vector of column names to select
-    """
     function select_tsv(input_file, output_file; columns)
-        
         @info "Loading input file: $input_file"
         df = CSV.File(input_file, delim='\t') |> DataFrame
-        
-        @info "Input file: $(nrow(df)) rows, $(ncol(df)) columns"
-        
-        # Check if all specified columns exist
         for col in columns
             if !(col in names(df))
-                error("Column '$col' not found in input file. Available columns: $(join(names(df), ", "))")
+                error("Column '$col' not found. Available: $(join(names(df), ", "))")
             end
         end
-        
-        @info "Selecting columns: $columns"
-        
-        # Select only the specified columns
         selected_df = df[:, columns]
-        
-        @info "Selected $(ncol(selected_df)) columns from $(ncol(df)) original columns"
-        
-        # Save result
+        @info "Selected $(ncol(selected_df)) columns from $(ncol(df))"
         output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"
         CSV.write(output_gz, selected_df, compress=true, delim='\t')
-        @info "Selected data saved to: $output_gz"
-        
         return selected_df
     end
 
-    """
-        handle_table(parsed_args, immunediscover_module, always_gz)
-
-    Handle table group commands (dispatcher for table subcommands)
-    """
     function handle_table(parsed_args, immunediscover_module, always_gz)
         subcmd = get(parsed_args["table"], "%COMMAND%", "")
-        
+
         if subcmd == "outerjoin"
             @info "Performing outer join"
-            left_keys = split(parsed_args["table"]["outerjoin"]["keys"], ",")
-            right_keys = get(parsed_args["table"]["outerjoin"], "right-keys", nothing)
-            if right_keys !== nothing
-                right_keys = split(right_keys, ",")
-            end
-            left_prefix = get(parsed_args["table"]["outerjoin"], "left-prefix", nothing)
-            right_prefix = get(parsed_args["table"]["outerjoin"], "right-prefix", nothing)
-            left_select = get(parsed_args["table"]["outerjoin"], "left-select", nothing)
-            right_select = get(parsed_args["table"]["outerjoin"], "right-select", nothing)
-            
-            if left_select !== nothing
-                left_select = split(left_select, ",")
-            end
-            if right_select !== nothing
-                right_select = split(right_select, ",")
-            end
-            
-            outerjoin_tsv(
-                parsed_args["table"]["outerjoin"]["left"],
-                parsed_args["table"]["outerjoin"]["right"],
-                parsed_args["table"]["outerjoin"]["output"];
-                left_keys=left_keys,
-                right_keys=right_keys,
-                left_prefix=left_prefix,
-                right_prefix=right_prefix,
-                left_select=left_select,
-                right_select=right_select
-            )
+            _handle_join(parsed_args, "outerjoin", :outer)
         elseif subcmd == "leftjoin"
             @info "Performing left join"
-            left_keys = split(parsed_args["table"]["leftjoin"]["keys"], ",")
-            right_keys = get(parsed_args["table"]["leftjoin"], "right-keys", nothing)
-            if right_keys !== nothing
-                right_keys = split(right_keys, ",")
-            end
-            left_prefix = get(parsed_args["table"]["leftjoin"], "left-prefix", nothing)
-            right_prefix = get(parsed_args["table"]["leftjoin"], "right-prefix", nothing)
-            left_select = get(parsed_args["table"]["leftjoin"], "left-select", nothing)
-            right_select = get(parsed_args["table"]["leftjoin"], "right-select", nothing)
-            
-            if left_select !== nothing
-                left_select = split(left_select, ",")
-            end
-            if right_select !== nothing
-                right_select = split(right_select, ",")
-            end
-            
-            leftjoin_tsv(
-                parsed_args["table"]["leftjoin"]["left"],
-                parsed_args["table"]["leftjoin"]["right"],
-                parsed_args["table"]["leftjoin"]["output"];
-                left_keys=left_keys,
-                right_keys=right_keys,
-                left_prefix=left_prefix,
-                right_prefix=right_prefix,
-                left_select=left_select,
-                right_select=right_select
-            )
+            _handle_join(parsed_args, "leftjoin", :left)
         elseif subcmd == "transform"
             @info "Transforming TSV file"
             new_column = get(parsed_args["table"]["transform"], "new-column", nothing)
@@ -645,52 +355,25 @@ module table
             aggregate_tsv(
                 parsed_args["table"]["aggregate"]["input"],
                 parsed_args["table"]["aggregate"]["output"];
-                group_by=group_by,
-                keep_columns=keep_columns,
-                count_column=count_column
+                group_by=group_by, keep_columns=keep_columns, count_column=count_column
             )
         elseif subcmd == "unique"
-            @info "Creating unique rows"
             columns = split(parsed_args["table"]["unique"]["columns"], ",")
-            unique_tsv(
-                parsed_args["table"]["unique"]["input"],
-                parsed_args["table"]["unique"]["output"];
-                columns=columns
-            )
+            unique_tsv(parsed_args["table"]["unique"]["input"], parsed_args["table"]["unique"]["output"]; columns=columns)
         elseif subcmd == "sort"
-            @info "Sorting TSV file"
             columns = split(parsed_args["table"]["sort"]["columns"], ",")
             reverse = get(parsed_args["table"]["sort"], "reverse", false)
-            sort_tsv(
-                parsed_args["table"]["sort"]["input"],
-                parsed_args["table"]["sort"]["output"];
-                columns=columns,
-                reverse=reverse
-            )
+            sort_tsv(parsed_args["table"]["sort"]["input"], parsed_args["table"]["sort"]["output"]; columns=columns, reverse=reverse)
         elseif subcmd == "filter"
-            @info "Filtering TSV file"
             column = parsed_args["table"]["filter"]["column"]
             pattern = get(parsed_args["table"]["filter"], "pattern", nothing)
             operator = get(parsed_args["table"]["filter"], "operator", nothing)
             threshold = get(parsed_args["table"]["filter"], "threshold", nothing)
-            
-            filter_tsv(
-                parsed_args["table"]["filter"]["input"],
-                parsed_args["table"]["filter"]["output"],
-                column;
-                pattern=pattern,
-                operator=operator,
-                threshold=threshold
-            )
+            filter_tsv(parsed_args["table"]["filter"]["input"], parsed_args["table"]["filter"]["output"], column;
+                        pattern=pattern, operator=operator, threshold=threshold)
         elseif subcmd == "select"
-            @info "Selecting columns from TSV file"
             columns = split(parsed_args["table"]["select"]["columns"], ",")
-            
-            select_tsv(
-                parsed_args["table"]["select"]["input"],
-                parsed_args["table"]["select"]["output"];
-                columns=columns
-            )
+            select_tsv(parsed_args["table"]["select"]["input"], parsed_args["table"]["select"]["output"]; columns=columns)
         elseif subcmd == "fasta"
             @info "Exporting TSV to FASTA"
             immunediscover_module.fasta.extract_sequences_to_fasta(
@@ -713,9 +396,8 @@ module table
             output = parsed_args["table"]["collect"]["output"]
             files = glob(pattern)
             @info "Found $(length(files)) files matching pattern $pattern"
-            collected = []
             if length(files) > 0
-                @info "Collecting files"
+                collected = DataFrame[]
                 first_file_columns = nothing
                 for file in files
                     df = CSV.File(file, delim='\t') |> DataFrame
@@ -727,9 +409,9 @@ module table
                     end
                     push!(collected, df)
                 end
-                @info "Saving collected data in $output"
-                collectd_df = vcat(collected...)
-                CSV.write(output, collectd_df, delim='\t', compress=true)
+                collected_df = vcat(collected...)
+                CSV.write(output, collected_df, delim='\t', compress=true)
+                @info "Collected $(nrow(collected_df)) rows into $output"
             else
                 @warn "No files found matching pattern $pattern"
             end
@@ -737,12 +419,10 @@ module table
             @info "Exclude"
             db = immunediscover_module.load_fasta(parsed_args["table"]["exclude"]["fasta"])
             colname = parsed_args["table"]["exclude"]["colname"]
-            @info "Using $colname column"
             colseq = parsed_args["table"]["exclude"]["colseq"]
-            @info "Using $colseq column"
-            data = CSV.File(parsed_args["table"]["exclude"]["input"], delim='\t') |> DataFrame
+            data_df = CSV.File(parsed_args["table"]["exclude"]["input"], delim='\t') |> DataFrame
             discard = Set{Tuple{String,String,String}}()
-            for row in eachrow(data)
+            for row in eachrow(data_df)
                 for (name, seq) in db
                     if occursin(row[colseq], seq)
                         @info "Allele $(row[colname]) is a substring of $(name)"
@@ -756,10 +436,29 @@ module table
             end
             for (name, allele_name, seq) in discard
                 @info "Discarding fasta $allele_name with name $name"
-                filter!(x->x[colseq] != seq, data)
+                filter!(x -> x[colseq] != seq, data_df)
             end
             output = always_gz(parsed_args["table"]["exclude"]["output"])
-            CSV.write(output, data, compress=true, delim='\t')
+            CSV.write(output, data_df, compress=true, delim='\t')
         end
+    end
+
+    # Internal helper to avoid duplicating join CLI dispatch logic
+    function _handle_join(parsed_args, subcmd, how)
+        block = parsed_args["table"][subcmd]
+        left_keys = split(block["keys"], ",")
+        right_keys = get(block, "right-keys", nothing)
+        if right_keys !== nothing; right_keys = split(right_keys, ","); end
+        left_prefix = get(block, "left-prefix", nothing)
+        right_prefix = get(block, "right-prefix", nothing)
+        left_select = get(block, "left-select", nothing)
+        right_select = get(block, "right-select", nothing)
+        if left_select !== nothing; left_select = split(left_select, ","); end
+        if right_select !== nothing; right_select = split(right_select, ","); end
+
+        join_tsv(block["left"], block["right"], block["output"];
+                 how=how, left_keys=left_keys, right_keys=right_keys,
+                 left_prefix=left_prefix, right_prefix=right_prefix,
+                 left_select=left_select, right_select=right_select)
     end
 end
