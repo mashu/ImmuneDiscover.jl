@@ -174,7 +174,7 @@ module cli
                 help = "Search and discovery (blast, exact, hsmm, heptamer)"
                 action = :command
             "analyze"
-                help = "Analysis and QC (association, haplotype, bwa)"
+                help = "Analysis (cooccurrence, haplotype, bwa)"
                 action = :command
             "table"
                 help = "Table utilities (outerjoin, leftjoin, transform, aggregate, unique, sort, filter, select, fasta, collect, exclude)"
@@ -219,8 +219,8 @@ module cli
         end
 
         @add_arg_table! s["analyze"] begin
-            "association"
-                help = "Analyze cross-donor association (co-occurrence) among alleles across cases"
+            "cooccurrence"
+                help = "Analyze cross-donor co-occurrence among alleles across cases"
                 action = :command
             "haplotype"
                 help = "Infer approximate haplotypes per case using diploid assumptions"
@@ -230,12 +230,10 @@ module cli
                 action = :command
         end
 
-        @add_arg_table! s["analyze"]["association"] begin
+        # Options for cooccurrence (canonical)
+        @add_arg_table! s["analyze"]["cooccurrence"] begin
         "input"
             help = "TSV/TSV.GZ with columns: case and db_name (or specify columns)"
-            required = true
-        "edges"
-            help = "TSV.GZ to save pairwise edges table (phi coefficient and other metrics)"
             required = true
         "-C", "--case-col"
             help = "Name of column with donor/case id"
@@ -250,26 +248,19 @@ module cli
             default = 2
             arg_type = Int
             range_tester = (x->x >= 1)
-        "--min-support"
-            help = "Minimum co-present donors (n11) to consider an edge"
-            default = 3
-            arg_type = Int
-            range_tester = (x->x >= 0)
-        "--min-jaccard"
-            help = "Minimum Jaccard co-presence required to consider an edge"
-            default = 0.2
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "--similarity"
-            help = "Similarity mode: r (phi coefficient) or r2 (phi squared)"
-            default = "r"
+        "--cluster-method"
+            help = "Clustering method on rho: components, complete, average, or single"
+            default = "components"
             arg_type = String
-            range_tester = (x->(x == "r") | (x == "r2"))
-        "--threshold"
-            help = "Similarity threshold for complete-linkage cut (on r or r2)"
+            range_tester = (x-> (x ∈ ["components","complete","average","single","singel"]))
+        "--cluster-threshold"
+            help = "Similarity threshold for complete-linkage clustering on rho (0..1)"
             default = 0.5
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--debug-triangles"
+            help = "Print rho-based triangle diagnostics at cluster-threshold"
+            action = :store_true
         "--min-cluster-size"
             help = "Minimum cluster size to output"
             default = 3
