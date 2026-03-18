@@ -5,8 +5,6 @@ module simulate
     using Random
     using MD5
 
-    # FIX: Import unique_name and sequence_hash from parent data module
-    # instead of redefining them here (was an exact duplicate)
     using ..data: unique_name, sequence_hash
 
     const NUCLEOTIDES = ['A', 'C', 'G', 'T']

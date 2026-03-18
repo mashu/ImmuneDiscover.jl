@@ -43,17 +43,6 @@ module cli
             "minquality" => 0.5,
             "args" => "-task blastn -word_size 7 -xdrop_ungap 40 -xdrop_gap 40 -subject_besthit -num_alignments 10 -qcov_hsp_perc 5"
         ),
-        # Old D presets (commented out for reference)
-        # "D" => Dict(
-        #     "forward" => 0,
-        #     "reverse" => 0,
-        #     "minfullfreq" => 0.2,
-        #     "length" => 10,
-        #     "maxdist" => 10,
-        #     "minfullcount" => 10,
-        #     "args" => "-task blastn-short -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
-        #     #"args" => "-task blastn -word_size 7 -evalue 100 -penalty -2 -reward 1 -dust no -soft_masking false -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
-        # ),
         "J" => Dict(
             "forward" => 12,
             "reverse" => 12,
@@ -147,14 +136,10 @@ module cli
     """
         always_gz(file_path)
 
-    Return path that ends with .gz or with appeneded extension
+    Return path that ends with .gz, appending the extension if needed.
     """
     function always_gz(file_path)
-        if endswith(file_path, ".gz")
-            output = file_path
-        else
-            output = file_path*".gz"
-        end
+        endswith(file_path, ".gz") ? file_path : file_path * ".gz"
     end
 
     """
@@ -252,7 +237,7 @@ module cli
             help = "Clustering method on rho: components, complete, average, or single"
             default = "components"
             arg_type = String
-            range_tester = (x-> (x ∈ ["components","complete","average","single","singel"]))
+            range_tester = (x-> (x ∈ ["components","complete","average","single"]))
         "--cluster-threshold"
             help = "Similarity threshold for complete-linkage clustering on rho (0..1)"
             default = 0.5
@@ -600,11 +585,6 @@ module cli
                 range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
-        # The following commands are deprecated and intentionally disabled:
-        # trim, hamming, nwpattern, pattern, regex
-
-        # (trim command removed)
-
         @add_arg_table! s["search"]["blast"] begin
         "input"
             help = "TSV file with demultiplex data"
@@ -787,12 +767,6 @@ module cli
             help = "Optional reference FASTA file to check if sequences are in database (adds isin_db column)"
             arg_type = String
         end
-
-        # (nwpattern command removed)
-
-        # (pattern command removed)
-
-        # (regex command removed)
 
         @add_arg_table! s["search"]["hsmm"] begin
         "tsv"
@@ -1014,17 +988,29 @@ module cli
             arg_type = String
         end
 
-        # Show help if no arguments are provided
-        try
-            open("immunediscover.log", "a") do io
+        # Log command invocation (non-critical, silently skip on any failure)
+        let logpath = "immunediscover.log"
+            io = nothing
+            opened = false
+            if isdir(dirname(abspath(logpath)))
+                io = open(logpath, "a")
+                opened = true
+            end
+            if opened
                 logger = ConsoleLogger(io)
                 with_logger(logger) do
                     @info "$SOFTWARE_VERSION $(Dates.now()) - Parsing command line arguments: $args"
                 end
+                close(io)
             end
+        end
+
+        # CLI-boundary catch: ArgParse throws ArgParseError by design for invalid user input.
+        # This is the standard pattern and acceptable at the CLI entry point.
+        try
             return parse_args(args, s)
         catch e
-            if isa(e, ArgParseError)
+            if e isa ArgParseError
                 println(e)
                 ArgParse.show_help(s)
             else

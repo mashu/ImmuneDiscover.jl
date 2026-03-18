@@ -7,14 +7,13 @@ module blast
     using BioSequences
     using Folds
 
-    # FIX: Use parent module's data instead of include("data.jl") which created a duplicate
     using ..data: load_fasta as data_load_fasta, unique_name
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
 
     const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "qlen", "slen", "evalue", "bitscore", "sstrand", "qseq"]
 
-    # --- AlignmentStats (moved from immunediscover.jl where it logically belongs with blast) ---
+    # --- AlignmentStats tracks prefix/suffix trimming outcomes ---
 
     mutable struct AlignmentStats
         total_attempts::Int
@@ -31,7 +30,7 @@ module blast
     """
         read_fasta(filepath) -> Vector{Tuple{String, String}}
 
-    FIX: Delegates to data.load_fasta instead of duplicating FASTA-reading logic.
+    Delegates to data.load_fasta for shared FASTA-reading logic.
     """
     function read_fasta(filepath::String)
         return data_load_fasta(filepath, validate=false)
@@ -162,7 +161,7 @@ module blast
     """
         safe_pairalign(seq1, seq2, scoremodel)
 
-    FIX: Replaced try-catch with input validation to avoid BoundsError.
+    Align two sequences, returning nothing if either is empty.
     """
     function safe_pairalign(seq1::LongDNA{4}, seq2::LongDNA{4}, scoremodel::AffineGapScoreModel)
         if length(seq1) == 0 || length(seq2) == 0
@@ -308,7 +307,7 @@ module blast
     """
         verify_blastn_version(min_version, max_version)
 
-    FIX: Replaced try-catch with Sys.which() pre-check.
+    Check that blastn is available and within the supported version range.
     """
     function verify_blastn_version(min_version::VersionNumber, max_version::VersionNumber)
         blastn_path = Sys.which("blastn")
@@ -339,7 +338,6 @@ module blast
         blast_discover(tsv_path, combined_db_fasta; kwargs...)
 
     Perform assignments and discovery of alleles based on BLAST results.
-    FIX: Replaced exit(1) with error().
     """
     function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
         min_ver = v"2.15.0"

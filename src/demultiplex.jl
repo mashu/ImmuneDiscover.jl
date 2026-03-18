@@ -6,7 +6,7 @@ module demultiplex
     using UnicodePlots
     using Logging
 
-    # FIX: Use parent module's data instead of include("data.jl") which creates a duplicate
+    # Parent module provides shared IO and validation
     using ..data
 
     export demux, handle_demultiplex
@@ -15,7 +15,7 @@ module demultiplex
         indices = CSV.File(indices_path)
         @assert all(string.(eachindex(first(indices))) .== ["forward_index","reverse_index","case"]) "File must contain following columns forward_index, reverse_index, case"
         @info "Loaded $(length(indices)) indices"
-        records = []
+        records = Vector{Tuple{Int, String, String, String}}()
         fastq_writers = Dict{String, FASTX.FASTQ.Writer}()
 
         total = 0
@@ -41,7 +41,7 @@ module demultiplex
                         continue
                     end
 
-                    push!(records, (i, pattern[i].case, name, genomic_sequence))
+                    push!(records, (i, String(pattern[i].case), String(name), String(genomic_sequence)))
 
                     if save_fastq_files
                         dir_path = "$(fastq_path)_split"

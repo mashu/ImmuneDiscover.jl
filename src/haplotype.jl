@@ -12,6 +12,10 @@ using FASTX
 
 export infer_haplotypes, handle_haplotype
 
+const HaplotypeRow = NamedTuple{
+    (:case,:gene,:genotype,:allele_1,:allele_2,:count_1,:count_2,:freq_1,:freq_2,:ratio,:total_count,:other_alleles,:novel_1,:novel_2),
+    Tuple{String,String,String,String,String,Int,Int,Float64,Float64,Float64,Int,String,Bool,Bool}}
+
 function load_novel_alleles(fasta_path::String)::Set{String}
     novel_alleles = Set{String}()
     if isfile(fasta_path)
@@ -24,9 +28,7 @@ function load_novel_alleles(fasta_path::String)::Set{String}
     return novel_alleles
 end
 
-# FIX: Safe string extraction that handles missing values without crashing.
-# The old code did `coalesce(String(getproperty(row, :col)), "")` which throws
-# on `String(missing)` before coalesce ever sees it.
+# Handle missing values safely — String(missing) throws before coalesce sees it.
 function safe_string(row, col::Symbol)
     val = getproperty(row, col)
     ismissing(val) ? "" : String(val)
@@ -93,7 +95,6 @@ function infer_haplotypes(input_file::String, output_file::String;
         seq = safe_string(row, :sequence)
         pre = ""
         post = ""
-        # FIX: Use safe_string instead of coalesce(String(...)) which throws on missing
         if has_prefix_col
             pre = safe_string(row, :prefix)
         elseif isJ
@@ -135,8 +136,8 @@ function infer_haplotypes(input_file::String, output_file::String;
 
     case_gene_groups = groupby(filtered, [case_sym, gene_sym])
 
-    # FIX: Typed result accumulator instead of untyped results = []
-    results = NamedTuple[]
+    # Typed result accumulator — consistent shape with novel fields always present
+    results = HaplotypeRow[]
 
     for group_df in case_gene_groups
         case_id = group_df[1, case_sym]
@@ -187,24 +188,19 @@ function infer_haplotypes(input_file::String, output_file::String;
         freq_1 = total_count > 0 ? count_1 / total_count : 0.0
         freq_2 = total_count > 0 ? count_2 / total_count : 0.0
 
-        if novel_fasta !== nothing
-            base1 = length(sorted_indices) >= 1 ? base_names[sorted_indices[1]] : ""
-            base2 = length(sorted_indices) >= 2 ? base_names[sorted_indices[2]] : ""
-            push!(results, (case=case_id, gene=gene_id, genotype=genotype_type,
-                            allele_1=allele_1, allele_2=allele_2,
-                            count_1=count_1, count_2=count_2,
-                            freq_1=round(freq_1, digits=3), freq_2=round(freq_2, digits=3),
-                            ratio=round(ratio, digits=3), total_count=total_count,
-                            other_alleles=other_alleles,
-                            novel_1=(base1 in novel_alleles), novel_2=(base2 in novel_alleles)))
-        else
-            push!(results, (case=case_id, gene=gene_id, genotype=genotype_type,
-                            allele_1=allele_1, allele_2=allele_2,
-                            count_1=count_1, count_2=count_2,
-                            freq_1=round(freq_1, digits=3), freq_2=round(freq_2, digits=3),
-                            ratio=round(ratio, digits=3), total_count=total_count,
-                            other_alleles=other_alleles))
-        end
+        # Always include novel_1/novel_2 for consistent NamedTuple shape (type stability)
+        base1 = length(sorted_indices) >= 1 ? base_names[sorted_indices[1]] : ""
+        base2 = length(sorted_indices) >= 2 ? base_names[sorted_indices[2]] : ""
+        is_novel_1 = novel_fasta !== nothing ? (base1 in novel_alleles) : false
+        is_novel_2 = novel_fasta !== nothing ? (base2 in novel_alleles) : false
+
+        push!(results, (case=String(case_id), gene=String(gene_id), genotype=genotype_type,
+                        allele_1=allele_1, allele_2=allele_2,
+                        count_1=count_1, count_2=count_2,
+                        freq_1=round(freq_1, digits=3), freq_2=round(freq_2, digits=3),
+                        ratio=round(ratio, digits=3), total_count=total_count,
+                        other_alleles=other_alleles,
+                        novel_1=is_novel_1, novel_2=is_novel_2))
     end
 
     results_df = DataFrame(results)

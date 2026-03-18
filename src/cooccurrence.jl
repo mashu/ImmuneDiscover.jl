@@ -120,7 +120,7 @@ module cooccurrence
         filtered_df = filter(x -> x[allele_sym] in valid_alleles, df)
         donors, alleles, allele_to_donors = compute_presence_maps(filtered_df, case_sym, allele_sym)
         N = length(donors)
-        rows = NamedTuple[]
+        rows = NamedTuple{(:allele_a,:allele_b,:n_a,:n_b,:n_shared,:jaccard,:rho,:p_enrich), Tuple{String,String,Int,Int,Int,Float64,Float64,Float64}}[]
         for i in 1:(length(alleles)-1)
             ai = String(alleles[i])
             donors_a = allele_to_donors[ai]
@@ -252,8 +252,9 @@ module cooccurrence
             case_col=case_col, allele_col=allele_col,
             min_support=min_support, min_jaccard=jaccard_threshold)
         clusters = find_cooccurrence_groups(edges; min_cluster_size=min_cluster_size)
-        # Detailed clusters table
-        all_rows = NamedTuple[]
+        # Typed accumulator for detailed cluster rows
+        ClusterRow = NamedTuple{(:group_id,:allele,:donors,:n_donors), Tuple{Int,String,String,Int}}
+        all_rows = ClusterRow[]
         for (gid, comp) in enumerate(clusters)
             for allele in comp
                 donors_list = sort(collect(get(allele_to_donors, allele, Set{String}())))
@@ -262,6 +263,25 @@ module cooccurrence
         end
         clusters_detailed = DataFrame(all_rows)
         return edges, clusters, clusters_detailed
+    end
+
+    """
+        build_edges_from_matrices(R, J, SUP, P, alleles) -> DataFrame
+
+    Convert rho/jaccard/support/pvalue matrices into an edges DataFrame.
+    """
+    function build_edges_from_matrices(R, J, SUP, P, alleles)
+        n = length(alleles)
+        EdgeRow = NamedTuple{(:allele_a,:allele_b,:rho,:jaccard,:support,:p_value), Tuple{String,String,Float64,Float64,Int,Float64}}
+        rows = EdgeRow[]
+        for i in 1:(n-1)
+            for j in (i+1):n
+                SUP[i,j] > 0 || continue
+                push!(rows, (allele_a=String(alleles[i]), allele_b=String(alleles[j]),
+                             rho=R[i,j], jaccard=J[i,j], support=SUP[i,j], p_value=P[i,j]))
+            end
+        end
+        return DataFrame(rows)
     end
 
     function handle_cooccurrence(parsed_args, always_gz)
@@ -290,6 +310,14 @@ module cooccurrence
 
         R, J, SUP, P = compute_rho_stats(alleles, allele_to_donors, N)
 
+        edges_df = build_edges_from_matrices(R, J, SUP, P, String.(alleles))
+        edges_output = replace(tsv, r"\.(tsv|tsv\.gz)$" => "_edges.tsv")
+        if edges_output == tsv
+            edges_output = tsv * "_edges.tsv"
+        end
+        CSV.write(edges_output, edges_df, delim='\t')
+        @info "Edges saved to $edges_output ($(nrow(edges_df)) edges from $(length(alleles)) alleles)"
+
         if debug_triangles
             S = max.(R, 0.0)
             print_triangle_diagnostics_matrix(S, String.(alleles); threshold=cluster_threshold, max_print=20)
@@ -297,15 +325,14 @@ module cooccurrence
 
         if clusters_path !== nothing
             S = max.(R, 0.0)
-            # FIX: Normalize "singel" typo to "single" properly
-            cm = cluster_method == "singel" ? "single" : cluster_method
-            if cm == "components"
+            if cluster_method == "components"
                 comps = components_from_matrix(S, String.(alleles); threshold=cluster_threshold, min_cluster_size=min_cluster_size)
             else
-                link = cm == "average" ? :average : (cm == "single" ? :single : :complete)
+                link = cluster_method == "average" ? :average : (cluster_method == "single" ? :single : :complete)
                 comps = cluster_hierarchical_from_matrix(S, String.(alleles); min_cluster_size=min_cluster_size, threshold=cluster_threshold, linkage=link)
             end
-            all_rows = NamedTuple[]
+            ClusterRow = NamedTuple{(:group_id,:allele,:donors,:n_donors), Tuple{Int,String,String,Int}}
+            all_rows = ClusterRow[]
             for (gid, comp) in enumerate(comps)
                 for allele in comp
                     donors_list = sort(collect(get(allele_to_donors, allele, Set{String}())))

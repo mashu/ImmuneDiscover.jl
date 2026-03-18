@@ -30,7 +30,7 @@ module bwa
         reverse_complement_seq(seq::String) -> String
 
     Return the reverse complement of a DNA sequence.
-    FIX: Uses input validation instead of try-catch.
+    Validates input characters before conversion.
     """
     function reverse_complement_seq(seq::String)
         isempty(seq) && return seq
@@ -47,16 +47,16 @@ module bwa
     function get_cigar_string(aln::BurrowsWheelerAligner.LibBWA.mem_aln_t)
         aln.n_cigar == 0 && return ""
         cigar_ops = ['M', 'I', 'D', 'N', 'S', 'H', 'P', 'X', '=']
-        cigar_str = ""
+        buf = IOBuffer()
         for i in 1:aln.n_cigar
             cigar_val = unsafe_load(aln.cigar, i)
             op_code = cigar_val & 0x0f
             op_len = cigar_val >> 4
             if op_code + 1 <= length(cigar_ops)
-                cigar_str *= string(op_len) * cigar_ops[op_code + 1]
+                print(buf, op_len, cigar_ops[op_code + 1])
             end
         end
-        return cigar_str
+        return String(take!(buf))
     end
 
     function calculate_leading_n_from_cigar(cigar::String)

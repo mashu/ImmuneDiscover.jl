@@ -8,8 +8,7 @@ using ProgressMeter
 using Folds
 using StringDistances
 
-# FIX: Use parent module's data and exact instead of include() which creates
-# separate incompatible module copies with duplicate types
+# Shared modules — avoids duplicate type definitions from repeated include()
 using ..data
 using ..exact
 import ..data: unique_name
@@ -164,7 +163,14 @@ function from_pwm_and_duration(pn,ps,ph,oh,os,on,ge_logp,dur)
     DGeneRSSHSMM(FixedMotif{9,PWMLogEmission{9}}(PWMLogEmission{9}(pn)),FixedMotif{12,PWMLogEmission{12}}(PWMLogEmission{12}(ps)),FixedMotif{7,PWMLogEmission{7}}(PWMLogEmission{7}(ph)),DGeneState{IIDLogEmission,DiscreteDuration}(IIDLogEmission(ge_logp),dur),FixedMotif{7,PWMLogEmission{7}}(PWMLogEmission{7}(oh)),FixedMotif{12,PWMLogEmission{12}}(PWMLogEmission{12}(os)),FixedMotif{9,PWMLogEmission{9}}(PWMLogEmission{9}(on)))
 end
 
-export AbstractEmissionModel, IIDLogEmission, PWMLogEmission, AbstractDurationModel, DiscreteDuration,
+    # Typed buffer row for HSMM scan results
+    const HSMMScanRow = NamedTuple{
+        (:well,:case,:sequence,:pre_nonamer,:pre_spacer,:pre_heptamer,
+         :post_heptamer,:post_spacer,:post_nonamer,:heptamer_logp_pre,:heptamer_logp_post,
+         :log_path_prob,:log_total_prob,:posterior_prob,:isin_db,:db_name,:nearest_db,:nearest_db_dist),
+        Tuple{String,String,String,String,String,String,String,String,String,Float64,Float64,Float64,Float64,Float64,Bool,String,String,Int}}
+
+    export AbstractEmissionModel, IIDLogEmission, PWMLogEmission, AbstractDurationModel, DiscreteDuration,
        AbstractHSMMState, FixedMotif, DGeneState, DGeneRSSHSMM,
        build_pwm_log, estimate_iid_log_emission, empirical_duration,
        discretize_truncated_normal, fit_dgene_rss_hsmm, extract_dgene,
@@ -206,15 +212,15 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     @info "Scanning reads with HSMM"
     N_rows = nrow(tbl); chunk = max(10_000, min(100_000, Int(cld(N_rows,50))))
     starts = collect(1:chunk:N_rows); prog = Progress(length(starts), desc="Scanning chunks")
-    buffer = NamedTuple[]
+    buffer = HSMMScanRow[]
     for s in starts
         e = min(s+chunk-1, N_rows); sub = view(tbl, s:e, :)
         chunk_results = Folds.map(eachrow(sub)) do row
             seq = row.genomic_sequence; det = scan_best_and_total(seq, model); det.gene_seq=="" && return nothing
             ps_=det.prefix_start;pe_=det.prefix_end;ss_=det.suffix_start
-            pn_=seq[ps_:ps_+pb.n9-1]; sp_=seq[ps_+pb.n9:ps_+pb.n9+pb.s12-1]; hp_=seq[ps_+pb.n9+pb.s12:pe_]
-            oh_=seq[ss_:ss_+qb.h7-1]; os_=seq[ss_+qb.h7:ss_+qb.h7+qb.s12-1]; on_=seq[ss_+qb.h7+qb.s12:ss_+qb.h7+qb.s12+qb.n9-1]
-            dseq=det.gene_seq; isin=haskey(db_seq_lookup,dseq); dn=isin ? db_seq_lookup[dseq] : "Novel"
+            pn_=String(seq[ps_:ps_+pb.n9-1]); sp_=String(seq[ps_+pb.n9:ps_+pb.n9+pb.s12-1]); hp_=String(seq[ps_+pb.n9+pb.s12:pe_])
+            oh_=String(seq[ss_:ss_+qb.h7-1]); os_=String(seq[ss_+qb.h7:ss_+qb.h7+qb.s12-1]); on_=String(seq[ss_+qb.h7+qb.s12:ss_+qb.h7+qb.s12+qb.n9-1])
+            dseq=String(det.gene_seq); isin=haskey(db_seq_lookup,dseq); dn=isin ? db_seq_lookup[dseq] : "Novel"
             bd=typemax(Int); bc=""
             for (i,rs) in enumerate(db_seqs); d=evaluate(Levenshtein(),dseq,rs); d<bd && (bd=d;bc=db_names[i]; bd==0 && break); end
             (well=String(row.well),case=String(row.case),sequence=dseq,pre_nonamer=pn_,pre_spacer=sp_,pre_heptamer=hp_,

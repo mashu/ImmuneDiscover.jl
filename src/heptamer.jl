@@ -31,7 +31,7 @@ module heptamer
             ProgressMeter.next!(p; showvalues = [(:query_name, query_name)])
             query = query_seq[b:end-e]
             subtable = table[occursin.(query, table.genomic_sequence),:]
-            short = []
+            short = Vector{Tuple{String, String, String, Int, Int, String, String}}()
             @inbounds for row in eachrow(subtable)
                 genomic_sequence = row[:genomic_sequence]
                 interval = findfirst(query, genomic_sequence)

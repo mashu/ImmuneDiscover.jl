@@ -44,103 +44,93 @@ module immunediscover
 
     export load_fasta, blast_discover
 
-    # Backward compatibility: tests import immunediscover.association
+    # Tests import immunediscover.association — alias required until tests are migrated
     const association = cooccurrence
 
+    # Delegated utilities (callers reference immunediscover.concatenate_columns etc.)
+    const concatenate_columns = data.concatenate_columns
+    const validate_types = data.validate_types
+    const get_ratio_threshold = data.get_ratio_threshold
+
+    # --- Command dispatch tables ---
+
+    const SEARCH_HANDLERS = Dict{String, Function}(
+        "heptamer" => (pa) -> heptamer.handle_heptamer(pa, immunediscover, cli.always_gz),
+        "exact"    => (pa) -> exact.handle_exact(pa, immunediscover, cli.always_gz),
+        "hsmm"     => (pa) -> HSMM.handle_hsmm(pa),
+        "blast"    => (pa) -> blast.handle_blast(pa, immunediscover, cli.always_gz),
+    )
+
+    const ANALYZE_HANDLERS = Dict{String, Function}(
+        "cooccurrence" => (pa) -> cooccurrence.handle_cooccurrence(pa, cli.always_gz),
+        "haplotype"    => (pa) -> haplotype.handle_haplotype(pa),
+        "bwa"          => (pa) -> bwa.handle_bwa(pa, immunediscover, cli.always_gz),
+    )
+
+    const FASTA_HANDLERS = Dict{String, Function}(
+        "merge" => (pa) -> merge.handle_merge(pa),
+        "diff"  => (pa) -> fasta.handle_fasta_diff(pa, immunediscover),
+        "hash"  => (pa) -> fasta.handle_fasta_hash(pa, immunediscover),
+    )
+
+    const TOPLEVEL_HANDLERS = Dict{String, Function}(
+        "demultiplex" => (pa) -> demultiplex.handle_demultiplex(pa, cli.always_gz),
+        "table"       => (pa) -> table.handle_table(pa, immunediscover, cli.always_gz),
+    )
+
+    # Grouped commands: the Dict key doubles as the parsed_args group key
+    const GROUP_HANDLERS = Dict{String, Dict{String, Function}}(
+        "search"  => SEARCH_HANDLERS,
+        "analyze" => ANALYZE_HANDLERS,
+        "fasta"   => FASTA_HANDLERS,
+    )
+
     """
-        concatenate_columns(row, col_names)
+        dispatch_subcommand(parsed_args, group_key, handlers)
 
-    Helper function to concatenate content from columns
+    Look up and execute the subcommand handler from a dispatch table.
     """
-    function concatenate_columns(row, col_names)
-        concatenated_string = ""
-        for col_name in col_names
-            concatenated_string *= getproperty(row, Symbol(col_name))
-        end
-        concatenated_string
-    end
-
-    function validate_types(types)
-        allowed_types = ["heptamer", "spacer", "nonamer"]
-        for type in types
-            if !(type in allowed_types)
-                error("Invalid type: $type. Allowed types are: heptamer, spacer, nonamer.")
-            end
-        end
-        if isempty(types)
-            error("At least one type must be specified.")
-        end
-    end
-
-    function get_ratio_threshold(expect_dict, row; type="allele_ratio")
-        if row.db_name in keys(expect_dict)
-            @info "Applying $type >= $(expect_dict[row.db_name]) for $(row.db_name)"
-            return expect_dict[row.db_name]
-        elseif row.gene in keys(expect_dict)
-            @info "Applying $type >= $(expect_dict[row.gene]) for $(row.db_name)"
-            return expect_dict[row.gene]
+    function dispatch_subcommand(parsed_args, group_key, handlers)
+        subcmd = get(parsed_args[group_key], "%COMMAND%", "")
+        handler = get(handlers, subcmd, nothing)
+        if handler !== nothing
+            handler(parsed_args)
         else
-            return 0
+            @warn "Unknown $group_key subcommand: $subcmd"
         end
     end
 
     """
         real_main(args=[])
 
-    Main function for Julia
+    Main entry point — routes top-level and grouped subcommands via dispatch tables.
     """
     function real_main(args=[])
         parsed_args = parse_commandline(args)
-        if parsed_args !== nothing
-            if get(parsed_args, "%COMMAND%", "") == "demultiplex"
-                demultiplex.handle_demultiplex(parsed_args, cli.always_gz)
-            end
+        if parsed_args === nothing
+            return
+        end
 
-            if get(parsed_args, "%COMMAND%", "") == "search"
-                subcmd = get(parsed_args["search"], "%COMMAND%", "")
-                if subcmd == "heptamer"
-                    heptamer.handle_heptamer(parsed_args, immunediscover, cli.always_gz)
-                elseif subcmd == "exact"
-                    exact.handle_exact(parsed_args, immunediscover, cli.always_gz)
-                elseif subcmd == "hsmm"
-                    HSMM.handle_hsmm(parsed_args)
-                elseif subcmd == "blast"
-                    blast.handle_blast(parsed_args, immunediscover, cli.always_gz)
-                end
-            end
+        cmd = get(parsed_args, "%COMMAND%", "")
 
-            if get(parsed_args, "%COMMAND%", "") == "analyze"
-                subcmd = get(parsed_args["analyze"], "%COMMAND%", "")
-                if subcmd == "cooccurrence"
-                    cooccurrence.handle_cooccurrence(parsed_args, cli.always_gz)
-                elseif subcmd == "haplotype"
-                    haplotype.handle_haplotype(parsed_args)
-                elseif subcmd == "bwa"
-                    bwa.handle_bwa(parsed_args, immunediscover, cli.always_gz)
-                end
-            end
+        # Top-level commands
+        toplevel = get(TOPLEVEL_HANDLERS, cmd, nothing)
+        if toplevel !== nothing
+            toplevel(parsed_args)
+            return
+        end
 
-            if get(parsed_args, "%COMMAND%", "") == "table"
-                table.handle_table(parsed_args, immunediscover, cli.always_gz)
-            end
-
-            if get(parsed_args, "%COMMAND%", "") == "fasta"
-                subcmd = get(parsed_args["fasta"], "%COMMAND%", "")
-                if subcmd == "merge"
-                    merge.handle_merge(parsed_args)
-                elseif subcmd == "diff"
-                    fasta.handle_fasta_diff(parsed_args, immunediscover)
-                elseif subcmd == "hash"
-                    fasta.handle_fasta_hash(parsed_args, immunediscover)
-                end
-            end
+        # Grouped commands
+        handlers = get(GROUP_HANDLERS, cmd, nothing)
+        if handlers !== nothing
+            dispatch_subcommand(parsed_args, cmd, handlers)
         end
     end
 
     """
         julia_main()::Cint
 
-    Entry point for PackageCompiler. Top-level catch is acceptable at CLI boundary.
+    Entry point for PackageCompiler. Top-level catch is the standard CLI boundary pattern.
     """
     function julia_main()::Cint
         try
@@ -154,5 +144,9 @@ module immunediscover
 
     @compile_workload begin
         parse_commandline(["--help"])
+        io = IOBuffer()
+        write(io, "well\tcase\tname\tgenomic_sequence\n1\tD1\tread1\tATCG\n")
+        seekstart(io)
+        CSV.File(io, delim='\t') |> DataFrame
     end
 end

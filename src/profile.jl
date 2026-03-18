@@ -35,14 +35,14 @@ module profile
     """
         motif_prob(motif, prof)
 
-    Calculate the product of all probabilties from nucleotides in a motif given the profile
-    Returns probability of a motif
+    Calculate the product of all probabilties from nucleotides in a motif given the profile.
+    Returns probability of a motif.
     """
     function motif_prob(motif, prof)
         accu = 0.0
         for i in eachindex(motif)
             if motif[i] == '-'
-                return 0  # Motif with gaps are not possible
+                return 0.0  # Gaps have zero probability (Float64 for type stability)
             end
             ind = get(dna2ind, motif[i], 0)
             if ind > 0
