@@ -235,7 +235,7 @@ module Exact
         push!(get!(suf, gb, Int[]), min(ext, max(0, rbs - 1 - ep)))
     end
 
-    function safe_quantile(values::Vector{Int}, p::Float64, fallback::Int)
+    function safe_quantile(values::AbstractVector{<:Integer}, p::Float64, fallback::Int)
         isempty(values) && return fallback
         sorted = sort(values)
         idx = max(1, min(length(sorted), ceil(Int, (1 - p) * length(sorted))))

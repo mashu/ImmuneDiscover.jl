@@ -473,7 +473,7 @@ module Blast
     function handle_blast(parsed_args, immunediscover_module, always_gz)
         using_cli = immunediscover_module.Cli
         parsed_args = using_cli.apply_blast_presets!(parsed_args)
-        gene = parsed_args["search"]["blast"]["gene"]
+        gene = parsed_args["discover"]["blast"]["gene"]
         if haskey(using_cli.BLAST_PRESETS, gene)
             @info "Initial $gene preset parameters:"
             for (param, value) in using_cli.BLAST_PRESETS[gene]
@@ -481,27 +481,27 @@ module Blast
             end
         end
         @info "Running with the following parameters:"
-        for (param, value) in parsed_args["search"]["blast"]
+        for (param, value) in parsed_args["discover"]["blast"]
             @info "  --$param = $value"
         end
         @info "Discovery with BLAST assignments"
 
-        fasta_path = parsed_args["search"]["blast"]["fasta"]
-        output_path = parsed_args["search"]["blast"]["output"]
+        fasta_path = parsed_args["discover"]["blast"]["fasta"]
+        output_path = parsed_args["discover"]["blast"]["output"]
         work_dir = joinpath(dirname(abspath(output_path)), ".immunediscover")
         isdir(work_dir) || mkpath(work_dir)
         file_stem = split(basename(fasta_path), '.')[1]
         affixes_path = joinpath(work_dir, file_stem * ".affixes")
         DB = immunediscover_module.load_fasta(fasta_path, validate=false)
 
-        verbose = parsed_args["search"]["blast"]["verbose"]
-        overwrite = parsed_args["search"]["blast"]["overwrite"]
-        minquality = parsed_args["search"]["blast"]["minquality"]
-        forward_extension = parsed_args["search"]["blast"]["forward"]
-        reverse_extension = parsed_args["search"]["blast"]["reverse"]
-        keep_failed = parsed_args["search"]["blast"]["keep-failed"]
-        min_corecov = parsed_args["search"]["blast"]["min-corecov"]
-        isin = parsed_args["search"]["blast"]["isin"]
+        verbose = parsed_args["discover"]["blast"]["verbose"]
+        overwrite = parsed_args["discover"]["blast"]["overwrite"]
+        minquality = parsed_args["discover"]["blast"]["minquality"]
+        forward_extension = parsed_args["discover"]["blast"]["forward"]
+        reverse_extension = parsed_args["discover"]["blast"]["reverse"]
+        keep_failed = parsed_args["discover"]["blast"]["keep-failed"]
+        min_corecov = parsed_args["discover"]["blast"]["min-corecov"]
+        isin = parsed_args["discover"]["blast"]["isin"]
 
         if (forward_extension < 7) && (forward_extension > 0)
             @warn "Forward extension $forward_extension is short and may lead to false positives"
@@ -512,7 +512,7 @@ module Blast
 
         # Process pseudo genes if provided
         db_p = Vector{Tuple{String, String}}()
-        pseudo = parsed_args["search"]["blast"]["pseudo"]
+        pseudo = parsed_args["discover"]["blast"]["pseudo"]
         if !isempty(pseudo)
             for (name, seq) in data_load_fasta(pseudo, validate=false)
                 push!(db_p, ("P" * name, seq))
@@ -534,7 +534,7 @@ module Blast
             ext_fasta_path = joinpath(work_dir, file_stem * "-combined-extended.fasta")
             if !isfile(ext_fasta_path) || overwrite
                 @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
-                demux = load_csv(parsed_args["search"]["blast"]["input"])
+                demux = load_csv(parsed_args["discover"]["blast"]["input"])
                 extended = accumulate_affixes(DB, demux,
                     forward_extension=forward_extension,
                     reverse_extension=reverse_extension)
@@ -548,12 +548,12 @@ module Blast
 
         # Run BLAST discovery
         blast_clusters = blast_discover(
-            parsed_args["search"]["blast"]["input"],
+            parsed_args["discover"]["blast"]["input"],
             ext_fasta_path,
-            max_dist=parsed_args["search"]["blast"]["maxdist"],
-            min_edge=parsed_args["search"]["blast"]["edge"],
-            min_scov=parsed_args["search"]["blast"]["subjectcov"],
-            args=parsed_args["search"]["blast"]["args"],
+            max_dist=parsed_args["discover"]["blast"]["maxdist"],
+            min_edge=parsed_args["discover"]["blast"]["edge"],
+            min_scov=parsed_args["discover"]["blast"]["subjectcov"],
+            args=parsed_args["discover"]["blast"]["args"],
             verbose=verbose,
             overwrite=overwrite
         )
@@ -622,9 +622,9 @@ module Blast
         end
 
         # Apply output filters
-        min_fullcount = parsed_args["search"]["blast"]["minfullcount"]
-        min_fullratio = parsed_args["search"]["blast"]["minfullratio"]
-        min_length = parsed_args["search"]["blast"]["length"]
+        min_fullcount = parsed_args["discover"]["blast"]["minfullcount"]
+        min_fullratio = parsed_args["discover"]["blast"]["minfullratio"]
+        min_length = parsed_args["discover"]["blast"]["length"]
 
         criteria = FilterCriterion[
             MinThreshold(:full_count, min_fullcount, "Min cluster size"),
@@ -634,7 +634,7 @@ module Blast
         if !keep_failed
             push!(criteria, NonNegative(:aln_mismatch, "Exclude failed trimming"))
         end
-        push!(criteria, MaxThreshold(:aln_mismatch, Float64(parsed_args["search"]["blast"]["maxdist"]), "Max distance"))
+        push!(criteria, MaxThreshold(:aln_mismatch, Float64(parsed_args["discover"]["blast"]["maxdist"]), "Max distance"))
         GermlineFilter(criteria)(blast_clusters)
         # allele_name: exact match (aln_mismatch==0) -> sseqid; else if isin, substring of known allele -> that allele; else Novel
         db_seqs = [(strip(String(n)), String(s)) for (n, s) in DB]
@@ -651,7 +651,7 @@ module Blast
             return unique_name(row.sseqid, row.aln_qseq) * " Novel"
         end
         blast_clusters[:, :allele_name] = map(allele_name_row, eachrow(blast_clusters))
-        output = always_gz(parsed_args["search"]["blast"]["output"])
+        output = always_gz(parsed_args["discover"]["blast"]["output"])
         @info "Saving discovered gene sequences in compressed $output file"
         CSV.write(output, blast_clusters, compress=true, delim='\t')
     end

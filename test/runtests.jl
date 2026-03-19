@@ -112,6 +112,7 @@ test_outcomes = Dict(
             count = [10, 5, 2, 8, 1],
             ratio = [1.0, 0.5, 0.2, 0.8, 0.1],
             name = ["IGHV1*01", "IGHV2*01", "IGHV3*01", "IGHV4*01", "IGHV5*01"],
+            qseq = ["ATCGATCGATCG", "ATCG", "ATCGATCGATCGATCG", "ATCGATCG", "AT"],
             mismatch = [0, 3, 5, 1, -1]
         )
 
@@ -126,8 +127,9 @@ test_outcomes = Dict(
         @test all(df_copy.mismatch .<= 3)
 
         df_copy = copy(df)
-        GermlineFilter([MinStringLength(:name, 8, "Min name length")])(df_copy)
-        @test nrow(df_copy) == 5
+        GermlineFilter([MinStringLength(:qseq, 8, "Min read length")])(df_copy)
+        @test nrow(df_copy) == 3
+        @test all(length.(df_copy.qseq) .>= 8)
 
         df_copy = copy(df)
         GermlineFilter([NonNegative(:mismatch, "Non-negative mismatch")])(df_copy)
@@ -206,12 +208,13 @@ test_outcomes = Dict(
             end
             Data.write_fastq("test.fastq", fastq_records)
 
-            append!(ARGS, ["demultiplex", "test.fastq", "test_indices.tsv", "test.tsv"])
+            append!(ARGS, ["preprocess", "demultiplex", "test.fastq", "test_indices.tsv", "test.tsv"])
             parsed_args = Cli.parse_commandline(ARGS)
-            @test parsed_args["%COMMAND%"] == "demultiplex"
-            @test parsed_args["demultiplex"]["fastq"] == "test.fastq"
-            @test parsed_args["demultiplex"]["indices"] == "test_indices.tsv"
-            @test parsed_args["demultiplex"]["output"] == "test.tsv"
+            @test parsed_args["%COMMAND%"] == "preprocess"
+            @test parsed_args["preprocess"]["%COMMAND%"] == "demultiplex"
+            @test parsed_args["preprocess"]["demultiplex"]["fastq"] == "test.fastq"
+            @test parsed_args["preprocess"]["demultiplex"]["indices"] == "test_indices.tsv"
+            @test parsed_args["preprocess"]["demultiplex"]["output"] == "test.tsv"
             table, stats = Demultiplex.demux("test.fastq", "test_indices.tsv")
             CSV.write("test.tsv.gz", table, delim='\t')
 
@@ -483,16 +486,16 @@ test_outcomes = Dict(
     @testset "blast.jl" begin
         # CLI - blast is now under search group
         empty!(ARGS)
-        append!(ARGS, ["search", "blast", "test_blast_input.tsv", "test_blast_db.fasta", "test_blast_output.tsv"])
-        parsed_args = Cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "search"
-        @test parsed_args["search"]["%COMMAND%"] == "blast"
-        @test parsed_args["search"]["blast"]["input"] == "test_blast_input.tsv"
-        @test parsed_args["search"]["blast"]["fasta"] == "test_blast_db.fasta"
-        @test parsed_args["search"]["blast"]["output"] == "test_blast_output.tsv"
-        @test parsed_args["search"]["blast"]["minfullcount"] == 5
-        @test parsed_args["search"]["blast"]["minfullratio"] == 0.1
-        @test parsed_args["search"]["blast"]["subjectcov"] == 0.1
+            append!(ARGS, ["discover", "blast", "test_blast_input.tsv", "test_blast_db.fasta", "test_blast_output.tsv"])
+            parsed_args = Cli.parse_commandline(ARGS)
+            @test parsed_args["%COMMAND%"] == "discover"
+            @test parsed_args["discover"]["%COMMAND%"] == "blast"
+            @test parsed_args["discover"]["blast"]["input"] == "test_blast_input.tsv"
+            @test parsed_args["discover"]["blast"]["fasta"] == "test_blast_db.fasta"
+            @test parsed_args["discover"]["blast"]["output"] == "test_blast_output.tsv"
+            @test parsed_args["discover"]["blast"]["minfullcount"] == 5
+            @test parsed_args["discover"]["blast"]["minfullratio"] == 0.1
+            @test parsed_args["discover"]["blast"]["subjectcov"] == 0.1
 
         # Module - test utility functions that don't require BLAST
         # Test Data.load_fasta (same path as blast pipeline FASTA reads)
@@ -533,15 +536,15 @@ test_outcomes = Dict(
     @testset "bwa.jl" begin
         # CLI - bwa is now under analyze group
         empty!(ARGS)
-        append!(ARGS, ["analyze", "bwa", "test_bwa_input.tsv", "test_bwa_output.tsv", "genome1.fasta", "genome2.fasta"])
-        parsed_args = Cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "analyze"
-        @test parsed_args["analyze"]["%COMMAND%"] == "bwa"
-        @test parsed_args["analyze"]["bwa"]["tsv"] == "test_bwa_input.tsv"
-        @test parsed_args["analyze"]["bwa"]["output"] == "test_bwa_output.tsv"
-        @test parsed_args["analyze"]["bwa"]["genome"] == ["genome1.fasta", "genome2.fasta"]
-        @test parsed_args["analyze"]["bwa"]["chromosome"] == "chromosome 14"
-        @test parsed_args["analyze"]["bwa"]["colname"] == "best_name"
+            append!(ARGS, ["search", "bwa", "test_bwa_input.tsv", "test_bwa_output.tsv", "genome1.fasta", "genome2.fasta"])
+            parsed_args = Cli.parse_commandline(ARGS)
+            @test parsed_args["%COMMAND%"] == "search"
+            @test parsed_args["search"]["%COMMAND%"] == "bwa"
+            @test parsed_args["search"]["bwa"]["tsv"] == "test_bwa_input.tsv"
+            @test parsed_args["search"]["bwa"]["output"] == "test_bwa_output.tsv"
+            @test parsed_args["search"]["bwa"]["genome"] == ["genome1.fasta", "genome2.fasta"]
+            @test parsed_args["search"]["bwa"]["chromosome"] == "chromosome 14"
+            @test parsed_args["search"]["bwa"]["colname"] == "best_name"
 
         # Module - test utility functions that don't require BWA
         # Test create_aligner function (this will fail without actual genome files, but we can test the structure)
@@ -865,18 +868,18 @@ test_outcomes = Dict(
 
     @testset "hsmm CLI" begin
         empty!(ARGS)
-        append!(ARGS, ["search", "hsmm", "test.tsv", "test.fasta", "test_out.tsv.gz"])
+        append!(ARGS, ["discover", "hsmm", "test.tsv", "test.fasta", "test_out.tsv.gz"])
         parsed_args = Cli.parse_commandline(ARGS)
-        @test parsed_args["%COMMAND%"] == "search"
-        @test parsed_args["search"]["%COMMAND%"] == "hsmm"
-        @test parsed_args["search"]["hsmm"]["tsv"] == "test.tsv"
-        @test parsed_args["search"]["hsmm"]["fasta"] == "test.fasta"
-        @test parsed_args["search"]["hsmm"]["output"] == "test_out.tsv.gz"
-        @test parsed_args["search"]["hsmm"]["ratio"] == 0.2
-        @test parsed_args["search"]["hsmm"]["mincount"] == 10
-        @test parsed_args["search"]["hsmm"]["min-posterior"] == 0.7
-        @test parsed_args["search"]["hsmm"]["out-mincount"] == 10
-        @test parsed_args["search"]["hsmm"]["out-minratio"] == 0.2
+        @test parsed_args["%COMMAND%"] == "discover"
+        @test parsed_args["discover"]["%COMMAND%"] == "hsmm"
+        @test parsed_args["discover"]["hsmm"]["tsv"] == "test.tsv"
+        @test parsed_args["discover"]["hsmm"]["fasta"] == "test.fasta"
+        @test parsed_args["discover"]["hsmm"]["output"] == "test_out.tsv.gz"
+        @test parsed_args["discover"]["hsmm"]["ratio"] == 0.2
+        @test parsed_args["discover"]["hsmm"]["mincount"] == 10
+        @test parsed_args["discover"]["hsmm"]["min-posterior"] == 0.7
+        @test parsed_args["discover"]["hsmm"]["out-mincount"] == 10
+        @test parsed_args["discover"]["hsmm"]["out-minratio"] == 0.2
     end
 
     @testset "hsmm module" begin

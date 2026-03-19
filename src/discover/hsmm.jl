@@ -264,7 +264,7 @@ end
 
 function handle_hsmm(parsed_args)
     @info "HSMM D detection"
-    b = parsed_args["search"]["hsmm"]
+    b = parsed_args["discover"]["hsmm"]
     run_hsmm(b["tsv"], b["fasta"], b["output"]; ratio=b["ratio"], mincount=b["mincount"],
         min_gene_len=b["min-gene-len"], max_gene_len=b["max-gene-len"], limit=b["limit"],
         min_posterior=b["min-posterior"], out_mincount=b["out-mincount"], out_minratio=b["out-minratio"],

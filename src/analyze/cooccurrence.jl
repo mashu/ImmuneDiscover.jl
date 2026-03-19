@@ -55,7 +55,7 @@ module Cooccurrence
         return R, J, SUP, P
     end
 
-    function print_triangle_diagnostics_matrix(S::Matrix{Float64}, alleles::Vector{String}; threshold::Float64=0.5, max_print::Int=20)
+    function print_triangle_diagnostics_matrix(S::AbstractMatrix{<:Real}, alleles::AbstractVector{<:AbstractString}; threshold::Float64=0.5, max_print::Int=20)
         n = length(alleles)
         count = 0
         for i in 1:n, j in (i+1):n
@@ -69,7 +69,7 @@ module Cooccurrence
         @info "Total edges above threshold $threshold: $count"
     end
 
-    function adjust_bh(pvals::Vector{Float64})
+    function adjust_bh(pvals::AbstractVector{<:Real})
         m = length(pvals)
         m == 0 && return Float64[]
         order = sortperm(pvals)
@@ -204,7 +204,7 @@ module Cooccurrence
         return components
     end
 
-    function cluster_hierarchical_from_matrix(S::Matrix{Float64}, alleles::Vector{String};
+    function cluster_hierarchical_from_matrix(S::AbstractMatrix{<:Real}, alleles::AbstractVector{<:AbstractString};
                                               min_cluster_size::Int=3, threshold::Float64=0.5,
                                               linkage::Symbol=:complete)
         n = length(alleles)
@@ -223,7 +223,7 @@ module Cooccurrence
         return comps
     end
 
-    function components_from_matrix(S::Matrix{Float64}, alleles::Vector{String}; threshold::Float64=0.5, min_cluster_size::Int=3)
+    function components_from_matrix(S::AbstractMatrix{<:Real}, alleles::AbstractVector{<:AbstractString}; threshold::Float64=0.5, min_cluster_size::Int=3)
         n = length(alleles)
         n == 0 && return Vector{Vector{String}}()
         adj = Dict{String, Set{String}}()

@@ -56,17 +56,24 @@ module immunediscover
 
     # --- Command dispatch tables ---
 
+    const DISCOVER_HANDLERS = Dict{String, Function}(
+        "blast" => (pa) -> Blast.handle_blast(pa, immunediscover, Cli.always_gz),
+        "hsmm"  => (pa) -> HSMM.handle_hsmm(pa),
+    )
+
     const SEARCH_HANDLERS = Dict{String, Function}(
-        "heptamer" => (pa) -> Heptamer.handle_heptamer(pa, immunediscover, Cli.always_gz),
         "exact"    => (pa) -> Exact.handle_exact(pa, immunediscover, Cli.always_gz),
-        "hsmm"     => (pa) -> HSMM.handle_hsmm(pa),
-        "blast"    => (pa) -> Blast.handle_blast(pa, immunediscover, Cli.always_gz),
+        "heptamer" => (pa) -> Heptamer.handle_heptamer(pa, immunediscover, Cli.always_gz),
+        "bwa"      => (pa) -> Bwa.handle_bwa(pa, immunediscover, Cli.always_gz),
     )
 
     const ANALYZE_HANDLERS = Dict{String, Function}(
         "cooccurrence" => (pa) -> Cooccurrence.handle_cooccurrence(pa, Cli.always_gz),
         "haplotype"    => (pa) -> Haplotype.handle_haplotype(pa),
-        "bwa"          => (pa) -> Bwa.handle_bwa(pa, immunediscover, Cli.always_gz),
+    )
+
+    const PREPROCESS_HANDLERS = Dict{String, Function}(
+        "demultiplex" => (pa) -> Demultiplex.handle_demultiplex(pa, Cli.always_gz),
     )
 
     const FASTA_HANDLERS = Dict{String, Function}(
@@ -76,14 +83,15 @@ module immunediscover
     )
 
     const TOPLEVEL_HANDLERS = Dict{String, Function}(
-        "demultiplex" => (pa) -> Demultiplex.handle_demultiplex(pa, Cli.always_gz),
-        "table"       => (pa) -> Table.handle_table(pa, immunediscover, Cli.always_gz),
+        "table" => (pa) -> Table.handle_table(pa, immunediscover, Cli.always_gz),
     )
 
     const GROUP_HANDLERS = Dict{String, Dict{String, Function}}(
-        "search"  => SEARCH_HANDLERS,
-        "analyze" => ANALYZE_HANDLERS,
-        "fasta"   => FASTA_HANDLERS,
+        "discover"   => DISCOVER_HANDLERS,
+        "search"     => SEARCH_HANDLERS,
+        "analyze"    => ANALYZE_HANDLERS,
+        "preprocess" => PREPROCESS_HANDLERS,
+        "fasta"      => FASTA_HANDLERS,
     )
 
     """
@@ -145,6 +153,33 @@ module immunediscover
         io = IOBuffer()
         write(io, "well\tcase\tname\tgenomic_sequence\n1\tD1\tread1\tATCG\n")
         seekstart(io)
-        CSV.File(io, delim='\t') |> DataFrame
+        df = CSV.File(io, delim='\t') |> DataFrame
+
+        for args in [
+            ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V"],
+            ["discover", "hsmm", "i.tsv", "d.fa", "o.tsv.gz"],
+            ["search", "exact", "i.tsv.gz", "d.fa", "o.tsv.gz"],
+            ["search", "heptamer", "i.tsv.gz", "d.fa", "o.tsv.gz", "s.tsv"],
+            ["search", "bwa", "i.tsv", "o.tsv", "g.fa"],
+            ["analyze", "cooccurrence", "i.tsv"],
+            ["analyze", "haplotype", "i.tsv", "o.tsv"],
+            ["preprocess", "demultiplex", "i.fq", "idx.tsv", "o.tsv"],
+            ["table", "outerjoin", "l.tsv", "r.tsv", "o.tsv", "-k", "key"],
+            ["table", "leftjoin", "l.tsv", "r.tsv", "o.tsv", "-k", "key"],
+            ["table", "transform", "i.tsv", "o.tsv", "-c", "col", "-p", "(.*)", "-r", "\\1"],
+            ["table", "aggregate", "i.tsv", "o.tsv", "-g", "col"],
+            ["table", "unique", "i.tsv", "o.tsv", "-c", "col"],
+            ["table", "sort", "i.tsv", "o.tsv", "-c", "col"],
+            ["table", "filter", "i.tsv", "o.tsv", "-c", "col", "--pattern", "x"],
+            ["table", "select", "i.tsv", "o.tsv", "-c", "col"],
+            ["table", "fasta", "i.tsv", "o.fa"],
+            ["table", "collect", "*.tsv", "o.tsv"],
+            ["table", "exclude", "i.tsv", "o.tsv", "r.fa"],
+            ["fasta", "merge", "o.fa", "a.fa", "b.fa"],
+            ["fasta", "diff", "a.fa", "b.fa"],
+            ["fasta", "hash", "i.fa"],
+        ]
+            parse_commandline(args)
+        end
     end
 end

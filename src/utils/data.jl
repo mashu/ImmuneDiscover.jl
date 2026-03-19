@@ -8,10 +8,10 @@ module Data
     using MD5
     using Requires
 
-    const _barplot_fn = Ref{Union{Nothing, Function}}(nothing)
+    const barplot_fn = Ref{Union{Nothing, Function}}(nothing)
     function __init__()
         @require UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228" begin
-            _barplot_fn[] = (x, y) -> UnicodePlots.barplot(x, y)
+            barplot_fn[] = (x, y) -> UnicodePlots.barplot(x, y)
         end
     end
 
@@ -122,7 +122,7 @@ module Data
 
     """Barplot when UnicodePlots is available; otherwise print counts as a text table."""
     function barplot_if_available(x, y)
-        f = _barplot_fn[]
+        f = barplot_fn[]
         if f !== nothing
             println(f(x, y))
         else

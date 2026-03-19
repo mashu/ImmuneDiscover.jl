@@ -208,13 +208,13 @@ module Bwa
 
     function handle_bwa(parsed_args, immunediscover_module, always_gz)
         @info "BWA search to filter candidates if they match correct chromosome"
-        df = CSV.File(parsed_args["analyze"]["bwa"]["tsv"], delim='\t') |> DataFrame
-        chromosome_name = parsed_args["analyze"]["bwa"]["chromosome"]
-        outtsv = parsed_args["analyze"]["bwa"]["output"]
-        genome = parsed_args["analyze"]["bwa"]["genome"]
-        colname = parsed_args["analyze"]["bwa"]["colname"]
-        colseq = parsed_args["analyze"]["bwa"]["colseq"]
-        tag = parsed_args["analyze"]["bwa"]["tag"]
+        df = CSV.File(parsed_args["search"]["bwa"]["tsv"], delim='\t') |> DataFrame
+        chromosome_name = parsed_args["search"]["bwa"]["chromosome"]
+        outtsv = parsed_args["search"]["bwa"]["output"]
+        genome = parsed_args["search"]["bwa"]["genome"]
+        colname = parsed_args["search"]["bwa"]["colname"]
+        colseq = parsed_args["search"]["bwa"]["colseq"]
+        tag = parsed_args["search"]["bwa"]["tag"]
 
         sequences = map(eachrow(df)) do row
             concatenated_sequence = immunediscover_module.concatenate_columns(row, colseq)

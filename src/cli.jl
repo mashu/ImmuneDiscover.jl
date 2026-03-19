@@ -67,7 +67,7 @@ module Cli
     function get_blast_block(args)
         cmd = get(args, "%COMMAND%", "")
         cmd == "blast" && return args["blast"]
-        cmd == "search" && get(args["search"], "%COMMAND%", "") == "blast" && return args["search"]["blast"]
+        cmd == "discover" && get(args["discover"], "%COMMAND%", "") == "blast" && return args["discover"]["blast"]
         return nothing
     end
 
@@ -166,11 +166,17 @@ module Cli
                             usage = "usage: immunediscover <command> [-h|--help]",
                             epilog = "GKHLab, $(software_version()) (git $(software_git_hash()))")
         @add_arg_table! s begin
+            "discover"
+                help = "De novo allele discovery (blast, hsmm)"
+                action = :command
             "search"
-                help = "Search and discovery (blast, exact, hsmm, heptamer)"
+                help = "Search against known references (exact, heptamer, bwa)"
                 action = :command
             "analyze"
-                help = "Analysis (cooccurrence, haplotype, bwa)"
+                help = "Downstream analysis (cooccurrence, haplotype)"
+                action = :command
+            "preprocess"
+                help = "Data preparation (demultiplex)"
                 action = :command
             "table"
                 help = "Table utilities (outerjoin, leftjoin, transform, aggregate, unique, sort, filter, select, fasta, collect, exclude)"
@@ -178,16 +184,19 @@ module Cli
             "fasta"
                 help = "FASTA utilities (merge, diff, hash)"
                 action = :command
-            "demultiplex"
-                help = "Demultiplex indexed plate libraries into a TSV with per-read metadata"
-                action = :command
             end
 
         # Define the genes and choices for ArgParse
         genes = ["V", "D", "J"]
         choices = ["IGKV", "IGLV", "IGHV"]
 
-        @add_arg_table! s["demultiplex"] begin
+        @add_arg_table! s["preprocess"] begin
+            "demultiplex"
+                help = "Demultiplex indexed plate libraries into a TSV with per-read metadata"
+                action = :command
+        end
+
+        @add_arg_table! s["preprocess"]["demultiplex"] begin
             "fastq"
                 help = "Input FASTQ file with reads (single-end)"
                 required = true
@@ -220,9 +229,6 @@ module Cli
                 action = :command
             "haplotype"
                 help = "Infer approximate haplotypes per case using diploid assumptions"
-                action = :command
-            "bwa"
-                help = "Genome mapping QC with BWA to retain sequences mapped to the target chromosome"
                 action = :command
         end
 
@@ -532,20 +538,56 @@ module Cli
                 arg_type = String
         end
 
-        # heptamer moved under search
-        @add_arg_table! s["search"] begin
+        @add_arg_table! s["discover"] begin
             "blast"
                 help = "BLAST-based candidate discovery with trimming, filtering, and identity clustering"
-                action = :command
-            "exact"
-                help = "Exact match search of reads to database alleles with robust filters"
                 action = :command
             "hsmm"
                 help = "Detect D genes using an HSMM trained on RSS flanks (V/J masked)"
                 action = :command
+        end
+
+        @add_arg_table! s["search"] begin
+            "exact"
+                help = "Exact match search of reads to database alleles with robust filters"
+                action = :command
             "heptamer"
                 help = "Identify heptamer RSS positions and extend/trim V reads accordingly"
                 action = :command
+            "bwa"
+                help = "Genome mapping QC with BWA to retain sequences mapped to the target chromosome"
+                action = :command
+        end
+
+        @add_arg_table! s["search"]["bwa"] begin
+        "tsv"
+            help = "TSV file with columns allele_name and seq"
+            required = true
+        "output"
+            help = "TSV file to save filtered input"
+            required = true
+        "genome"
+            help = "FASTA file with indexed genome"
+            required = true
+            nargs='+'
+            arg_type = String
+        "-c", "--chromosome"
+            help = "Chromosome string to filter by"
+            default = "chromosome 14"
+            arg_type = String
+        "-n", "--colname"
+            help = "Name of the column with allele names"
+            default = "best_name"
+            arg_type = String
+        "-s", "--colseq"
+            help = "List column names with sequences"
+            default = ["prefix", "best_aln", "suffix"]
+            nargs = '*'  # Accepts zero or more values
+            arg_type = String
+        "-t", "--tag"
+            help = "Regex to filter valid descriptions of chromosomes"
+            default = "(.*Primary Assembly.*)|(.*alternate locus.*)"
+            arg_type = String
         end
 
         @add_arg_table! s["search"]["heptamer"] begin
@@ -596,7 +638,7 @@ module Cli
                 range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
-        @add_arg_table! s["search"]["blast"] begin
+        @add_arg_table! s["discover"]["blast"] begin
         "input"
             help = "TSV file with demultiplex data"
             required = true
@@ -779,7 +821,7 @@ module Cli
             arg_type = String
         end
 
-        @add_arg_table! s["search"]["hsmm"] begin
+        @add_arg_table! s["discover"]["hsmm"] begin
         "tsv"
             help = "TSV/TSV.GZ demultiplex file with columns well, case, name, genomic_sequence"
             required = true
@@ -965,37 +1007,6 @@ module Cli
         "-s", "--colseq"
             help = "Column name containing nucleotide sequences"
             default = "seq"
-            arg_type = String
-        end
-
-        @add_arg_table! s["analyze"]["bwa"] begin
-        "tsv"
-            help = "TSV file with columns allele_name and seq"
-            required = true
-        "output"
-            help = "TSV file to save filtered input"
-            required = true
-        "genome"
-            help = "FASTA file with indexed genome"
-            required = true
-            nargs='+'
-            arg_type = String
-        "-c", "--chromosome"
-            help = "Chromosome string to filter by"
-            default = "chromosome 14"
-            arg_type = String
-        "-n", "--colname"
-            help = "Name of the column with allele names"
-            default = "best_name"
-            arg_type = String
-        "-s", "--colseq"
-            help = "List column names with sequences"
-            default = ["prefix", "best_aln", "suffix"]
-            nargs = '*'  # Accepts zero or more values
-            arg_type = String
-        "-t", "--tag"
-            help = "Regex to filter valid descriptions of chromosomes"
-            default = "(.*Primary Assembly.*)|(.*alternate locus.*)"
             arg_type = String
         end
 

@@ -159,8 +159,8 @@ export JULIA_NUM_THREADS=16
 
 **Commands that benefit:**
 - `search exact`: Parallel read processing
-- `search hsmm`: Parallel detection scanning
-- `search blast`: BLAST uses threads internally
+- `discover hsmm`: Parallel detection scanning
+- `discover blast`: BLAST uses threads internally
 - `table` operations: Some use parallel processing
 
 ### Memory Management
@@ -192,7 +192,7 @@ immunediscover search exact demux.tsv.gz IGHV.fasta test.tsv.gz -g V --top 1
 ### Novel Allele Discovery (High Sensitivity)
 
 ```bash
-immunediscover search blast demux.tsv.gz IGHV.fasta blast.tsv.gz -g V \
+immunediscover discover blast demux.tsv.gz IGHV.fasta blast.tsv.gz -g V \
   --minfullcount 3 --minfullratio 0.05 --minquality 0.7 --min-corecov 0.5
 ```
 
@@ -213,8 +213,8 @@ immunediscover search exact demux.tsv.gz IGHV.fasta exact.tsv.gz -g V \
 ### Haplotype Block Discovery
 
 ```bash
-immunediscover analyze association exact.tsv.gz edges.tsv.gz \
-  --min-donors 5 --min-support 10 --min-jaccard 0.5 --similarity r2 --threshold 0.7
+immunediscover analyze cooccurrence exact.tsv.gz \
+  --min-donors 5 --cluster-method complete --cluster-threshold 0.7 --clusters clusters.tsv
 ```
 
 ---

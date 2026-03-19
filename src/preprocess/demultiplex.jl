@@ -81,14 +81,14 @@ module Demultiplex
     function handle_demultiplex(parsed_args, always_gz)
         @info "Demultiplexing"
         table, stats = demux(
-            parsed_args["demultiplex"]["fastq"],
-            parsed_args["demultiplex"]["indices"],
-            parsed_args["demultiplex"]["forwardarrayindex"],
-            min_length=parsed_args["demultiplex"]["length"],
-            save_fastq_files=parsed_args["demultiplex"]["split"]
+            parsed_args["preprocess"]["demultiplex"]["fastq"],
+            parsed_args["preprocess"]["demultiplex"]["indices"],
+            parsed_args["preprocess"]["demultiplex"]["forwardarrayindex"],
+            min_length=parsed_args["preprocess"]["demultiplex"]["length"],
+            save_fastq_files=parsed_args["preprocess"]["demultiplex"]["split"]
         )
 
-        case_filter_regex = get(parsed_args["demultiplex"], "case-filter-regex", nothing)
+        case_filter_regex = get(parsed_args["preprocess"]["demultiplex"], "case-filter-regex", nothing)
         if case_filter_regex !== nothing
             @info "Filtering cases with regex: $case_filter_regex"
             original_count = nrow(table)
@@ -102,12 +102,12 @@ module Demultiplex
         @info "  - Unique cases: $(length(unique(table.case)))"
         @info "  - Unique wells: $(length(unique(table.well)))"
 
-        logfile = "$(parsed_args["demultiplex"]["output"]).log"
+        logfile = "$(parsed_args["preprocess"]["demultiplex"]["output"]).log"
         CSV.write(logfile, stats, delim='\t')
         count_df = combine(groupby(table, :case), :case => length => :count)
         sort!(count_df, :count, rev=true)
         Data.barplot_if_available(count_df.case, count_df.count)
-        output = always_gz(parsed_args["demultiplex"]["output"])
+        output = always_gz(parsed_args["preprocess"]["demultiplex"]["output"])
         CSV.write(output, table, compress=true, delim='\t')
         @info "Demultiplexing data saved in compressed $output file"
     end

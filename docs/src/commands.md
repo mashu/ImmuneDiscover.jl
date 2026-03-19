@@ -4,13 +4,13 @@ All immunediscover commands with complete parameter documentation.
 
 ---
 
-## demultiplex
+## preprocess demultiplex
 
 **Purpose:** Demultiplex indexed plate libraries into per-read metadata.
 
 ### Synopsis
 ```bash
-immunediscover demultiplex <fastq> <indices> <output> [options]
+immunediscover preprocess demultiplex <fastq> <indices> <output> [options]
 ```
 
 ### Arguments
@@ -48,16 +48,16 @@ GACACAAGGG	GACTCTCTAT	Donor2
 
 ```bash
 # Basic demultiplexing
-immunediscover demultiplex plate1.fastq.gz indices.tsv demux.tsv.gz
+immunediscover preprocess demultiplex plate1.fastq.gz indices.tsv demux.tsv.gz
 
 # With length and case filtering
-immunediscover demultiplex plate1.fastq.gz indices.tsv demux.tsv.gz \
+immunediscover preprocess demultiplex plate1.fastq.gz indices.tsv demux.tsv.gz \
   --length 250 --case-filter-regex "[ACDERF]"
 
 # Batch processing
 for f in *.fastq.gz; do
   base=${f%.fastq.gz}
-  immunediscover demultiplex $f ${base}_indices.tsv ${base}_demux.tsv.gz
+  immunediscover preprocess demultiplex $f ${base}_indices.tsv ${base}_demux.tsv.gz
 done
 ```
 
@@ -147,13 +147,13 @@ immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V \
 
 ---
 
-## search blast
+## discover blast
 
 **Purpose:** BLAST-based discovery with sequence extension, trimming, and identity clustering.
 
 ### Synopsis
 ```bash
-immunediscover search blast <input> <fasta> <output> -g <gene> [options]
+immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 ```
 
 ### Arguments
@@ -232,21 +232,21 @@ Plus standard BLAST columns: `pident`, `nident`, `length`, `mismatch`, `gapopen`
 
 ```bash
 # V gene with preset
-immunediscover search blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz -g V
+immunediscover discover blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz -g V
 
 # D gene with preset
-immunediscover search blast demux_D.tsv.gz IGHD.fasta blast_D.tsv.gz -g D
+immunediscover discover blast demux_D.tsv.gz IGHD.fasta blast_D.tsv.gz -g D
 
 # Override preset
-immunediscover search blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz \
+immunediscover discover blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz \
   -g V --forward 20 --maxdist 5
 
 # With pseudo-genes
-immunediscover search blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz \
+immunediscover discover blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz \
   -g V --pseudo IGHV_pseudo.fasta
 
 # View presets
-immunediscover search blast --show-presets
+immunediscover discover blast --show-presets
 ```
 
 ### Notes
@@ -257,13 +257,13 @@ immunediscover search blast --show-presets
 
 ---
 
-## search hsmm
+## discover hsmm
 
 **Purpose:** D gene detection using Hidden Semi-Markov Model trained on RSS flanks.
 
 ### Synopsis
 ```bash
-immunediscover search hsmm <tsv> <fasta> <output> [options]
+immunediscover discover hsmm <tsv> <fasta> <output> [options]
 ```
 
 ### Arguments
@@ -327,22 +327,22 @@ post_heptamer(7) → post_spacer(12) → post_nonamer(9)
 
 ```bash
 # Basic D detection
-immunediscover search hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz
+immunediscover discover hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz
 
 # Relaxed training
-immunediscover search hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz \
+immunediscover discover hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz \
   --ratio 0.1 --mincount 5
 
 # Strict detection
-immunediscover search hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz \
+immunediscover discover hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz \
   --min-posterior 0.9 --min-heptamer-prob-pre 0.1 --min-heptamer-prob-post 0.1
 
 # Custom gene length range
-immunediscover search hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz \
+immunediscover discover hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz \
   --min-gene-len 8 --max-gene-len 50
 
 # Test on subset
-immunediscover search hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz --limit 10000
+immunediscover discover hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz --limit 10000
 ```
 
 ### Notes
@@ -418,9 +418,9 @@ immunediscover search heptamer demux.tsv.gz IGHV.fasta hept.tsv.gz summary.tsv \
 
 ---
 
-## analyze association
+## analyze cooccurrence
 
-**Purpose:** Compute pairwise allele associations across donors.
+**Purpose:** Compute pairwise allele co-occurrence and associations across donors.
 
 ### Methodology Note
 
@@ -437,7 +437,7 @@ This analysis computes **phi coefficient** (correlation-based association) rathe
 
 ### Synopsis
 ```bash
-immunediscover analyze association <input> <edges> [options]
+immunediscover analyze cooccurrence <input> [options]
 ```
 
 ### Arguments
@@ -505,18 +505,18 @@ Overlap ignoring double-absence. Range: 0 to 1.
 
 ```bash
 # Basic
-immunediscover analyze association exact_V.tsv.gz edges.tsv.gz
+immunediscover analyze cooccurrence exact_V.tsv.gz
 
 # Strict filtering
-immunediscover analyze association exact_V.tsv.gz edges.tsv.gz \
-  --min-donors 5 --min-support 10 --min-jaccard 0.5
+immunediscover analyze cooccurrence exact_V.tsv.gz \
+  --min-donors 5
 
 # With clustering
-immunediscover analyze association exact_V.tsv.gz edges.tsv.gz \
-  --similarity r2 --threshold 0.7 --clusters clusters.tsv
+immunediscover analyze cooccurrence exact_V.tsv.gz \
+  --cluster-method complete --cluster-threshold 0.7 --clusters clusters.tsv
 
 # Custom columns
-immunediscover analyze association input.tsv.gz edges.tsv.gz \
+immunediscover analyze cooccurrence input.tsv.gz \
   --case-col donor_id --allele-col allele_name
 ```
 
@@ -601,13 +601,13 @@ immunediscover analyze haplotype input.tsv.gz haplotypes.tsv \
 
 ---
 
-## analyze bwa
+## search bwa
 
 **Purpose:** BWA genome mapping QC to retain chromosome-specific sequences.
 
 ### Synopsis
 ```bash
-immunediscover analyze bwa <tsv> <output> <genome...> [options]
+immunediscover search bwa <tsv> <output> <genome...> [options]
 ```
 
 ### Arguments
@@ -645,15 +645,15 @@ bwa index genome.fasta
 ```bash
 # Human chromosome 14
 bwa index GCF_000001405.25.fasta
-immunediscover analyze bwa candidates.tsv.gz filtered.tsv.gz \
+immunediscover search bwa candidates.tsv.gz filtered.tsv.gz \
   GCF_000001405.25.fasta --chromosome "chromosome 14"
 
 # Mouse chromosome 12
-immunediscover analyze bwa candidates.tsv.gz filtered.tsv.gz \
+immunediscover search bwa candidates.tsv.gz filtered.tsv.gz \
   mouse_genome.fasta --chromosome "chromosome 12"
 
 # Custom columns
-immunediscover analyze bwa candidates.tsv.gz filtered.tsv.gz \
+immunediscover search bwa candidates.tsv.gz filtered.tsv.gz \
   genome.fasta --colname allele_id --colseq sequence
 ```
 
