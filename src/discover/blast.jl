@@ -435,8 +435,8 @@ module Blast
         transform!(blast_df, [:qseq, :genomic_sequence] => ByRow(edge) => [:five_prime_edge, :three_prime_edge])
 
         @info "BLASTn results after best hits: $(nrow(blast_df)) rows"
-        filter!(x -> x.five_prime_edge > min_edge && x.three_prime_edge > min_edge, blast_df)
-        @info "After filtering edge > $min_edge: $(nrow(blast_df)) rows"
+        filter!(x -> x.five_prime_edge >= min_edge && x.three_prime_edge >= min_edge, blast_df)
+        @info "After filtering edge >= $min_edge: $(nrow(blast_df)) rows"
 
         transform!(blast_df, [:length, :slen] => ByRow((len, slen) -> len / slen) => :scov)
         filter!(x -> x.scov > min_scov, blast_df)
@@ -648,7 +648,7 @@ module Blast
                     occursin(aln, seq) && return name
                 end
             end
-            return unique_name(row.sseqid, row.aln_qseq) * " Novel"
+            return unique_name(row.sseqid, row.aln_qseq)
         end
         blast_clusters[:, :allele_name] = map(allele_name_row, eachrow(blast_clusters))
         output = always_gz(parsed_args["discover"]["blast"]["output"])
