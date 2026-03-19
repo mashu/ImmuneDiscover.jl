@@ -61,14 +61,42 @@ module Blast
         return time() - start_time
     end
 
-    function blastn(query_file::String, database::String, output_file::String; args::String="")
+    """Return BLAST database path (no extension) for a FASTA. Build with makeblastdb if missing or stale."""
+    function ensure_blast_db(fasta_path::String)
+        dir = dirname(fasta_path)
+        base = first(split(basename(fasta_path), '.'))
+        db_path = joinpath(dir, base)
+        nin = db_path * ".nin"
+        fasta_mtime = mtime(fasta_path)
+        if isfile(nin) && mtime(nin) >= fasta_mtime
+            @info "Using existing BLAST database $db_path"
+            return db_path
+        end
+        @info "Building BLAST database from $fasta_path (enables multithreaded blastn)"
+        run(`makeblastdb -in $fasta_path -dbtype nucl -parse_seqids -out $db_path`)
+        return db_path
+    end
+
+    """
+        blastn(query_file, database, output_file; ...)
+
+    Run BLASTn: query sequences in `query_file` against `database`, write tabular results to `output_file`.
+    With `use_db=true`, `database` is a BLAST DB path (from ensure_blast_db); multithreading is used.
+    With `use_db=false`, `database` is a FASTA path and blastn uses -subject (single-threaded).
+    """
+    function blastn(query_file::String, database::String, output_file::String; args::String="", use_db::Bool=false)
         outfmt = "6 " * join(columns, " ")
-        cmd = `blastn -query $query_file -subject $database -out $output_file -outfmt $outfmt`
+        nthreads = Sys.CPU_THREADS
+        if use_db
+            cmd = `blastn -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $outfmt`
+        else
+            cmd = `blastn -query $query_file -subject $database -out $output_file -outfmt $outfmt`
+        end
         if !isempty(args)
             cmd = `$cmd $(split(args))`
         end
         elapsed = time_command(cmd)
-        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds"
+        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds" * (use_db ? " (num_threads=$nthreads)" : "")
     end
 
     function replace_extension(path, ext)
@@ -371,7 +399,8 @@ module Blast
             @info "BLASTn results already exist $blast_file. Skipping BLASTn."
         else
             @info "Running BLASTn. This may take a while."
-            blastn(query_fasta, combined_db_fasta, blast_tsv, args=args)
+            db_path = ensure_blast_db(combined_db_fasta)
+            blastn(query_fasta, db_path, blast_tsv, args=args, use_db=true)
             run(`gzip -f $blast_tsv`)
         end
 
