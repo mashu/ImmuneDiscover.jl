@@ -16,22 +16,22 @@ module immunediscover
     include("merge.jl")
     include("table.jl")
 
-    using .cli
-    using .data
-    using .demultiplex
-    using .simulate
-    using .profile
-    using .exact
-    using .heptamer
+    using .Cli
+    using .Data
+    using .Demultiplex
+    using .Simulate
+    using .Profile
+    using .Exact
+    using .Heptamer
     using .HSMM
-    using .bwa
-    using .blast
-    using .keyedsets
-    using .cooccurrence
-    using .haplotype
-    using .fasta
-    using .merge
-    using .table
+    using .Bwa
+    using .Blast
+    using .KeyedSets
+    using .Cooccurrence
+    using .Haplotype
+    using .Fasta
+    using .Merge
+    using .Table
 
     using CSV
     using DataFrames
@@ -45,37 +45,37 @@ module immunediscover
     export load_fasta, blast_discover
 
     # Tests import immunediscover.association — alias required until tests are migrated
-    const association = cooccurrence
+    const association = Cooccurrence
 
     # Delegated utilities (callers reference immunediscover.concatenate_columns etc.)
-    const concatenate_columns = data.concatenate_columns
-    const validate_types = data.validate_types
-    const get_ratio_threshold = data.get_ratio_threshold
+    const concatenate_columns = Data.concatenate_columns
+    const validate_types = Data.validate_types
+    const get_ratio_threshold = Data.get_ratio_threshold
 
     # --- Command dispatch tables ---
 
     const SEARCH_HANDLERS = Dict{String, Function}(
-        "heptamer" => (pa) -> heptamer.handle_heptamer(pa, immunediscover, cli.always_gz),
-        "exact"    => (pa) -> exact.handle_exact(pa, immunediscover, cli.always_gz),
+        "heptamer" => (pa) -> Heptamer.handle_heptamer(pa, immunediscover, Cli.always_gz),
+        "exact"    => (pa) -> Exact.handle_exact(pa, immunediscover, Cli.always_gz),
         "hsmm"     => (pa) -> HSMM.handle_hsmm(pa),
-        "blast"    => (pa) -> blast.handle_blast(pa, immunediscover, cli.always_gz),
+        "blast"    => (pa) -> Blast.handle_blast(pa, immunediscover, Cli.always_gz),
     )
 
     const ANALYZE_HANDLERS = Dict{String, Function}(
-        "cooccurrence" => (pa) -> cooccurrence.handle_cooccurrence(pa, cli.always_gz),
-        "haplotype"    => (pa) -> haplotype.handle_haplotype(pa),
-        "bwa"          => (pa) -> bwa.handle_bwa(pa, immunediscover, cli.always_gz),
+        "cooccurrence" => (pa) -> Cooccurrence.handle_cooccurrence(pa, Cli.always_gz),
+        "haplotype"    => (pa) -> Haplotype.handle_haplotype(pa),
+        "bwa"          => (pa) -> Bwa.handle_bwa(pa, immunediscover, Cli.always_gz),
     )
 
     const FASTA_HANDLERS = Dict{String, Function}(
-        "merge" => (pa) -> merge.handle_merge(pa),
-        "diff"  => (pa) -> fasta.handle_fasta_diff(pa, immunediscover),
-        "hash"  => (pa) -> fasta.handle_fasta_hash(pa, immunediscover),
+        "merge" => (pa) -> Merge.handle_merge(pa),
+        "diff"  => (pa) -> Fasta.handle_fasta_diff(pa, immunediscover),
+        "hash"  => (pa) -> Fasta.handle_fasta_hash(pa, immunediscover),
     )
 
     const TOPLEVEL_HANDLERS = Dict{String, Function}(
-        "demultiplex" => (pa) -> demultiplex.handle_demultiplex(pa, cli.always_gz),
-        "table"       => (pa) -> table.handle_table(pa, immunediscover, cli.always_gz),
+        "demultiplex" => (pa) -> Demultiplex.handle_demultiplex(pa, Cli.always_gz),
+        "table"       => (pa) -> Table.handle_table(pa, immunediscover, Cli.always_gz),
     )
 
     # Grouped commands: the Dict key doubles as the parsed_args group key

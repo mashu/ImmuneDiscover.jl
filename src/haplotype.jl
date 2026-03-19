@@ -3,12 +3,13 @@
 
 Module for inferring approximate haplotypes from unphased immunoglobulin data.
 """
-module haplotype
+module Haplotype
 
 using DataFrames
 using CSV
 using Statistics
 using FASTX
+using ..Exact: GeneType, VGene, DGene, JGene, gene_type_from_name
 
 export infer_haplotypes, handle_haplotype
 
@@ -32,6 +33,93 @@ end
 function safe_string(row, col::Symbol)
     val = getproperty(row, col)
     ismissing(val) ? "" : String(val)
+end
+
+# --- Flank collection via dispatch (replaces occursin("V/D/J", gene_id) conditionals) ---
+
+"""
+Tracks which flank columns are available in the DataFrame.
+Avoids repeated `in names(df)` checks per row.
+"""
+struct FlankColumns
+    prefix::Bool
+    suffix::Bool
+    heptamer::Bool
+    spacer::Bool
+    nonamer::Bool
+    pre_heptamer::Bool
+    pre_spacer::Bool
+    pre_nonamer::Bool
+    post_heptamer::Bool
+    post_spacer::Bool
+    post_nonamer::Bool
+end
+
+function FlankColumns(df::DataFrame)
+    FlankColumns(
+        "prefix" in names(df), "suffix" in names(df),
+        "heptamer" in names(df), "spacer" in names(df), "nonamer" in names(df),
+        "pre_heptamer" in names(df), "pre_spacer" in names(df), "pre_nonamer" in names(df),
+        "post_heptamer" in names(df), "post_spacer" in names(df), "post_nonamer" in names(df))
+end
+
+# Default: prefix column if available, otherwise empty
+function collect_pre_flank(row, fc::FlankColumns, ::GeneType)
+    fc.prefix ? safe_string(row, :prefix) : ""
+end
+
+# Default: suffix column if available, otherwise empty
+function collect_post_flank(row, fc::FlankColumns, ::GeneType)
+    fc.suffix ? safe_string(row, :suffix) : ""
+end
+
+# V genes: post-flank is heptamer+spacer+nonamer (RSS after V segment)
+function collect_post_flank(row, fc::FlankColumns, ::VGene)
+    fc.suffix && return safe_string(row, :suffix)
+    buf = IOBuffer()
+    fc.heptamer && print(buf, safe_string(row, :heptamer))
+    fc.spacer && print(buf, safe_string(row, :spacer))
+    fc.nonamer && print(buf, safe_string(row, :nonamer))
+    String(take!(buf))
+end
+
+# J genes: pre-flank is nonamer+spacer+heptamer (RSS before J segment)
+function collect_pre_flank(row, fc::FlankColumns, ::JGene)
+    fc.prefix && return safe_string(row, :prefix)
+    buf = IOBuffer()
+    fc.nonamer && print(buf, safe_string(row, :nonamer))
+    fc.spacer && print(buf, safe_string(row, :spacer))
+    fc.heptamer && print(buf, safe_string(row, :heptamer))
+    String(take!(buf))
+end
+
+# D genes: pre-flank is pre_nonamer+pre_spacer+pre_heptamer
+function collect_pre_flank(row, fc::FlankColumns, ::DGene)
+    fc.prefix && return safe_string(row, :prefix)
+    buf = IOBuffer()
+    fc.pre_nonamer && print(buf, safe_string(row, :pre_nonamer))
+    fc.pre_spacer && print(buf, safe_string(row, :pre_spacer))
+    fc.pre_heptamer && print(buf, safe_string(row, :pre_heptamer))
+    String(take!(buf))
+end
+
+# D genes: post-flank is post_heptamer+post_spacer+post_nonamer
+function collect_post_flank(row, fc::FlankColumns, ::DGene)
+    fc.suffix && return safe_string(row, :suffix)
+    buf = IOBuffer()
+    fc.post_heptamer && print(buf, safe_string(row, :post_heptamer))
+    fc.post_spacer && print(buf, safe_string(row, :post_spacer))
+    fc.post_nonamer && print(buf, safe_string(row, :post_nonamer))
+    String(take!(buf))
+end
+
+function compose_extended_sequence(row, gene_sym::Symbol, fc::FlankColumns)
+    gene_id = safe_string(row, gene_sym)
+    gt = gene_type_from_name(gene_id)
+    seq = safe_string(row, :sequence)
+    pre = gt !== nothing ? collect_pre_flank(row, fc, gt) : ""
+    post = gt !== nothing ? collect_post_flank(row, fc, gt) : ""
+    return pre * seq * post
 end
 
 function infer_haplotypes(input_file::String, output_file::String;
@@ -75,52 +163,9 @@ function infer_haplotypes(input_file::String, output_file::String;
     @info "Filtered to $(nrow(filtered)) allele observations meeting mincount >= $mincount"
 
     # Build extended_sequence to disambiguate variants of the same db_name
-    has_prefix_col = "prefix" in names(filtered)
-    has_suffix_col = "suffix" in names(filtered)
-    has_pre_nonamer = "pre_nonamer" in names(filtered)
-    has_pre_spacer = "pre_spacer" in names(filtered)
-    has_pre_heptamer = "pre_heptamer" in names(filtered)
-    has_post_heptamer = "post_heptamer" in names(filtered)
-    has_post_spacer = "post_spacer" in names(filtered)
-    has_post_nonamer = "post_nonamer" in names(filtered)
-    has_nonamer = "nonamer" in names(filtered)
-    has_spacer = "spacer" in names(filtered)
-    has_heptamer = "heptamer" in names(filtered)
+    fc = FlankColumns(filtered)
 
-    function compose_extended_sequence(row)
-        gene_id = safe_string(row, gene_sym)
-        isV = occursin("V", gene_id)
-        isD = occursin("D", gene_id)
-        isJ = occursin("J", gene_id)
-        seq = safe_string(row, :sequence)
-        pre = ""
-        post = ""
-        if has_prefix_col
-            pre = safe_string(row, :prefix)
-        elseif isJ
-            if has_nonamer; pre *= safe_string(row, :nonamer); end
-            if has_spacer; pre *= safe_string(row, :spacer); end
-            if has_heptamer; pre *= safe_string(row, :heptamer); end
-        elseif isD
-            if has_pre_nonamer; pre *= safe_string(row, :pre_nonamer); end
-            if has_pre_spacer; pre *= safe_string(row, :pre_spacer); end
-            if has_pre_heptamer; pre *= safe_string(row, :pre_heptamer); end
-        end
-        if has_suffix_col
-            post = safe_string(row, :suffix)
-        elseif isV
-            if has_heptamer; post *= safe_string(row, :heptamer); end
-            if has_spacer; post *= safe_string(row, :spacer); end
-            if has_nonamer; post *= safe_string(row, :nonamer); end
-        elseif isD
-            if has_post_heptamer; post *= safe_string(row, :post_heptamer); end
-            if has_post_spacer; post *= safe_string(row, :post_spacer); end
-            if has_post_nonamer; post *= safe_string(row, :post_nonamer); end
-        end
-        return pre * seq * post
-    end
-
-    filtered[!, :extended_sequence] = [compose_extended_sequence(r) for r in eachrow(filtered)]
+    filtered[!, :extended_sequence] = [compose_extended_sequence(r, gene_sym, fc) for r in eachrow(filtered)]
 
     # Build stable labels per (db_name, extended_sequence) across all donors
     global_agg = combine(groupby(filtered, [allele_sym, :extended_sequence]), count_col_sym => sum => :count_sum)

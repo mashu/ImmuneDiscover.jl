@@ -1,4 +1,4 @@
-module data
+module Data
     using FASTX
     using CodecZlib
     using ProgressMeter

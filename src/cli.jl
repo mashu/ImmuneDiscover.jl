@@ -1,4 +1,4 @@
-module cli
+module Cli
     using ArgParse
     export parse_commandline, apply_blast_presets!, show_blast_presets, show_blast_params
     export BLAST_PRESETS, BLAST_CLI_DEFAULTS

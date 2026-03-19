@@ -1,4 +1,4 @@
-module cooccurrence
+module Cooccurrence
     using DataFrames
     using Statistics
     using CSV
@@ -105,6 +105,28 @@ module cooccurrence
         n11 > min(Ka, Kb) && return 0.0
         d = Hypergeometric(N, Ka, Kb)
         return ccdf(d, n11 - 1)
+    end
+
+    """
+        compute_full_stats(df; case_col, allele_col, min_donors)
+
+    Shared computation: filter alleles by donor count, build presence maps,
+    compute rho/jaccard/support/pvalue matrices. Returns everything downstream
+    code needs (matrices, alleles, allele_to_donors, donor count).
+    """
+    function compute_full_stats(df::DataFrame;
+                                case_col::AbstractString="case",
+                                allele_col::AbstractString="db_name",
+                                min_donors::Int=1)
+        case_sym = Symbol(case_col)
+        allele_sym = Symbol(allele_col)
+        allele_counts = combine(groupby(df, allele_sym), nrow => :count)
+        valid_alleles = allele_counts[allele_counts.count .>= min_donors, allele_sym]
+        filtered_df = filter(x -> x[allele_sym] in valid_alleles, df)
+        donors, alleles, allele_to_donors = compute_presence_maps(filtered_df, case_sym, allele_sym)
+        N = length(donors)
+        R, J, SUP, P = compute_rho_stats(alleles, allele_to_donors, N)
+        return (; alleles, allele_to_donors, N, R, J, SUP, P)
     end
 
     function compute_cooccurrence_edges(df::DataFrame;
@@ -300,42 +322,34 @@ module cooccurrence
         df = CSV.File(tsv, delim='\t') |> DataFrame
         @info "Loaded $(nrow(df)) rows from input file"
 
-        case_sym = Symbol(case_col)
-        allele_sym = Symbol(allele_col)
-        allele_counts = combine(groupby(df, allele_sym), nrow => :count)
-        valid_alleles = allele_counts[allele_counts.count .>= min_donors, allele_sym]
-        filtered_df = filter(x -> x[allele_sym] in valid_alleles, df)
-        donors, alleles, allele_to_donors = compute_presence_maps(filtered_df, case_sym, allele_sym)
-        N = length(donors)
+        stats = compute_full_stats(df; case_col=case_col, allele_col=allele_col, min_donors=min_donors)
 
-        R, J, SUP, P = compute_rho_stats(alleles, allele_to_donors, N)
-
-        edges_df = build_edges_from_matrices(R, J, SUP, P, String.(alleles))
+        edges_df = build_edges_from_matrices(stats.R, stats.J, stats.SUP, stats.P, String.(stats.alleles))
         edges_output = replace(tsv, r"\.(tsv|tsv\.gz)$" => "_edges.tsv")
         if edges_output == tsv
             edges_output = tsv * "_edges.tsv"
         end
         CSV.write(edges_output, edges_df, delim='\t')
-        @info "Edges saved to $edges_output ($(nrow(edges_df)) edges from $(length(alleles)) alleles)"
+        @info "Edges saved to $edges_output ($(nrow(edges_df)) edges from $(length(stats.alleles)) alleles)"
 
         if debug_triangles
-            S = max.(R, 0.0)
-            print_triangle_diagnostics_matrix(S, String.(alleles); threshold=cluster_threshold, max_print=20)
+            S = max.(stats.R, 0.0)
+            print_triangle_diagnostics_matrix(S, String.(stats.alleles); threshold=cluster_threshold, max_print=20)
         end
 
         if clusters_path !== nothing
-            S = max.(R, 0.0)
+            S = max.(stats.R, 0.0)
             if cluster_method == "components"
-                comps = components_from_matrix(S, String.(alleles); threshold=cluster_threshold, min_cluster_size=min_cluster_size)
+                comps = components_from_matrix(S, String.(stats.alleles); threshold=cluster_threshold, min_cluster_size=min_cluster_size)
             else
                 link = cluster_method == "average" ? :average : (cluster_method == "single" ? :single : :complete)
-                comps = cluster_hierarchical_from_matrix(S, String.(alleles); min_cluster_size=min_cluster_size, threshold=cluster_threshold, linkage=link)
+                comps = cluster_hierarchical_from_matrix(S, String.(stats.alleles); min_cluster_size=min_cluster_size, threshold=cluster_threshold, linkage=link)
             end
             ClusterRow = NamedTuple{(:group_id,:allele,:donors,:n_donors), Tuple{Int,String,String,Int}}
             all_rows = ClusterRow[]
             for (gid, comp) in enumerate(comps)
                 for allele in comp
-                    donors_list = sort(collect(get(allele_to_donors, allele, Set{String}())))
+                    donors_list = sort(collect(get(stats.allele_to_donors, allele, Set{String}())))
                     push!(all_rows, (group_id=gid, allele=allele, donors=join(donors_list, ","), n_donors=length(donors_list)))
                 end
             end

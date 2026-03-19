@@ -1,4 +1,4 @@
-module heptamer
+module Heptamer
     using BioAlignments
     using Folds
     using ProgressMeter
@@ -6,7 +6,7 @@ module heptamer
     using DataFrames
     using JSON
     using CSV
-    using ..data
+    using ..Data
 
     export extract_heptamers, summarize, load_heptamers, handle_heptamer
 

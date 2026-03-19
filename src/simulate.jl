@@ -1,11 +1,11 @@
-module simulate
+module Simulate
     using FASTX
     using CSV
     using DataFrames
     using Random
     using MD5
 
-    using ..data: unique_name, sequence_hash
+    using ..Data: unique_name, sequence_hash
 
     const NUCLEOTIDES = ['A', 'C', 'G', 'T']
     const RSS_SIGNAL = "CACAGTG"

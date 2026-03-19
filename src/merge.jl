@@ -1,4 +1,4 @@
-module merge
+module Merge
     using FASTX
     using Logging
     using DataStructures

@@ -1,4 +1,4 @@
-module keyedsets
+module KeyedSets
     export KeyedPair, KeyedSet
 
     struct KeyedPair

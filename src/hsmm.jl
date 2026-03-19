@@ -9,9 +9,9 @@ using Folds
 using StringDistances
 
 # Shared modules — avoids duplicate type definitions from repeated include()
-using ..data
-using ..exact
-import ..data: unique_name
+using ..Data
+using ..Exact
+import ..Data: unique_name
 
 @inline function dna_index(c::Char)::Int
     c == 'A' && return 1; c == 'C' && return 2; c == 'G' && return 3; c == 'T' && return 4; return 0
@@ -181,14 +181,14 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     limit::Int=0, min_posterior::Float64=0.7, out_mincount::Int=10, out_minratio::Float64=0.2,
     min_heptamer_prob_pre::Float64=0.0, min_heptamer_prob_post::Float64=0.0)
     @info "Loading demultiplex: $tsv"
-    tbl = limit>0 ? data.load_demultiplex(tsv,limit=limit) : data.load_demultiplex(tsv)
+    tbl = limit>0 ? Data.load_demultiplex(tsv,limit=limit) : Data.load_demultiplex(tsv)
     @info "Loaded $(nrow(tbl)) rows"
     @info "Loading D allele FASTA: $fasta_path"
-    db = data.load_fasta(fasta_path, validate=false)
+    db = Data.load_fasta(fasta_path, validate=false)
     db_seq_lookup = Dict{String,String}((seq=>name) for (name,seq) in db)
     db_names=first.(db); db_seqs=last.(db)
     @info "Searching known D alleles"
-    known_df = exact.exact_search(tbl, db, "D"; mincount=mincount, minratio=0.0, N=1000)
+    known_df = Exact.exact_search(tbl, db, "D"; mincount=mincount, minratio=0.0, N=1000)
     nrow(known_df)==0 && (@warn "No exact D matches"; return DataFrame())
     agg = combine(groupby(known_df, [:case,:gene,:sequence,:db_name]), :count=>sum=>:case_count)
     transform!(groupby(agg, [:case,:gene]), :case_count=>(x->x./maximum(x))=>:case_ratio)

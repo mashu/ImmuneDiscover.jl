@@ -1,4 +1,4 @@
-module bwa
+module Bwa
     using BurrowsWheelerAligner
     using BurrowsWheelerAligner.LibBWA: mem_aln_t
     using BurrowsWheelerAligner: Aligner

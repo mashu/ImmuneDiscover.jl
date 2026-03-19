@@ -1,4 +1,4 @@
-module table
+module Table
     using CSV
     using DataFrames
     using Logging
@@ -394,7 +394,7 @@ module table
 
     function handle_fasta_export(parsed_args, immunediscover_module, _)
         @info "Exporting TSV to FASTA"
-        immunediscover_module.fasta.extract_sequences_to_fasta(
+        immunediscover_module.Fasta.extract_sequences_to_fasta(
             parsed_args["table"]["fasta"]["input"],
             parsed_args["table"]["fasta"]["output"];
             colname = parsed_args["table"]["fasta"]["colname"],

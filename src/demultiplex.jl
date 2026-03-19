@@ -1,4 +1,4 @@
-module demultiplex
+module Demultiplex
     using CSV
     using FASTX
     using DataFrames
@@ -7,7 +7,7 @@ module demultiplex
     using Logging
 
     # Parent module provides shared IO and validation
-    using ..data
+    using ..Data
 
     export demux, handle_demultiplex
 
@@ -31,7 +31,7 @@ module demultiplex
               case = i.case,) for i in indices]
         end
 
-        data.process_fastq(fastq_path) do record
+        Data.process_fastq(fastq_path) do record
             name, genomic_sequence = identifier(record), string(sequence(record))
 
             @inbounds for i in eachindex(pattern)

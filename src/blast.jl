@@ -1,4 +1,4 @@
-module blast
+module Blast
     using CSV
     using DataFrames
     using FASTX
@@ -7,7 +7,7 @@ module blast
     using BioSequences
     using Folds
 
-    using ..data: load_fasta as data_load_fasta, unique_name
+    using ..Data: load_fasta as data_load_fasta, unique_name
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
 
@@ -30,7 +30,7 @@ module blast
     """
         read_fasta(filepath) -> Vector{Tuple{String, String}}
 
-    Delegates to data.load_fasta for shared FASTA-reading logic.
+    Delegates to Data.load_fasta for shared FASTA-reading logic.
     """
     function read_fasta(filepath::String)
         return data_load_fasta(filepath, validate=false)
@@ -175,6 +175,91 @@ module blast
         return LongDNA{4}(filter(nt -> nt != DNA_Gap, query))
     end
 
+    # --- Affix trimming via dispatch (eliminates prefix/suffix code duplication) ---
+
+    abstract type AffixSide end
+    struct PrefixSide <: AffixSide end
+    struct SuffixSide <: AffixSide end
+
+    side_label(::PrefixSide) = "prefix"
+    side_label(::SuffixSide) = "suffix"
+
+    increment_failures!(stats, ::PrefixSide) = (stats.prefix_failures += 1)
+    increment_failures!(stats, ::SuffixSide) = (stats.suffix_failures += 1)
+
+    """
+    For prefix: core is everything after the last aligned affix position.
+    """
+    function extract_core_range(aligned_affix, aligned_query, ::PrefixSide)
+        boundary = findlast(x -> x != DNA_Gap, aligned_affix)
+        boundary === nothing && return nothing, "No match found"
+        start = boundary + 1
+        start > length(aligned_query) && return nothing, "Query too short after trimming"
+        return aligned_query[start:end], ""
+    end
+
+    """
+    For suffix: core is everything before the first aligned affix position.
+    """
+    function extract_core_range(aligned_affix, aligned_query, ::SuffixSide)
+        boundary = findfirst(x -> x != DNA_Gap, aligned_affix)
+        boundary === nothing && return nothing, "No match found"
+        boundary <= 1 && return nothing, "Starts too early"
+        return aligned_query[1:boundary-1], ""
+    end
+
+    """
+        trim_one_affix(affix, query, stats, scoremodel, side; min_quality, sseqid)
+
+    Align `affix` to `query`, check quality, and extract the core sequence on the
+    opposite side. Returns the trimmed query or nothing on failure.
+    """
+    function trim_one_affix(affix::LongDNA{4}, query::LongDNA{4}, stats, scoremodel, side::AffixSide;
+                            min_quality=0.75, sseqid="")
+        length(affix) == 0 && return query
+
+        label = side_label(side)
+        aln_result = safe_pairalign(affix, query, scoremodel)
+        if aln_result === nothing
+            push!(stats.failed_genes[sseqid], "$(titlecase(label)) alignment failed")
+            increment_failures!(stats, side)
+            return nothing
+        end
+
+        pairs = collect(alignment(aln_result))
+        positions = findall(p -> first(p) != DNA_Gap, pairs)
+        if isempty(positions)
+            push!(stats.failed_genes[sseqid], "No $label content in alignment")
+            increment_failures!(stats, side)
+            return nothing
+        end
+
+        matches = sum(first(pairs[i]) == last(pairs[i]) for i in positions)
+        quality = matches / length(positions)
+        if quality < min_quality
+            push!(stats.failed_genes[sseqid], "Poor $label alignment quality ($(round(quality * 100, digits=1))% match)")
+            increment_failures!(stats, side)
+            return nothing
+        end
+
+        aligned_affix = first.(pairs)
+        aligned_query = last.(pairs)
+        core, msg = extract_core_range(aligned_affix, aligned_query, side)
+        if core === nothing
+            push!(stats.failed_genes[sseqid], "$(titlecase(label)): $msg")
+            increment_failures!(stats, side)
+            return nothing
+        end
+
+        result = remove_gaps(LongDNA{4}(join(core)))
+        if length(result) == 0
+            push!(stats.failed_genes[sseqid], "Empty core after $label trimming")
+            increment_failures!(stats, side)
+            return nothing
+        end
+        return result
+    end
+
     function trim_sequence(query::LongDNA{4}, prefix::LongDNA{4}, suffix::LongDNA{4}, stats,
         scoremodel::AffineGapScoreModel=AffineGapScoreModel(EDNAFULL, gap_open=-10, gap_extend=-1);
         min_quality=0.75, sseqid="")
@@ -183,107 +268,24 @@ module blast
             push!(stats.failed_genes[sseqid], "Empty query sequence")
             return nothing
         end
-        partial_query = query
         stats.total_attempts += 1
 
-        if length(prefix) > 0
-            prefix_aln_result = safe_pairalign(prefix, query, scoremodel)
-            if prefix_aln_result === nothing
-                push!(stats.failed_genes[sseqid], "Prefix alignment failed")
-                stats.prefix_failures += 1
-                return nothing
-            end
-            prefix_aln = alignment(prefix_aln_result)
-            prefix_pairs = collect(prefix_aln)
-            prefix_positions = findall(p -> first(p) != DNA_Gap, prefix_pairs)
-            if isempty(prefix_positions)
-                push!(stats.failed_genes[sseqid], "No prefix content in alignment")
-                stats.prefix_failures += 1
-                return nothing
-            end
-            matches = sum(first(prefix_pairs[i]) == last(prefix_pairs[i]) for i in prefix_positions)
-            prefix_quality = matches / length(prefix_positions)
-            if prefix_quality < min_quality
-                push!(stats.failed_genes[sseqid], "Poor prefix alignment quality ($(round(prefix_quality * 100, digits=1))% match)")
-                stats.prefix_failures += 1
-                return nothing
-            end
-            aligned_prefix = first.(prefix_pairs)
-            aligned_query = last.(prefix_pairs)
-            prefix_end = findlast(x -> x != DNA_Gap, aligned_prefix)
-            if prefix_end === nothing
-                push!(stats.failed_genes[sseqid], "No prefix match found")
-                stats.prefix_failures += 1
-                return nothing
-            end
-            query_core_start = prefix_end + 1
-            if query_core_start > length(aligned_query)
-                push!(stats.failed_genes[sseqid], "Query too short after prefix")
-                stats.prefix_failures += 1
-                return nothing
-            end
-            core_part = aligned_query[query_core_start:end]
-            partial_query = remove_gaps(LongDNA{4}(join(core_part)))
-            if length(partial_query) == 0
-                push!(stats.failed_genes[sseqid], "Empty core after prefix trimming")
-                stats.prefix_failures += 1
-                return nothing
-            end
-        end
+        partial = trim_one_affix(prefix, query, stats, scoremodel, PrefixSide();
+                                 min_quality=min_quality, sseqid=sseqid)
+        partial === nothing && return nothing
 
-        if length(suffix) > 0
-            suffix_aln_result = safe_pairalign(suffix, partial_query, scoremodel)
-            if suffix_aln_result === nothing
-                push!(stats.failed_genes[sseqid], "Suffix alignment failed")
-                stats.suffix_failures += 1
-                return nothing
-            end
-            suffix_aln = alignment(suffix_aln_result)
-            suffix_pairs = collect(suffix_aln)
-            suffix_positions = findall(p -> first(p) != DNA_Gap, suffix_pairs)
-            if isempty(suffix_positions)
-                push!(stats.failed_genes[sseqid], "No suffix content in alignment")
-                stats.suffix_failures += 1
-                return nothing
-            end
-            matches = sum(first(suffix_pairs[i]) == last(suffix_pairs[i]) for i in suffix_positions)
-            suffix_quality = matches / length(suffix_positions)
-            if suffix_quality < min_quality
-                push!(stats.failed_genes[sseqid], "Poor suffix alignment quality ($(round(suffix_quality * 100, digits=1))% match)")
-                stats.suffix_failures += 1
-                return nothing
-            end
-            aligned_suffix = first.(suffix_pairs)
-            aligned_query = last.(suffix_pairs)
-            suffix_start = findfirst(x -> x != DNA_Gap, aligned_suffix)
-            if suffix_start === nothing
-                push!(stats.failed_genes[sseqid], "No suffix match found")
-                stats.suffix_failures += 1
-                return nothing
-            end
-            if suffix_start <= 1
-                push!(stats.failed_genes[sseqid], "Suffix starts too early")
-                stats.suffix_failures += 1
-                return nothing
-            end
-            core_part = aligned_query[1:suffix_start-1]
-            partial_query = remove_gaps(LongDNA{4}(join(core_part)))
-            if length(partial_query) == 0
-                push!(stats.failed_genes[sseqid], "Empty core after suffix trimming")
-                stats.suffix_failures += 1
-                return nothing
-            end
-        end
+        partial = trim_one_affix(suffix, partial, stats, scoremodel, SuffixSide();
+                                 min_quality=min_quality, sseqid=sseqid)
+        partial === nothing && return nothing
 
-        core_length = length(partial_query)
-        if core_length < 10
-            push!(stats.failed_genes[sseqid], "Core sequence too short ($core_length < 10 nt)")
+        if length(partial) < 10
+            push!(stats.failed_genes[sseqid], "Core sequence too short ($(length(partial)) < 10 nt)")
             stats.prefix_failures += 1
             return nothing
         end
 
         push!(stats.successful_trims[sseqid], "Trimmed successfully")
-        return partial_query
+        return partial
     end
 
     function compute_edit_distance(query::String, reference::String)
@@ -422,7 +424,7 @@ module blast
     Handle the blast search pipeline. Extracted from real_main for modularity.
     """
     function handle_blast(parsed_args, immunediscover_module, always_gz)
-        using_cli = immunediscover_module.cli
+        using_cli = immunediscover_module.Cli
         parsed_args = using_cli.apply_blast_presets!(parsed_args)
         gene = parsed_args["search"]["blast"]["gene"]
         if haskey(using_cli.BLAST_PRESETS, gene)

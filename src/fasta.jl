@@ -1,4 +1,4 @@
-module fasta
+module Fasta
     using CSV
     using DataFrames
     using Logging

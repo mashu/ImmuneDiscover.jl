@@ -1,4 +1,4 @@
-module profile
+module Profile
     const dna2ind = Dict{Char,Int}('A'=>1,'C'=>2,'G'=>3,'T'=>4)
     const ind2dna = Dict{Int,Char}(1=>'A',2=>'C',3=>'G',4=>'T')
 

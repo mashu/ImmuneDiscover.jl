@@ -1,4 +1,4 @@
-module exact
+module Exact
     using CSV
     using DataFrames
     using ProgressMeter
@@ -25,7 +25,20 @@ module exact
     gene_string(::JGene) = "J"
     gene_string(::DGene) = "D"
 
-    export GeneType, VGene, DGene, JGene, parse_gene_type
+    """
+        gene_type_from_name(name) -> GeneType or nothing
+
+    Infer gene type from an allele/gene name (e.g. "IGHV1-2" → VGene()).
+    Returns nothing if no V/D/J is found.
+    """
+    function gene_type_from_name(name::AbstractString)
+        occursin("V", name) && return VGene()
+        occursin("D", name) && return DGene()
+        occursin("J", name) && return JGene()
+        return nothing
+    end
+
+    export GeneType, VGene, DGene, JGene, parse_gene_type, gene_type_from_name
 
     # ========================== Typed rows for border statistics ==========================
 
