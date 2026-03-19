@@ -27,6 +27,20 @@ module Blast
         DefaultDict{String, Vector{String}}(Vector{String}),
         DefaultDict{String, Vector{String}}(Vector{String}))
 
+    """Merge other into main (for combining thread-local stats after parallel map)."""
+    function merge_stats!(main::AlignmentStats, other::AlignmentStats)
+        main.total_attempts += other.total_attempts
+        main.prefix_failures += other.prefix_failures
+        main.suffix_failures += other.suffix_failures
+        for (k, v) in other.successful_trims
+            append!(main.successful_trims[k], v)
+        end
+        for (k, v) in other.failed_genes
+            append!(main.failed_genes[k], v)
+        end
+        return main
+    end
+
     """
         read_fasta(filepath) -> Vector{Tuple{String, String}}
 
@@ -97,6 +111,18 @@ module Blast
         end
         elapsed = time_command(cmd)
         @info "BLASTn completed in $(round(elapsed, digits=2)) seconds" * (use_db ? " (num_threads=$nthreads)" : "")
+    end
+
+    """Map BLAST subject id to DB key. Novel alleles use base name (e.g. TRGV2*01_S2223 → TRGV2*01) for reference/affix lookup."""
+    function sseqid_to_db_key(sseqid::AbstractString, db_keys::AbstractSet{<:AbstractString})
+        s = String(sseqid)
+        s in db_keys && return s
+        m = match(r"^(.+)_S\d+$", s)
+        if m !== nothing
+            base = String(m.captures[1])
+            base in db_keys && return base
+        end
+        return s
     end
 
     function replace_extension(path, ext)
@@ -482,6 +508,7 @@ module Blast
         reverse_extension = parsed_args["search"]["blast"]["reverse"]
         keep_failed = parsed_args["search"]["blast"]["keep-failed"]
         min_corecov = parsed_args["search"]["blast"]["min-corecov"]
+        isin = parsed_args["search"]["blast"]["isin"]
 
         if (forward_extension < 7) && (forward_extension > 0)
             @warn "Forward extension $forward_extension is short and may lead to false positives"
@@ -544,7 +571,7 @@ module Blast
                 @info "Loading affixes from $affixes_path"
                 affix_dict = Dict{String, Tuple{String, String}}()
                 for row in eachrow(CSV.File(affixes_path, delim='\t') |> DataFrame)
-                    name = ismissing(row.name) ? "" : String(row.name)
+                    name = strip(ismissing(row.name) ? "" : String(row.name))
                     prefix = ismissing(row.prefix) ? "" : String(row.prefix)
                     suffix = ismissing(row.suffix) ? "" : String(row.suffix)
                     isempty(name) && continue
@@ -555,22 +582,31 @@ module Blast
                 check_affix_quality_warning(forward_extension, minquality)
                 check_affix_quality_warning(reverse_extension, minquality)
 
-                results = Folds.map(eachrow(blast_clusters)) do row
-                    sseqid = String(row.sseqid)
-                    qseq = String(row.qseq)
-                    prefix, suffix = get(affix_dict, sseqid, ("", ""))
-                    reference = String(Dict(DB)[sseqid])
-                    trimmed, distance = trim_and_align_sequence(qseq, prefix, suffix, reference, stats,
-                        min_quality=minquality, sseqid=sseqid)
-                    return (trimmed, distance)
-                end
+                # Normalize keys with strip() so FASTA headers with trailing space match BLAST sseqid (first token)
+                db_keys = Set(strip(String(name)) for (name, seq) in DB)
+                db_dict = Dict(strip(String(name)) => String(seq) for (name, seq) in DB)
+                db_lengths = Dict(strip(String(name)) => length(seq) for (name, seq) in DB)
 
+                # Parallel map with thread-local stats; merge into stats after (no concurrent mutation)
+                results = Folds.map(eachrow(blast_clusters)) do row
+                    local_stats = AlignmentStats()
+                    sseqid = strip(String(row.sseqid))
+                    base_key = sseqid_to_db_key(sseqid, db_keys)
+                    qseq = String(row.qseq)
+                    prefix, suffix = get(affix_dict, base_key, ("", ""))
+                    reference = db_dict[base_key]
+                    trimmed, distance = trim_and_align_sequence(qseq, prefix, suffix, reference, local_stats,
+                        min_quality=minquality, sseqid=sseqid)
+                    return (trimmed, distance, local_stats)
+                end
                 blast_clusters[:, :aln_qseq] = [r[1] for r in results]
                 blast_clusters[:, :aln_mismatch] = [r[2] for r in results]
+                for r in results
+                    merge_stats!(stats, r[3])
+                end
 
-                # Core coverage filter
-                db_lengths = Dict{String, Int}(name => length(seq) for (name, seq) in DB)
-                blast_clusters[:, :db_length] = [get(db_lengths, String(row.sseqid), 0) for row in eachrow(blast_clusters)]
+                # Core coverage filter (use base key for novel alleles with _S suffix)
+                blast_clusters[:, :db_length] = [get(db_lengths, sseqid_to_db_key(strip(String(row.sseqid)), db_keys), 0) for row in eachrow(blast_clusters)]
                 blast_clusters[:, :corecov] = map(eachrow(blast_clusters)) do row
                     row.db_length > 0 ? length(row.aln_qseq) / row.db_length : 0.0
                 end
@@ -604,10 +640,21 @@ module Blast
             filter!(x -> x.aln_mismatch >= 0, blast_clusters)
         end
         filter!(x -> x.aln_mismatch <= parsed_args["search"]["blast"]["maxdist"], blast_clusters)
-        blast_clusters[:, :allele_name] = map(
-            x -> (x.aln_mismatch == 0) ? x.sseqid : unique_name(x.sseqid, x.aln_qseq) * " Novel",
-            eachrow(blast_clusters)
-        )
+        # allele_name: exact match (aln_mismatch==0) -> sseqid; else if isin, substring of known allele -> that allele; else Novel
+        db_seqs = [(strip(String(n)), String(s)) for (n, s) in DB]
+        function allele_name_row(row)
+            if row.aln_mismatch == 0
+                return row.sseqid
+            end
+            if isin
+                aln = String(row.aln_qseq)
+                for (name, seq) in db_seqs
+                    occursin(aln, seq) && return name
+                end
+            end
+            return unique_name(row.sseqid, row.aln_qseq) * " Novel"
+        end
+        blast_clusters[:, :allele_name] = map(allele_name_row, eachrow(blast_clusters))
         output = always_gz(parsed_args["search"]["blast"]["output"])
         @info "Saving discovered gene sequences in compressed $output file"
         CSV.write(output, blast_clusters, compress=true, delim='\t')
