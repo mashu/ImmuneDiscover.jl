@@ -3,7 +3,6 @@ module Demultiplex
     using FASTX
     using DataFrames
     using Statistics
-    using UnicodePlots
     using Logging
 
     # Parent module provides shared IO and validation
@@ -107,7 +106,7 @@ module Demultiplex
         CSV.write(logfile, stats, delim='\t')
         count_df = combine(groupby(table, :case), :case => length => :count)
         sort!(count_df, :count, rev=true)
-        println(barplot(count_df.case, count_df.count))
+        Data.barplot_if_available(count_df.case, count_df.count)
         output = always_gz(parsed_args["demultiplex"]["output"])
         CSV.write(output, table, compress=true, delim='\t')
         @info "Demultiplexing data saved in compressed $output file"

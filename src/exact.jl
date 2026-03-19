@@ -4,7 +4,6 @@ module Exact
     using ProgressMeter
     using Folds
     using FASTX
-    using UnicodePlots
     using Statistics
 
     # ========================== GeneType dispatch hierarchy ==========================
@@ -493,7 +492,7 @@ module Exact
         sort!(counts_df, [:case, :db_name])
 
         if !parsed_args["search"]["exact"]["noplot"]
-            nrow(counts_df) > 0 ? println(immunediscover_module.plotgenes(counts_df)) : @warn "No exact matches to plot"
+            nrow(counts_df) > 0 ? immunediscover_module.plotgenes(counts_df) : @warn "No exact matches to plot"
         end
 
         @info "Excluding genes not starting with $locus for frequency calculation"

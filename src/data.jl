@@ -4,9 +4,16 @@ module Data
     using ProgressMeter
     using DataFrames
     using Statistics
-    using UnicodePlots
     using CSV
     using MD5
+    using Requires
+
+    const _barplot_fn = Ref{Union{Nothing, Function}}(nothing)
+    function __init__()
+        @require UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228" begin
+            _barplot_fn[] = (x, y) -> UnicodePlots.barplot(x, y)
+        end
+    end
 
     export load_fasta, plotgenes, unique_name, sequence_hash, load_demultiplex
     export concatenate_columns, validate_types, get_ratio_threshold
@@ -100,10 +107,33 @@ module Data
         endswith(path, ".gz") && close(stream)
     end
 
+    """Print label/count as a simple text table when UnicodePlots is not available."""
+    function print_counts_table(labels, counts)
+        n = length(labels)
+        n == 0 && return
+        max_label = max(12, maximum(length(string(l)) for l in labels))
+        max_count = maximum(length(string(c)) for c in counts)
+        buf = IOBuffer()
+        for i in 1:n
+            println(buf, "  ", rpad(string(labels[i]), max_label), "  ", lpad(string(counts[i]), max_count))
+        end
+        println(String(take!(buf)))
+    end
+
+    """Barplot when UnicodePlots is available; otherwise print counts as a text table."""
+    function barplot_if_available(x, y)
+        f = _barplot_fn[]
+        if f !== nothing
+            println(f(x, y))
+        else
+            print_counts_table(x, y)
+        end
+    end
+
     function plotgenes(df)
         gene_counts = combine(groupby(df, :gene), nrow => :count)
         sort!(gene_counts, :count, rev=true)
-        barplot(gene_counts.gene, gene_counts.count)
+        barplot_if_available(gene_counts.gene, gene_counts.count)
     end
 
     """

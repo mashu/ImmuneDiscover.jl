@@ -35,7 +35,6 @@ module immunediscover
 
     using CSV
     using DataFrames
-    using UnicodePlots
     using Glob
     using Statistics
     using DataStructures

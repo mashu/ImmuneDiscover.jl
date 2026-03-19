@@ -36,3 +36,5 @@ You can also run the build step directly:
 ```bash
 julia --project=build scripts/build_binary.jl [output_dir]
 ```
+
+**Note:** UnicodePlots is an optional dependency (for terminal bar plots in `demultiplex` and `search exact`). The standalone binary is built without it so that PackageCompiler can succeed; `--noplot` is unnecessary and plotting is simply skipped if UnicodePlots is not available.
