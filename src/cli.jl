@@ -126,12 +126,32 @@ module Cli
         return parsed_args
     end
 
-    function get_latest_git_tag()
-	    return strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0 `, String))
+    # Lazy version detection — avoids running external `git` at const-initialization
+    # time, which triggers a Julia 1.12 compiler inference bug.
+    const version_cache = Ref{String}("")
+    const hash_cache = Ref{String}("")
+
+    function software_version()
+        if isempty(version_cache[])
+            version_cache[] = try
+                strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0`, String))
+            catch
+                "unknown"
+            end
+        end
+        return version_cache[]
     end
 
-    const SOFTWARE_VERSION = get_latest_git_tag()
-    const SOFTWARE_GIT_HASH = strip(read(`git -C $(@__DIR__) rev-parse HEAD`, String))
+    function software_git_hash()
+        if isempty(hash_cache[])
+            hash_cache[] = try
+                strip(read(`git -C $(@__DIR__) rev-parse HEAD`, String))
+            catch
+                "unknown"
+            end
+        end
+        return hash_cache[]
+    end
 
     """
         always_gz(file_path)
@@ -150,10 +170,10 @@ module Cli
     function parse_commandline(args)
         s = ArgParseSettings("Tool for processing immune NGS data",
                             commands_are_required = true,
-                            version = "$SOFTWARE_VERSION (git $SOFTWARE_GIT_HASH)",
+                            version = "$(software_version()) (git $(software_git_hash()))",
                             add_version = true,
                             usage = "usage: immunediscover <command> [-h|--help]",
-                            epilog = "GKHLab, $SOFTWARE_VERSION (git $SOFTWARE_GIT_HASH)")
+                            epilog = "GKHLab, $(software_version()) (git $(software_git_hash()))")
         @add_arg_table! s begin
             "search"
                 help = "Search and discovery (blast, exact, hsmm, heptamer)"
@@ -999,7 +1019,7 @@ module Cli
             if opened
                 logger = ConsoleLogger(io)
                 with_logger(logger) do
-                    @info "$SOFTWARE_VERSION $(Dates.now()) - Parsing command line arguments: $args"
+                    @info "$(software_version()) $(Dates.now()) - Parsing command line arguments: $args"
                 end
                 close(io)
             end

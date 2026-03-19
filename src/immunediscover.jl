@@ -143,7 +143,6 @@ module immunediscover
     end
 
     @compile_workload begin
-        parse_commandline(["--help"])
         io = IOBuffer()
         write(io, "well\tcase\tname\tgenomic_sequence\n1\tD1\tread1\tATCG\n")
         seekstart(io)

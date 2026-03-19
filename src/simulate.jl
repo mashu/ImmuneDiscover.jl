@@ -72,6 +72,12 @@ module Simulate
         return string(seq[1:pos-1], join(substitution), seq[pos+mutation_length:end])
     end
 
+    const MUTATION_APPLY = Dict{String, Function}(
+        "insertion" => insert_mutation,
+        "deletion" => delete_mutation,
+        "substitution" => substitute_mutation,
+    )
+
     function apply_random_mutation(seq::String, mutation_type::String, mutation_length::Int)
         safe_start = max(1, 50)
         safe_end = min(length(seq) - 50, length(seq) - mutation_length)
@@ -80,15 +86,9 @@ module Simulate
             safe_end = min(length(seq) - mutation_length, 3 * div(length(seq), 4))
         end
         pos = rand(safe_start:safe_end)
-        if mutation_type == "insertion"
-            return insert_mutation(seq, pos, mutation_length)
-        elseif mutation_type == "deletion"
-            return delete_mutation(seq, pos, mutation_length)
-        elseif mutation_type == "substitution"
-            return substitute_mutation(seq, pos, mutation_length)
-        else
-            error("Unknown mutation type: $mutation_type")
-        end
+        f = get(MUTATION_APPLY, mutation_type, nothing)
+        f !== nothing && return f(seq, pos, mutation_length)
+        error("Unknown mutation type: $mutation_type")
     end
 
     function generate_fasta_with_mutations(fasta_output::String, indices_output::String,

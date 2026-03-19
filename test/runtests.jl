@@ -13,7 +13,6 @@ using immunediscover.Exact
 using immunediscover.Heptamer
 using immunediscover.KeyedSets
 using immunediscover.Blast
-using immunediscover.association
 using immunediscover.Fasta
 using immunediscover.Merge
 using immunediscover.Haplotype
@@ -124,15 +123,10 @@ test_outcomes = Dict(
         novel_db = Data.load_fasta("novel.fasta", validate=false)
         indices_df = CSV.read("test_indices.tsv", DataFrame, delim='\t')
 
-        # Debug prints
-        println("Column names in indices_df: ", names(indices_df))
-        println("Content of indices_df:")
-        println(indices_df)
-
         # Test basic properties
         @test length(ref_db) == 1  # Should have one reference sequence
         @test nrow(indices_df) == 2  # Should have two donors
-        @test length(novel_db) == 72  # 9 mutation types × 3 lengths × 2 donors + 34 reference sequences
+        @test length(novel_db) == 52  # 3 mutation types × 3 lengths × 2 donors + 2×17 extra = 52
 
         # Test indices structure with clear error messages
         col_names = names(indices_df)
@@ -274,11 +268,11 @@ test_outcomes = Dict(
             case = ["D1", "D1", "D2", "D2", "D3", "D3", "D4", "D4", "D5", "D6", "D7", "D8"],
             db_name = ["A*01", "B*01", "A*01", "B*01", "A*01", "C*01", "B*01", "C*01", "B*01", "C*01", "X*01", "Y*01"]
         )
-        edges_df, clusters, clusters_detailed = association.compute_edges_and_clusters(df; min_support=1, jaccard_threshold=0.0, similarity_threshold=0.0)
+        edges_df, clusters, clusters_detailed = immunediscover.association.compute_edges_and_clusters(df; min_support=1, jaccard_threshold=0.0, similarity_threshold=0.0)
         @test nrow(edges_df) > 0
-        # In toy data, A*01 and B*01 co-occur in D1 and D2 (support=2)
+        # In toy data, A*01 and B*01 co-occur in D1 and D2 (n_shared=2)
         row = first(filter(r -> (r.allele_a == "A*01" && r.allele_b == "B*01") || (r.allele_a == "B*01" && r.allele_b == "A*01"), edges_df))
-        @test row.support == 2
+        @test row.n_shared == 2
         # Test that we have clusters
         @test length(clusters) >= 0
     end
@@ -394,12 +388,13 @@ test_outcomes = Dict(
         @test parsed_args["analyze"]["haplotype"]["gene-col"] == "gene"
 
         # Module - test with generated data
-        # Create test data that mimics exact search output
+        # Create test data that mimics exact search output (includes sequence as required by infer_haplotypes)
         test_data = DataFrame(
             case = ["D1", "D1", "D1", "D2", "D2", "D2", "D3", "D3"],
             db_name = ["A*01", "A*02", "B*01", "A*01", "A*02", "B*01", "A*01", "B*01"],
             gene = ["V", "V", "D", "V", "V", "D", "V", "D"],
-            count = [10, 8, 12, 15, 3, 9, 20, 18]
+            count = [10, 8, 12, 15, 3, 9, 20, 18],
+            sequence = ["ATCGATCG", "GCTAGCTA", "CCGGCCGG", "ATCGATCG", "GCTAGCTA", "CCGGCCGG", "ATCGATCG", "CCGGCCGG"]
         )
         
         # Write test data to temporary file

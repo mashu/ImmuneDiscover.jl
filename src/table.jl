@@ -464,26 +464,30 @@ module Table
         CSV.write(output, data_df, compress=true, delim='\t')
     end
 
-    # Dispatch table replaces the if/elseif chain
-    const TABLE_SUBCOMMAND_HANDLERS = Dict{String, Function}(
-        "outerjoin"  => handle_outerjoin,
-        "leftjoin"   => handle_leftjoin,
-        "transform"  => handle_transform,
-        "aggregate"  => handle_aggregate,
-        "unique"     => handle_unique,
-        "sort"       => handle_sort,
-        "filter"     => handle_filter,
-        "select"     => handle_select,
-        "fasta"      => handle_fasta_export,
-        "collect"    => handle_collect,
-        "exclude"    => handle_exclude,
-    )
-
     function handle_table(parsed_args, immunediscover_module, always_gz)
         subcmd = get(parsed_args["table"], "%COMMAND%", "")
-        handler = get(TABLE_SUBCOMMAND_HANDLERS, subcmd, nothing)
-        if handler !== nothing
-            handler(parsed_args, immunediscover_module, always_gz)
+        if subcmd == "outerjoin"
+            handle_outerjoin(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "leftjoin"
+            handle_leftjoin(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "transform"
+            handle_transform(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "aggregate"
+            handle_aggregate(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "unique"
+            handle_unique(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "sort"
+            handle_sort(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "filter"
+            handle_filter(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "select"
+            handle_select(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "fasta"
+            handle_fasta_export(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "collect"
+            handle_collect(parsed_args, immunediscover_module, always_gz)
+        elseif subcmd == "exclude"
+            handle_exclude(parsed_args, immunediscover_module, always_gz)
         else
             @warn "Unknown table subcommand: $subcmd"
         end

@@ -41,6 +41,9 @@ module KeyedSets
     Base.in(key::String, ks::KeyedSet) = haskey(ks.data, key)
     Base.length(ks::KeyedSet) = length(ks.data)
     Base.iterate(ks::KeyedSet, state...) = iterate(keys(ks.data), state...)
+    Base.getindex(ks::KeyedSet, key::String) = ks.data[key]
+    Base.:(==)(ks1::KeyedSet, ks2::KeyedSet) = ks1.data == ks2.data
+    Base.show(io::IO, ks::KeyedSet) = print(io, "KeyedSet(size=$(length(ks)))")
 
     # Set operations
     function Base.union(ks1::KeyedSet, ks2::KeyedSet)

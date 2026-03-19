@@ -54,9 +54,11 @@ module Heptamer
                     push!(short, (query_name, full_match, trimmed_match, length(query_seq), length(query*extra), query*extra, heptamer_seq))
                 end
             end
-            short_df = DataFrame(short)
-            if nrow(short_df) > 0
-                rename!(short_df, [:db_name, :full_match, :trimmed_match, :db_length, :full_length, :sequence, :heptamer])
+            colnames = [:db_name, :full_match, :trimmed_match, :db_length, :full_length, :sequence, :heptamer]
+            short_df = if isempty(short)
+                DataFrame(db_name=String[], full_match=String[], trimmed_match=String[], db_length=Int[], full_length=Int[], sequence=String[], heptamer=String[])
+            else
+                rename!(DataFrame(short), colnames)
             end
             short_df
         end
