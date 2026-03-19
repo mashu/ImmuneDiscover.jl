@@ -15,3 +15,6 @@
 /data/
 /immunediscover/
 /.gitlab-ci-local/
+test/heptamers.json
+docs/Manifest.toml
+build/*

@@ -71,13 +71,18 @@ function build_pwm_log(sequences::Vector{<:AbstractString}; pseudocount::Float64
 end
 
 function estimate_iid_log_emission(sequences::Vector{<:AbstractString}; pseudocount::Float64=0.01)::IIDLogEmission
-    A = Float64(pseudocount); C = Float64(pseudocount); G = Float64(pseudocount); T = Float64(pseudocount)
-    for s in sequences; for ch in s
-        idx = dna_index(ch)
-        if idx==1; A+=1.0; elseif idx==2; C+=1.0; elseif idx==3; G+=1.0; elseif idx==4; T+=1.0; end
-    end; end
-    total = A+C+G+T; invt = 1.0/total
-    return IIDLogEmission((log(A*invt), log(C*invt), log(G*invt), log(T*invt)))
+    counts = fill(Float64(pseudocount), 4)
+    for s in sequences
+        for ch in s
+            idx = dna_index(ch)
+            if 1 <= idx <= 4
+                @inbounds counts[idx] += 1.0
+            end
+        end
+    end
+    total = sum(counts)
+    invt = 1.0 / total
+    return IIDLogEmission((log(counts[1] * invt), log(counts[2] * invt), log(counts[3] * invt), log(counts[4] * invt)))
 end
 
 function empirical_duration(seqs::Vector{<:AbstractString}, min_len::Int, max_len::Int; pseudocount::Float64=0.1)::DiscreteDuration
@@ -110,8 +115,14 @@ end
     total=0.0; @inbounds for i in 1:L; b=obs[sp+i-1]; b==0 && return -Inf; total+=logemit(s.emission,i,b); end; total
 end
 @inline function score_gene_segment(obs::Vector{Int}, sp::Int, d::Int, s::DGeneState{IIDLogEmission})::Float64
-    @inbounds begin; lA,lC,lG,lT=s.emission.logp; total=logpmf(s.duration,d)
-    for i in 0:(d-1); b=obs[sp+i]; b==1 ? (total+=lA) : b==2 ? (total+=lC) : b==3 ? (total+=lG) : b==4 ? (total+=lT) : return -Inf; end; total; end
+    logp = s.emission.logp
+    total = logpmf(s.duration, d)
+    @inbounds for i in 0:(d-1)
+        b = obs[sp + i]
+        (b < 1 || b > 4) && return -Inf
+        total += logp[b]
+    end
+    return total
 end
 @inline function logaddexp(a::Float64,b::Float64)::Float64; a==-Inf && return b; b==-Inf && return a; m=max(a,b); m+log1p(exp(min(a,b)-m)); end
 @inline function pwm_logprob(seq::AbstractString, pwm::PWMLogEmission{L})::Float64 where {L}
