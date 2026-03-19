@@ -169,14 +169,16 @@ module Data
     Returns the threshold value if found, otherwise 0.
     """
     function get_ratio_threshold(expect_dict, row; type="allele_ratio")
-        if row.db_name in keys(expect_dict)
-            @info "Applying $type >= $(expect_dict[row.db_name]) for $(row.db_name)"
-            return expect_dict[row.db_name]
-        elseif row.gene in keys(expect_dict)
-            @info "Applying $type >= $(expect_dict[row.gene]) for $(row.db_name)"
-            return expect_dict[row.gene]
-        else
-            return 0
+        val = get(expect_dict, row.db_name, nothing)
+        if val !== nothing
+            @info "Applying $type >= $val for $(row.db_name)"
+            return val
         end
+        val = get(expect_dict, row.gene, nothing)
+        if val !== nothing
+            @info "Applying $type >= $val for $(row.db_name)"
+            return val
+        end
+        return 0
     end
 end

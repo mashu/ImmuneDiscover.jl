@@ -14,16 +14,24 @@ module Exact
     struct DGene <: GeneType end
     struct JGene <: GeneType end
 
+    const GENE_TYPE_MAP = Dict{String, GeneType}("V" => VGene(), "J" => JGene(), "D" => DGene())
+
     """
         parse_gene_type(s) -> GeneType
 
     Convert a gene type string ("V", "J", "D") to a dispatch-ready type.
     """
-    parse_gene_type(s::AbstractString) = s == "V" ? VGene() : s == "J" ? JGene() : s == "D" ? DGene() : error("Invalid gene type: $s")
+    function parse_gene_type(s::AbstractString)
+        gt = get(GENE_TYPE_MAP, String(s), nothing)
+        gt === nothing && error("Invalid gene type: $s")
+        return gt
+    end
 
     gene_string(::VGene) = "V"
     gene_string(::JGene) = "J"
     gene_string(::DGene) = "D"
+
+    const GENE_CHAR_MAP = (('V', VGene()), ('D', DGene()), ('J', JGene()))
 
     """
         gene_type_from_name(name) -> GeneType or nothing
@@ -32,9 +40,9 @@ module Exact
     Returns nothing if no V/D/J is found.
     """
     function gene_type_from_name(name::AbstractString)
-        occursin("V", name) && return VGene()
-        occursin("D", name) && return DGene()
-        occursin("J", name) && return JGene()
+        for (ch, gt) in GENE_CHAR_MAP
+            occursin(ch, name) && return gt
+        end
         return nothing
     end
 

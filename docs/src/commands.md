@@ -95,7 +95,7 @@ immunediscover search exact <tsv> <fasta> <output> -g <gene> [options]
 - `-t, --top` (default: 1): Max flank variants per allele (1=collapsed mode)
 - `-r, --refgene`: Reference gene(s) for ratio computation (space-separated)
 - `-e, --expect`: TSV with gene-specific ratio thresholds (columns: name, ratio)
-- `-d, --deletion`: TSV with deletion frequency thresholds (columns: name, ratio)
+- `-d, --deletion`: TSV with gene_case_freq thresholds (columns: name, ratio)
 - `--locus` (default: "IG"): Locus prefix for frequency calculations
 - `--ref-fasta`: Reference FASTA to mark known vs novel (adds `isin_db` column)
 - `--raw`: Path to save unfiltered results
@@ -176,7 +176,7 @@ immunediscover search blast <input> <fasta> <output> -g <gene> [options]
 
 **Filtering:**
 - `-c, --minfullcount` (default: 5): Min cluster size
-- `-f, --minfullfreq` (default: 0.1): Min allelic frequency
+- `-f, --minfullratio` (default: 0.1): Min allelic ratio within gene (count / max)
 - `-l, --length` (default: 290): Min aligned length
 - `-q, --minquality` (default: 0.75): Min alignment quality (1 - mismatch/length)
 - `--min-corecov` (default: 0.6): Min ratio aligned_length/db_length
@@ -193,17 +193,17 @@ immunediscover search blast <input> <fasta> <output> -g <gene> [options]
 
 **V Gene:**
 - Extensions: forward=12, reverse=12
-- Filtering: minfullfreq=0.1, length=290, maxdist=10, minfullcount=10
+- Filtering: minfullratio=0.1, length=290, maxdist=10, minfullcount=10
 - BLAST: `-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50`
 
 **D Gene:**
 - Extensions: forward=40, reverse=40
-- Filtering: minfullfreq=0.2, length=5, maxdist=20, minfullcount=10, edge=10, subjectcov=0.25, minquality=0.5
+- Filtering: minfullratio=0.2, length=5, maxdist=20, minfullcount=10, edge=10, subjectcov=0.25, minquality=0.5
 - BLAST: `-task blastn -word_size 7 -xdrop_ungap 40 -xdrop_gap 40 -subject_besthit -num_alignments 10 -qcov_hsp_perc 5`
 
 **J Gene:**
 - Extensions: forward=12, reverse=12
-- Filtering: minfullfreq=0.1, length=10, maxdist=10, minfullcount=10
+- Filtering: minfullratio=0.1, length=10, maxdist=10, minfullcount=10
 - BLAST: `-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 10`
 
 ### Inputs/Outputs
@@ -216,7 +216,7 @@ immunediscover search blast <input> <fasta> <output> -g <gene> [options]
 - **{fasta}-combined-extended.fasta**: Extended sequences (if extensions used)
 - **{fasta}.affixes**: TSV with `name`, `prefix`, `suffix`
 
-**Key columns**: `qseqid`, `sseqid`, `gene`, `qseq`, `db_seq`, `prefix`, `suffix`, `aln_qseq`, `aln_mismatch`, `corecov`, `isin_db`, `full_count`, `frequency`, `allele_name`
+**Key columns**: `qseqid`, `sseqid`, `gene`, `qseq`, `db_seq`, `prefix`, `suffix`, `aln_qseq`, `aln_mismatch`, `corecov`, `isin_db`, `full_count`, `full_ratio`, `allele_name`
 
 Plus standard BLAST columns: `pident`, `nident`, `length`, `mismatch`, `gapopen`, `qcovs`, `qcovhsp`, `qstart`, `qend`, `sstart`, `send`, `qlen`, `slen`, `evalue`, `bitscore`, `sstrand`
 

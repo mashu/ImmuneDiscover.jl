@@ -17,6 +17,10 @@ using immunediscover.Fasta
 using immunediscover.Merge
 using immunediscover.Haplotype
 using immunediscover.Bwa
+using immunediscover.Filters
+using immunediscover.Table
+using immunediscover.Cooccurrence
+using immunediscover.HSMM
 using Glob
 
 # Initialize a dictionary to track test outcomes
@@ -101,6 +105,55 @@ test_outcomes = Dict(
         # Show method
         ks = KeyedSet([("key1", "value1"), ("key2", "value2")])
         @test sprint(show, ks) == "KeyedSet(size=2)"
+    end
+
+    @testset "filters.jl" begin
+        df = DataFrame(
+            count = [10, 5, 2, 8, 1],
+            ratio = [1.0, 0.5, 0.2, 0.8, 0.1],
+            name = ["IGHV1*01", "IGHV2*01", "IGHV3*01", "IGHV4*01", "IGHV5*01"],
+            mismatch = [0, 3, 5, 1, -1]
+        )
+
+        df_copy = copy(df)
+        GermlineFilter([MinThreshold(:count, 5.0, "Min count")])(df_copy)
+        @test nrow(df_copy) == 3
+        @test all(df_copy.count .>= 5)
+
+        df_copy = copy(df)
+        GermlineFilter([MaxThreshold(:mismatch, 3.0, "Max mismatch")])(df_copy)
+        @test nrow(df_copy) == 4
+        @test all(df_copy.mismatch .<= 3)
+
+        df_copy = copy(df)
+        GermlineFilter([MinStringLength(:name, 8, "Min name length")])(df_copy)
+        @test nrow(df_copy) == 5
+
+        df_copy = copy(df)
+        GermlineFilter([NonNegative(:mismatch, "Non-negative mismatch")])(df_copy)
+        @test nrow(df_copy) == 4
+        @test all(df_copy.mismatch .>= 0)
+
+        df_copy = copy(df)
+        GermlineFilter([CustomFilter(x -> x.ratio > 0.3, "High ratio")])(df_copy)
+        @test nrow(df_copy) == 3
+        @test all(df_copy.ratio .> 0.3)
+
+        df_copy = copy(df)
+        GermlineFilter([
+            MinThreshold(:count, 5.0, "Min count"),
+            MaxThreshold(:mismatch, 3.0, "Max mismatch"),
+        ])(df_copy)
+        @test nrow(df_copy) == 3
+
+        df_copy = copy(df)
+        apply_filters!(df_copy, MinThreshold(:count, 5.0, "Min count"))
+        @test nrow(df_copy) == 3
+
+        @test passes((count=10, ratio=1.0), MinThreshold(:count, 5.0, ""))
+        @test !passes((count=3, ratio=1.0), MinThreshold(:count, 5.0, ""))
+        @test passes((mismatch=3,), MaxThreshold(:mismatch, 5.0, ""))
+        @test !passes((mismatch=6,), MaxThreshold(:mismatch, 5.0, ""))
     end
 
     @testset "simulate.jl" begin
@@ -438,7 +491,7 @@ test_outcomes = Dict(
         @test parsed_args["search"]["blast"]["fasta"] == "test_blast_db.fasta"
         @test parsed_args["search"]["blast"]["output"] == "test_blast_output.tsv"
         @test parsed_args["search"]["blast"]["minfullcount"] == 5
-        @test parsed_args["search"]["blast"]["minfullfreq"] == 0.1
+        @test parsed_args["search"]["blast"]["minfullratio"] == 0.1
         @test parsed_args["search"]["blast"]["subjectcov"] == 0.1
 
         # Module - test utility functions that don't require BLAST
@@ -707,10 +760,184 @@ test_outcomes = Dict(
         end
     end
 
+    @testset "table subcommands" begin
+        test_left = "test_table_left.tsv"
+        test_right = "test_table_right.tsv"
+
+        left_df = DataFrame(key=["a","b","c"], val=[1,2,3])
+        right_df = DataFrame(key=["b","c","d"], score=[10,20,30])
+        CSV.write(test_left, left_df, delim='\t')
+        CSV.write(test_right, right_df, delim='\t')
+
+        @testset "outerjoin" begin
+            result = Table.outerjoin_tsv(test_left, test_right, "test_oj.tsv.gz",
+                left_keys=["key"])
+            @test nrow(result) == 4
+            @test "key" in names(result)
+        end
+
+        @testset "leftjoin" begin
+            result = Table.leftjoin_tsv(test_left, test_right, "test_lj.tsv.gz",
+                left_keys=["key"])
+            @test nrow(result) == 3
+        end
+
+        @testset "unique" begin
+            dup_df = DataFrame(a=["x","x","y"], b=[1,1,2])
+            CSV.write("test_dup.tsv", dup_df, delim='\t')
+            result = Table.unique_tsv("test_dup.tsv", "test_uniq.tsv.gz", columns=["a","b"])
+            @test nrow(result) == 2
+            isfile("test_dup.tsv") && rm("test_dup.tsv")
+        end
+
+        @testset "sort" begin
+            sort_df = DataFrame(name=["c","a","b"], val=[3,1,2])
+            CSV.write("test_sort_in.tsv", sort_df, delim='\t')
+            result = Table.sort_tsv("test_sort_in.tsv", "test_sort_out.tsv.gz", columns=["name"])
+            @test result.name == ["a","b","c"]
+            result_rev = Table.sort_tsv("test_sort_in.tsv", "test_sort_out2.tsv.gz", columns=["name"], reverse=true)
+            @test result_rev.name == ["c","b","a"]
+            isfile("test_sort_in.tsv") && rm("test_sort_in.tsv")
+        end
+
+        @testset "select" begin
+            sel_df = DataFrame(a=[1,2], b=[3,4], c=[5,6])
+            CSV.write("test_sel_in.tsv", sel_df, delim='\t')
+            result = Table.select_tsv("test_sel_in.tsv", "test_sel_out.tsv.gz", columns=["a","c"])
+            @test ncol(result) == 2
+            @test names(result) == ["a","c"]
+            isfile("test_sel_in.tsv") && rm("test_sel_in.tsv")
+        end
+
+        @testset "filter" begin
+            filt_df = DataFrame(name=["alpha","beta","gamma"], val=[10,5,20])
+            CSV.write("test_filt_in.tsv", filt_df, delim='\t')
+            result_regex = Table.filter_tsv("test_filt_in.tsv", "test_filt1.tsv.gz", "name", pattern="^al")
+            @test nrow(result_regex) == 1
+            @test result_regex.name[1] == "alpha"
+            result_num = Table.filter_tsv("test_filt_in.tsv", "test_filt2.tsv.gz", "val", operator=">=", threshold=10.0)
+            @test nrow(result_num) == 2
+            @test all(result_num.val .>= 10)
+            isfile("test_filt_in.tsv") && rm("test_filt_in.tsv")
+        end
+
+        @testset "transform" begin
+            tf_df = DataFrame(id=["ABC_123","DEF_456"], val=[1,2])
+            CSV.write("test_tf_in.tsv", tf_df, delim='\t')
+            result = Table.transform_tsv("test_tf_in.tsv", "test_tf_out.tsv.gz",
+                column="id", pattern="(.*)_(.*)", replacement="\\1-\\2")
+            @test result.id == ["ABC-123","DEF-456"]
+            result_new = Table.transform_tsv("test_tf_in.tsv", "test_tf_out2.tsv.gz",
+                column="id", pattern="(.*)_(.*)", replacement="\\1-\\2", new_column="suffix")
+            @test "suffix" in names(result_new)
+            isfile("test_tf_in.tsv") && rm("test_tf_in.tsv")
+        end
+
+        @testset "aggregate" begin
+            agg_df = DataFrame(gene=["V","V","D","D","D"], case=["A","A","B","B","B"])
+            CSV.write("test_agg_in.tsv", agg_df, delim='\t')
+            result = Table.aggregate_tsv("test_agg_in.tsv", "test_agg_out.tsv.gz",
+                group_by=["gene","case"])
+            @test nrow(result) == 2
+            @test "count" in names(result)
+            isfile("test_agg_in.tsv") && rm("test_agg_in.tsv")
+        end
+
+        for f in Glob.glob("test_table_*.tsv"); isfile(f) && rm(f); end
+        for f in Glob.glob("test_oj*.tsv.gz"); isfile(f) && rm(f); end
+        for f in Glob.glob("test_lj*.tsv.gz"); isfile(f) && rm(f); end
+        for f in Glob.glob("test_uniq*.tsv.gz"); isfile(f) && rm(f); end
+        for f in Glob.glob("test_sort_out*.tsv.gz"); isfile(f) && rm(f); end
+        for f in Glob.glob("test_sel_out*.tsv.gz"); isfile(f) && rm(f); end
+        for f in Glob.glob("test_filt*.tsv.gz"); isfile(f) && rm(f); end
+        for f in Glob.glob("test_tf_out*.tsv.gz"); isfile(f) && rm(f); end
+        for f in Glob.glob("test_agg_out*.tsv.gz"); isfile(f) && rm(f); end
+    end
+
+    @testset "fasta hash CLI" begin
+        empty!(ARGS)
+        append!(ARGS, ["fasta", "hash", "test_hash.fasta"])
+        parsed_args = Cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "fasta"
+        @test parsed_args["fasta"]["%COMMAND%"] == "hash"
+        @test parsed_args["fasta"]["hash"]["fastain"] == "test_hash.fasta"
+    end
+
+    @testset "hsmm CLI" begin
+        empty!(ARGS)
+        append!(ARGS, ["search", "hsmm", "test.tsv", "test.fasta", "test_out.tsv.gz"])
+        parsed_args = Cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "search"
+        @test parsed_args["search"]["%COMMAND%"] == "hsmm"
+        @test parsed_args["search"]["hsmm"]["tsv"] == "test.tsv"
+        @test parsed_args["search"]["hsmm"]["fasta"] == "test.fasta"
+        @test parsed_args["search"]["hsmm"]["output"] == "test_out.tsv.gz"
+        @test parsed_args["search"]["hsmm"]["ratio"] == 0.2
+        @test parsed_args["search"]["hsmm"]["mincount"] == 10
+        @test parsed_args["search"]["hsmm"]["min-posterior"] == 0.7
+        @test parsed_args["search"]["hsmm"]["out-mincount"] == 10
+        @test parsed_args["search"]["hsmm"]["out-minratio"] == 0.2
+    end
+
+    @testset "hsmm module" begin
+        logp = ntuple(i -> log(0.25), 4)
+        emission = HSMM.IIDLogEmission(logp)
+        @test HSMM.logemit(emission, 1) ≈ log(0.25)
+
+        obs = HSMM.encode_dna("ACGT")
+        @test obs == [1, 2, 3, 4]
+        @test HSMM.encode_dna("N") == [0]
+    end
+
+    @testset "cooccurrence CLI" begin
+        empty!(ARGS)
+        append!(ARGS, ["analyze", "cooccurrence", "test_input.tsv"])
+        parsed_args = Cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "analyze"
+        @test parsed_args["analyze"]["%COMMAND%"] == "cooccurrence"
+        @test parsed_args["analyze"]["cooccurrence"]["input"] == "test_input.tsv"
+        @test parsed_args["analyze"]["cooccurrence"]["case-col"] == "case"
+        @test parsed_args["analyze"]["cooccurrence"]["allele-col"] == "db_name"
+        @test parsed_args["analyze"]["cooccurrence"]["min-donors"] == 2
+        @test parsed_args["analyze"]["cooccurrence"]["cluster-method"] == "components"
+    end
+
+    @testset "cooccurrence module" begin
+        df = DataFrame(
+            case = ["D1","D1","D1","D2","D2","D2","D3","D3","D3","D4","D4","D4"],
+            db_name = ["A*01","B*01","C*01","A*01","B*01","C*01","A*01","B*01","D*01","A*01","C*01","D*01"]
+        )
+        edges, clusters, detailed = Cooccurrence.compute_edges_and_clusters(df; min_support=1, jaccard_threshold=0.0, similarity_threshold=0.0)
+        @test nrow(edges) > 0
+
+        stats = Cooccurrence.compute_full_stats(df; case_col="case", allele_col="db_name", min_donors=1)
+        @test length(stats.alleles) > 0
+        @test stats.N == 4
+        @test size(stats.R, 1) == length(stats.alleles)
+    end
+
+    @testset "table exclude" begin
+        excl_data = DataFrame(allele_name=["A*01","B*01","C*01"], seq=["ATCG","GCTA","TTTT"])
+        CSV.write("test_excl_input.tsv", excl_data, delim='\t')
+        open(FASTA.Writer, "test_excl_ref.fasta") do writer
+            write(writer, FASTARecord("known", "ATCG"))
+        end
+
+        empty!(ARGS)
+        append!(ARGS, ["table", "exclude", "test_excl_input.tsv", "test_excl_output.tsv", "test_excl_ref.fasta"])
+        parsed_args = Cli.parse_commandline(ARGS)
+        @test parsed_args["%COMMAND%"] == "table"
+        @test parsed_args["table"]["%COMMAND%"] == "exclude"
+
+        for f in ["test_excl_input.tsv", "test_excl_ref.fasta"]
+            isfile(f) && rm(f)
+        end
+    end
+
     # Cleanup test files
     for file in ["test.fasta", "reference.fasta", "novel.fasta", "test_indices.tsv",
                  "test.tsv.gz", "test_exact.tsv.gz", "test_heptamer.tsv.gz",
-                 "test_summary.tsv"]
+                 "test_summary.tsv", "test.fastq"]
         isfile(file) && rm(file)
     end
 end

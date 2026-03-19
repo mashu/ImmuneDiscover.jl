@@ -460,7 +460,7 @@ module Blast
         verbose && CSV.write(blast_tsv * "-clusters-mismatch.tsv", clusters)
 
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
-        transform!(groupby(clusters, [:well, :case, :gene]), :full_count => (x -> x ./ maximum(x)) => :full_frequency)
+        transform!(groupby(clusters, [:well, :case, :gene]), :full_count => (x -> x ./ maximum(x)) => :full_ratio)
 
         return sort(clusters, [:well, :case, :sseqid], rev=false)
     end
@@ -623,12 +623,12 @@ module Blast
 
         # Apply output filters
         min_fullcount = parsed_args["search"]["blast"]["minfullcount"]
-        min_fullfrequency = parsed_args["search"]["blast"]["minfullfreq"]
+        min_fullratio = parsed_args["search"]["blast"]["minfullratio"]
         min_length = parsed_args["search"]["blast"]["length"]
 
         criteria = FilterCriterion[
             MinThreshold(:full_count, min_fullcount, "Min cluster size"),
-            MinThreshold(:full_frequency, min_fullfrequency, "Min allelic ratio"),
+            MinThreshold(:full_ratio, min_fullratio, "Min allelic ratio"),
             MinStringLength(:qseq, min_length, "Min read length"),
         ]
         if !keep_failed

@@ -203,19 +203,14 @@ function infer_haplotypes(input_file::String, output_file::String;
         ratios_to_major = first_count > 0 ? sorted_counts ./ first_count : zeros(length(sorted_counts))
         effective = count(x -> x >= min_ratio, ratios_to_major)
 
-        if effective <= 1
-            genotype_type = "homozygous"
-            selected_alleles = [sorted_alleles[1]]
+        genotype_type, n_selected = if effective <= 1
+            ("homozygous", 1)
         elseif effective == 2
-            genotype_type = "heterozygous"
-            selected_alleles = sorted_alleles[1:2]
-        elseif effective >= 3
-            genotype_type = "duplication"
-            selected_alleles = sorted_alleles[1:2]
+            ("heterozygous", 2)
         else
-            genotype_type = "uncertain"
-            selected_alleles = sorted_alleles[1:min(2, length(sorted_alleles))]
+            ("duplication", 2)
         end
+        selected_alleles = sorted_alleles[1:min(n_selected, length(sorted_alleles))]
 
         allele_1 = length(selected_alleles) >= 1 ? selected_alleles[1] : ""
         allele_2 = length(selected_alleles) >= 2 ? selected_alleles[2] : ""

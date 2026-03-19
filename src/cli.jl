@@ -11,7 +11,7 @@ module Cli
     const BLAST_CLI_DEFAULTS = Dict(
         "forward" => 20,
         "reverse" => 20,
-        "minfullfreq" => 0.1,
+        "minfullratio" => 0.1,
         "length" => 290,
         "maxdist" => 20,
         "minfullcount" => 5,
@@ -25,7 +25,7 @@ module Cli
         "V" => Dict(
             "forward" => 12,
             "reverse" => 12,
-            "minfullfreq" => 0.1,
+            "minfullratio" => 0.1,
             "length" => 290,
             "maxdist" => 10,
             "minfullcount" => 10,
@@ -34,7 +34,7 @@ module Cli
         "D" => Dict(
             "forward" => 40,
             "reverse" => 40,
-            "minfullfreq" => 0.2,
+            "minfullratio" => 0.2,
             "length" => 5,
             "maxdist" => 20,
             "minfullcount" => 10,
@@ -46,7 +46,7 @@ module Cli
         "J" => Dict(
             "forward" => 12,
             "reverse" => 12,
-            "minfullfreq" => 0.1,
+            "minfullratio" => 0.1,
             "length" => 10,
             "maxdist" => 10,
             "minfullcount" => 10,
@@ -64,16 +64,16 @@ module Cli
         end
     end
 
-    function show_blast_params(args)
+    function get_blast_block(args)
         cmd = get(args, "%COMMAND%", "")
-        local block
-        if cmd == "blast"
-            block = args["blast"]
-        elseif cmd == "search" && get(args["search"], "%COMMAND%", "") == "blast"
-            block = args["search"]["blast"]
-        else
-            return
-        end
+        cmd == "blast" && return args["blast"]
+        cmd == "search" && get(args["search"], "%COMMAND%", "") == "blast" && return args["search"]["blast"]
+        return nothing
+    end
+
+    function show_blast_params(args)
+        block = get_blast_block(args)
+        block === nothing && return
         gene = block["gene"]
         if haskey(BLAST_PRESETS, gene)
             preset = BLAST_PRESETS[gene]
@@ -84,18 +84,9 @@ module Cli
         end
     end
 
-
-
     function apply_blast_presets!(parsed_args)
-        cmd = get(parsed_args, "%COMMAND%", "")
-        local block
-        if cmd == "blast"
-            block = parsed_args["blast"]
-        elseif cmd == "search" && get(parsed_args["search"], "%COMMAND%", "") == "blast"
-            block = parsed_args["search"]["blast"]
-        else
-            return parsed_args
-        end
+        block = get_blast_block(parsed_args)
+        block === nothing && return parsed_args
         gene = block["gene"]
         if haskey(BLAST_PRESETS, gene)
             preset = BLAST_PRESETS[gene]
@@ -623,8 +614,8 @@ module Cli
             help = "Minimum full cluster size"
             default = 5
             arg_type = Int
-        "-f", "--minfullfreq"
-            help = "Minimum allelic ratio applied within each gene group"
+        "-f", "--minfullratio"
+            help = "Minimum allelic ratio within each gene group (count / max in gene)"
             default = 0.1
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
@@ -777,7 +768,7 @@ module Cli
             help = "TSV file containing gene names and their corresponding allele_freq threshold, with two columns: name and ratio"
             arg_type = String
         "-d","--deletion"
-            help = "TSV file containing gene names and their corresponding gene_count_freq threshold, with two columns: name and ratio"
+            help = "TSV file containing gene names and their corresponding gene_case_freq threshold, with two columns: name and ratio"
             arg_type = String
         "--locus"
             help = "Locus to filter genes to start with this string (e.g. IGHV) excluding other genes from the analysis (i.e control genes)"

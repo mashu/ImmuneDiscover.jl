@@ -22,7 +22,7 @@ Control minimum read support for alleles.
 
 Control allelic frequency within gene groups.
 
-| Population Type | --minratio / --minfullfreq | --min-ratio (haplotype) |
+| Population Type | --minratio / --minfullratio | --min-ratio (haplotype) |
 |-----------------|---------------------------|-------------------------|
 | **Homozygous-heavy** | 0.2 | 0.2 |
 | **Balanced** | 0.1 (default) | 0.1 (default) |
@@ -193,7 +193,7 @@ immunediscover search exact demux.tsv.gz IGHV.fasta test.tsv.gz -g V --top 1
 
 ```bash
 immunediscover search blast demux.tsv.gz IGHV.fasta blast.tsv.gz -g V \
-  --minfullcount 3 --minfullfreq 0.05 --minquality 0.7 --min-corecov 0.5
+  --minfullcount 3 --minfullratio 0.05 --minquality 0.7 --min-corecov 0.5
 ```
 
 ### Genotyping (High Specificity)

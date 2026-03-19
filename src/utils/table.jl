@@ -62,14 +62,12 @@ module Table
             end
         end
 
-        @info "Performing $how join"
-        result_df = if how === :outer
-            outerjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
-        elseif how === :left
-            leftjoin(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
-        else
+        JOIN_FNS = Dict{Symbol, Function}(:outer => outerjoin, :left => leftjoin)
+        join_fn = get(JOIN_FNS, how) do
             error("Unsupported join type: $how. Use :outer or :left.")
         end
+        @info "Performing $how join"
+        result_df = join_fn(left_df_prefixed, right_df_prefixed, on=left_keys .=> right_keys, makeunique=true)
 
         @info "Result: $(nrow(result_df)) rows, $(ncol(result_df)) columns"
 
@@ -87,31 +85,23 @@ module Table
         join_tsv(left_file, right_file, output_file; how=:left, kwargs...)
     end
 
-    """
-        is_numeric_column(col)
+    is_numeric_value(::Missing) = false
+    is_numeric_value(::Number) = true
+    is_numeric_value(::Any) = false
 
-    Check if a DataFrame column contains numeric data by inspecting non-missing values.
-    Note: uses `isa` because DataFrame columns are heterogeneous `AbstractVector` — no
-    concrete element type is available for dispatch at the column level.
-    """
     function is_numeric_column(col)
         for val in col
             ismissing(val) && continue
-            return val isa Number
+            return is_numeric_value(val)
         end
         return false
     end
 
-    """
-        parse_numeric_value(val)
+    to_float64(::Missing) = nothing
+    to_float64(x::Number) = Float64(x)
+    to_float64(x) = tryparse(Float64, string(x))
 
-    Attempt to parse a value as Float64. Returns nothing on failure.
-    """
-    function parse_numeric_value(val)
-        ismissing(val) && return nothing
-        val isa Number && return Float64(val)
-        return tryparse(Float64, string(val))
-    end
+    parse_numeric_value(val) = to_float64(val)
 
     """
         filter_tsv(input_file, output_file, column; pattern=nothing, operator=nothing, threshold=nothing)

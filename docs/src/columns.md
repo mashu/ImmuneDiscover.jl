@@ -18,8 +18,7 @@ These appear in multiple command outputs:
 | `gene` | String | Gene name (extracted from db_name by splitting on "*") |
 | `sequence` | String | Core allele sequence (may differ from db_seq for novel) |
 | `count` | Integer | Number of supporting reads |
-| `ratio` | Float | Allelic frequency (count / max_count in gene group) |
-| `frequency` | Float | Alternate name for ratio in some commands |
+| `ratio` | Float | Allelic ratio (count / max_count in gene group) |
 
 ---
 
@@ -129,8 +128,7 @@ These appear in multiple command outputs:
 | `isin_db` | Boolean: Is aln_qseq substring of known allele? |
 | `allele_name` | Final name (original if exact match, or with "_S{hash} Novel") |
 | `full_count` | Cluster size before collapsing |
-| `full_frequency` | Frequency within well/case/gene |
-| `count`, `frequency` | After aggregation |
+| `full_ratio` | Allelic ratio within well/case/gene (count / max in gene) |
 
 ### BLAST Standard Columns
 
@@ -294,7 +292,7 @@ All original input columns preserved.
 ### Count vs Frequency
 
 - **count**: Absolute number of reads (integer)
-- **ratio/frequency**: Relative proportion within group (0-1)
+- **ratio**: Relative proportion within group (count / max in gene, 0-1)
 - **full_count**: Includes flanks (more specific, lower counts)
 - **count**: Excludes flanks (collapsed, higher counts)
 
@@ -370,7 +368,7 @@ posterior = exp(best_path_logprob - total_logprob)
 - Lengths: `db_length`, `full_length`, `qlen`, `slen`
 
 ### Numeric Columns (Float)
-- Frequencies: `ratio`, `full_ratio`, `frequency`, `allele_freq`, `*_case_freq`
+- Ratios/Frequencies: `ratio`, `full_ratio`, `allele_freq`, `*_case_freq`
 - Correlations: `r`, `r2`, `jaccard`, `similarity`
 - Probabilities: `posterior_prob`, `heptamer_prob_*`
 - Coverage: `corecov`, `pident`, `qcovs`, `qcovhsp`
