@@ -131,24 +131,24 @@ module Cli
     const version_cache = Ref{String}("")
     const hash_cache = Ref{String}("")
 
+    function run_git_or_unknown(args::Cmd)
+        Sys.which("git") === nothing && return "unknown"
+        proc = run(pipeline(args, stderr=devnull), wait=false)
+        wait(proc)
+        success(proc) || return "unknown"
+        return strip(read(args, String))
+    end
+
     function software_version()
         if isempty(version_cache[])
-            version_cache[] = try
-                strip(read(`git -C $(@__DIR__) describe --tags --abbrev=0`, String))
-            catch
-                "unknown"
-            end
+            version_cache[] = run_git_or_unknown(`git -C $(@__DIR__) describe --tags --abbrev=0`)
         end
         return version_cache[]
     end
 
     function software_git_hash()
         if isempty(hash_cache[])
-            hash_cache[] = try
-                strip(read(`git -C $(@__DIR__) rev-parse HEAD`, String))
-            catch
-                "unknown"
-            end
+            hash_cache[] = run_git_or_unknown(`git -C $(@__DIR__) rev-parse HEAD`)
         end
         return hash_cache[]
     end

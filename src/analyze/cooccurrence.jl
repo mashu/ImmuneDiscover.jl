@@ -135,13 +135,10 @@ module Cooccurrence
                                         min_donors::Int=1,
                                         min_support::Int=3,
                                         min_jaccard::Float64=0.2)
-        case_sym = Symbol(case_col)
-        allele_sym = Symbol(allele_col)
-        allele_counts = combine(groupby(df, allele_sym), nrow => :count)
-        valid_alleles = allele_counts[allele_counts.count .>= min_donors, allele_sym]
-        filtered_df = filter(x -> x[allele_sym] in valid_alleles, df)
-        donors, alleles, allele_to_donors = compute_presence_maps(filtered_df, case_sym, allele_sym)
-        N = length(donors)
+        stats = compute_full_stats(df; case_col=case_col, allele_col=allele_col, min_donors=min_donors)
+        alleles = stats.alleles
+        allele_to_donors = stats.allele_to_donors
+        N = stats.N
         rows = NamedTuple{(:allele_a,:allele_b,:n_a,:n_b,:n_shared,:jaccard,:rho,:p_enrich), Tuple{String,String,Int,Int,Int,Float64,Float64,Float64}}[]
         for i in 1:(length(alleles)-1)
             ai = String(alleles[i])

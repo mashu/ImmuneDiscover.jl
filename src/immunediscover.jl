@@ -1,23 +1,34 @@
 module immunediscover
+    # --- CLI scaffolding ---
     include("cli.jl")
-    include("data.jl")
-    include("demultiplex.jl")
-    include("simulate.jl")
-    include("profile.jl")
-    include("exact.jl")
-    include("heptamer.jl")
-    include("hsmm.jl")
-    include("bwa.jl")
-    include("blast.jl")
-    include("keyedsets.jl")
-    include("cooccurrence.jl")
-    include("haplotype.jl")
-    include("fasta.jl")
-    include("merge.jl")
-    include("table.jl")
+
+    # --- Utils (no inter-module deps) ---
+    include("utils/data.jl")
+    include("utils/filters.jl")
+    include("utils/keyedsets.jl")
+    include("discover/profile.jl")
+
+    # --- Search / discover (may depend on utils) ---
+    include("search/exact.jl")
+    include("preprocess/demultiplex.jl")
+    include("preprocess/simulate.jl")
+    include("search/heptamer.jl")
+    include("discover/hsmm.jl")
+    include("search/bwa.jl")
+    include("discover/blast.jl")
+
+    # --- Analyze (may depend on search) ---
+    include("analyze/cooccurrence.jl")
+    include("analyze/haplotype.jl")
+
+    # --- Table / FASTA utilities ---
+    include("utils/fasta.jl")
+    include("utils/merge.jl")
+    include("utils/table.jl")
 
     using .Cli
     using .Data
+    using .Filters
     using .Demultiplex
     using .Simulate
     using .Profile
@@ -42,14 +53,6 @@ module immunediscover
     using PrecompileTools
 
     export load_fasta, blast_discover
-
-    # Tests import immunediscover.association — alias required until tests are migrated
-    const association = Cooccurrence
-
-    # Delegated utilities (callers reference immunediscover.concatenate_columns etc.)
-    const concatenate_columns = Data.concatenate_columns
-    const validate_types = Data.validate_types
-    const get_ratio_threshold = Data.get_ratio_threshold
 
     # --- Command dispatch tables ---
 
@@ -77,7 +80,6 @@ module immunediscover
         "table"       => (pa) -> Table.handle_table(pa, immunediscover, Cli.always_gz),
     )
 
-    # Grouped commands: the Dict key doubles as the parsed_args group key
     const GROUP_HANDLERS = Dict{String, Dict{String, Function}}(
         "search"  => SEARCH_HANDLERS,
         "analyze" => ANALYZE_HANDLERS,
@@ -112,14 +114,12 @@ module immunediscover
 
         cmd = get(parsed_args, "%COMMAND%", "")
 
-        # Top-level commands
         toplevel = get(TOPLEVEL_HANDLERS, cmd, nothing)
         if toplevel !== nothing
             toplevel(parsed_args)
             return
         end
 
-        # Grouped commands
         handlers = get(GROUP_HANDLERS, cmd, nothing)
         if handlers !== nothing
             dispatch_subcommand(parsed_args, cmd, handlers)

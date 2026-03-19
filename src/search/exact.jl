@@ -5,6 +5,7 @@ module Exact
     using Folds
     using FASTX
     using Statistics
+    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, CustomFilter
 
     # ========================== GeneType dispatch hierarchy ==========================
 
@@ -524,13 +525,12 @@ module Exact
         counts_df[:,:gene_to_cross_case_median_ratio] = counts_df.gene_count ./ counts_df.cross_case_median_gene_count
         transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
 
-        filter!(x -> x.allele_freq >= immunediscover_module.get_ratio_threshold(expect_dict, x, type="allele_freq"), counts_df)
-        filter!(x -> x.gene_case_freq >= immunediscover_module.get_ratio_threshold(deletion_dict, x, type="gene_case_freq"), counts_df)
-
-        mar = parsed_args["search"]["exact"]["min-allele-mratio"]
-        mgr = parsed_args["search"]["exact"]["min-gene-mratio"]
-        filter!(x -> x.allele_to_cross_case_median_ratio >= mar, counts_df)
-        filter!(x -> x.gene_to_cross_case_median_ratio >= mgr, counts_df)
+        GermlineFilter([
+            CustomFilter(x -> x.allele_freq >= immunediscover_module.get_ratio_threshold(expect_dict, x, type="allele_freq"), "Allele frequency threshold"),
+            CustomFilter(x -> x.gene_case_freq >= immunediscover_module.get_ratio_threshold(deletion_dict, x, type="gene_case_freq"), "Gene case frequency threshold"),
+            MinThreshold(:allele_to_cross_case_median_ratio, parsed_args["search"]["exact"]["min-allele-mratio"], "Min allele median ratio"),
+            MinThreshold(:gene_to_cross_case_median_ratio, parsed_args["search"]["exact"]["min-gene-mratio"], "Min gene median ratio"),
+        ])(counts_df)
 
         output = always_gz(parsed_args["search"]["exact"]["output"])
         if length(refgenes) > 0

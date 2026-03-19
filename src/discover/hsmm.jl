@@ -11,6 +11,7 @@ using StringDistances
 # Shared modules — avoids duplicate type definitions from repeated include()
 using ..Data
 using ..Exact
+using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, CustomFilter
 import ..Data: unique_name
 
 @inline function dna_index(c::Char)::Int
@@ -152,21 +153,9 @@ function scan_best_and_total(sequence::AbstractString, model::DGeneRSSHSMM)
 end
 
 function extract_dgene(sequence::AbstractString, model::DGeneRSSHSMM)
-    obs=encode_dna(sequence); T=length(obs); k_pre=28; k_post=28
-    best_log=-Inf; best=(prefix_start=0,prefix_end=0,gene_start=0,gene_end=0,suffix_start=0,suffix_end=0)
-    min_g=mingene(model); max_g=maxgene(model)
-    @inbounds for ps in 1:(T-(k_pre+min_g+k_post)+1)
-        n9s=ps;s12s=n9s+9;h7s=s12s+12;pe=h7s+6
-        lp=score_motif(obs,n9s,model.pre_nonamer)+score_motif(obs,s12s,model.pre_spacer)+score_motif(obs,h7s,model.pre_heptamer); lp==-Inf && continue
-        gs=pe+1
-        for d in min_g:max_g;ge=gs+d-1;ss=ge+1;se=ss+k_post-1;se>T && break
-            lg=score_gene_segment(obs,gs,d,model.gene);lg==-Inf && continue
-            ls=score_motif(obs,ss,model.post_heptamer)+score_motif(obs,ss+7,model.post_spacer)+score_motif(obs,ss+19,model.post_nonamer);ls==-Inf && continue
-            tot=lp+lg+ls; if tot>best_log;best_log=tot;best=(prefix_start=n9s,prefix_end=pe,gene_start=gs,gene_end=ge,suffix_start=ss,suffix_end=se);end
-        end
-    end
-    best_log==-Inf && return (gene_seq="",prefix_start=0,prefix_end=0,gene_start=0,gene_end=0,suffix_start=0,suffix_end=0,log_prob=-Inf)
-    return (gene_seq=sequence[best.gene_start:best.gene_end],prefix_start=best.prefix_start,prefix_end=best.prefix_end,gene_start=best.gene_start,gene_end=best.gene_end,suffix_start=best.suffix_start,suffix_end=best.suffix_end,log_prob=best_log)
+    r = scan_best_and_total(sequence, model)
+    r.gene_seq == "" && return (gene_seq="", prefix_start=0, prefix_end=0, gene_start=0, gene_end=0, suffix_start=0, suffix_end=0, log_prob=-Inf)
+    return (gene_seq=r.gene_seq, prefix_start=r.prefix_start, prefix_end=r.prefix_end, gene_start=r.gene_start, gene_end=r.gene_end, suffix_start=r.suffix_start, suffix_end=r.suffix_end, log_prob=r.log_path_prob)
 end
 
 function from_pwm_and_duration(pn,ps,ph,oh,os,on,ge_logp,dur)
@@ -259,11 +248,15 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     collapsed[!,:gene] = map(r->(n=String(r.nearest_db); n=="" ? "" : first(split(n,'*'))), eachrow(collapsed))
     if any(x->x!="", collapsed.gene)
         transform!(groupby(collapsed, [:well,:case,:gene]), :count=>(x->x./maximum(x))=>:ratio)
-        b=nrow(collapsed); filter!(x->x.count>=out_mincount, collapsed); filter!(x->x.ratio>=out_minratio, collapsed)
-        @info "Output filters: $(nrow(collapsed))/$b"
+        GermlineFilter([
+            MinThreshold(:count, Float64(out_mincount), "Min output count"),
+            MinThreshold(:ratio, out_minratio, "Min output ratio"),
+        ])(collapsed)
     end
-    bh=nrow(collapsed); filter!(x->(x.heptamer_prob_pre>=min_heptamer_prob_pre)&(x.heptamer_prob_post>=min_heptamer_prob_post), collapsed)
-    (min_heptamer_prob_pre>0||min_heptamer_prob_post>0) && @info "Heptamer filter: $(nrow(collapsed))/$bh"
+    heptamer_criteria = FilterCriterion[]
+    min_heptamer_prob_pre > 0 && push!(heptamer_criteria, MinThreshold(:heptamer_prob_pre, min_heptamer_prob_pre, "Min pre-heptamer prob"))
+    min_heptamer_prob_post > 0 && push!(heptamer_criteria, MinThreshold(:heptamer_prob_post, min_heptamer_prob_post, "Min post-heptamer prob"))
+    !isempty(heptamer_criteria) && GermlineFilter(heptamer_criteria)(collapsed)
     outpath = endswith(output,".gz") ? output : output*".gz"
     CSV.write(outpath, collapsed, compress=true, delim='\t'); @info "Saved to $outpath ($(nrow(collapsed)) rows)"
     return collapsed

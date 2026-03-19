@@ -8,6 +8,7 @@ module Blast
     using Folds
 
     using ..Data: load_fasta as data_load_fasta, unique_name
+    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
 
@@ -39,15 +40,6 @@ module Blast
             append!(main.failed_genes[k], v)
         end
         return main
-    end
-
-    """
-        read_fasta(filepath) -> Vector{Tuple{String, String}}
-
-    Delegates to Data.load_fasta for shared FASTA-reading logic.
-    """
-    function read_fasta(filepath::String)
-        return data_load_fasta(filepath, validate=false)
     end
 
     load_csv(path::String; delim::Char='\t') = CSV.File(path, delim=delim) |> DataFrame
@@ -495,7 +487,8 @@ module Blast
         @info "Discovery with BLAST assignments"
 
         fasta_path = parsed_args["search"]["blast"]["fasta"]
-        work_dir = joinpath(dirname(fasta_path), ".immunediscover")
+        output_path = parsed_args["search"]["blast"]["output"]
+        work_dir = joinpath(dirname(abspath(output_path)), ".immunediscover")
         isdir(work_dir) || mkpath(work_dir)
         file_stem = split(basename(fasta_path), '.')[1]
         affixes_path = joinpath(work_dir, file_stem * ".affixes")
@@ -521,11 +514,11 @@ module Blast
         db_p = Vector{Tuple{String, String}}()
         pseudo = parsed_args["search"]["blast"]["pseudo"]
         if !isempty(pseudo)
-            for (name, seq) in read_fasta(pseudo)
+            for (name, seq) in data_load_fasta(pseudo, validate=false)
                 push!(db_p, ("P" * name, seq))
             end
         end
-        for (name, seq) in read_fasta(fasta_path)
+        for (name, seq) in data_load_fasta(fasta_path, validate=false)
             push!(db_p, (name, seq))
         end
         combined_fasta_path = joinpath(work_dir, file_stem * "-combined.fasta")
@@ -633,13 +626,16 @@ module Blast
         min_fullfrequency = parsed_args["search"]["blast"]["minfullfreq"]
         min_length = parsed_args["search"]["blast"]["length"]
 
-        filter!(x -> x.full_count >= min_fullcount, blast_clusters)
-        filter!(x -> x.full_frequency >= min_fullfrequency, blast_clusters)
-        filter!(x -> length(x.qseq) >= min_length, blast_clusters)
+        criteria = FilterCriterion[
+            MinThreshold(:full_count, min_fullcount, "Min cluster size"),
+            MinThreshold(:full_frequency, min_fullfrequency, "Min allelic ratio"),
+            MinStringLength(:qseq, min_length, "Min read length"),
+        ]
         if !keep_failed
-            filter!(x -> x.aln_mismatch >= 0, blast_clusters)
+            push!(criteria, NonNegative(:aln_mismatch, "Exclude failed trimming"))
         end
-        filter!(x -> x.aln_mismatch <= parsed_args["search"]["blast"]["maxdist"], blast_clusters)
+        push!(criteria, MaxThreshold(:aln_mismatch, Float64(parsed_args["search"]["blast"]["maxdist"]), "Max distance"))
+        GermlineFilter(criteria)(blast_clusters)
         # allele_name: exact match (aln_mismatch==0) -> sseqid; else if isin, substring of known allele -> that allele; else Novel
         db_seqs = [(strip(String(n)), String(s)) for (n, s) in DB]
         function allele_name_row(row)

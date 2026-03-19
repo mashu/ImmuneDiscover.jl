@@ -262,13 +262,13 @@ test_outcomes = Dict(
             println("Skipping remaining tests due to failed dependencies")
         end
 
-    @testset "association.jl" begin
-        # Generate test data programmatically
+    @testset "cooccurrence.jl" begin
+        using immunediscover.Cooccurrence
         df = DataFrame(
             case = ["D1", "D1", "D2", "D2", "D3", "D3", "D4", "D4", "D5", "D6", "D7", "D8"],
             db_name = ["A*01", "B*01", "A*01", "B*01", "A*01", "C*01", "B*01", "C*01", "B*01", "C*01", "X*01", "Y*01"]
         )
-        edges_df, clusters, clusters_detailed = immunediscover.association.compute_edges_and_clusters(df; min_support=1, jaccard_threshold=0.0, similarity_threshold=0.0)
+        edges_df, clusters, clusters_detailed = Cooccurrence.compute_edges_and_clusters(df; min_support=1, jaccard_threshold=0.0, similarity_threshold=0.0)
         @test nrow(edges_df) > 0
         # In toy data, A*01 and B*01 co-occur in D1 and D2 (n_shared=2)
         row = first(filter(r -> (r.allele_a == "A*01" && r.allele_b == "B*01") || (r.allele_a == "B*01" && r.allele_b == "A*01"), edges_df))
@@ -442,13 +442,13 @@ test_outcomes = Dict(
         @test parsed_args["search"]["blast"]["subjectcov"] == 0.1
 
         # Module - test utility functions that don't require BLAST
-        # Test read_fasta function
+        # Test Data.load_fasta (same path as blast pipeline FASTA reads)
         test_fasta_content = ">seq1\nATCGATCG\n>seq2\nGCTAGCTA\n"
         open("test_blast_fasta.fasta", "w") do io
             write(io, test_fasta_content)
         end
         
-        fasta_records = Blast.read_fasta("test_blast_fasta.fasta")
+        fasta_records = Data.load_fasta("test_blast_fasta.fasta", validate=false)
         @test length(fasta_records) == 2
         @test fasta_records[1] == ("seq1", "ATCGATCG")
         @test fasta_records[2] == ("seq2", "GCTAGCTA")
