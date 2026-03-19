@@ -84,25 +84,20 @@ module Blast
     end
 
     """
-        blastn(query_file, database, output_file; ...)
+        blastn(query_file, database, output_file; args="")
 
-    Run BLASTn: query sequences in `query_file` against `database`, write tabular results to `output_file`.
-    With `use_db=true`, `database` is a BLAST DB path (from ensure_blast_db); multithreading is used.
-    With `use_db=false`, `database` is a FASTA path and blastn uses -subject (single-threaded).
+    Run BLASTn: query sequences in `query_file` against BLAST DB at `database` (from `ensure_blast_db`),
+    write tabular results to `output_file`. Uses all available CPU threads.
     """
-    function blastn(query_file::String, database::String, output_file::String; args::String="", use_db::Bool=false)
+    function blastn(query_file::String, database::String, output_file::String; args::String="")
         outfmt = "6 " * join(columns, " ")
         nthreads = Sys.CPU_THREADS
-        if use_db
-            cmd = `blastn -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $outfmt`
-        else
-            cmd = `blastn -query $query_file -subject $database -out $output_file -outfmt $outfmt`
-        end
+        cmd = `blastn -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $outfmt`
         if !isempty(args)
             cmd = `$cmd $(split(args))`
         end
         elapsed = time_command(cmd)
-        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds" * (use_db ? " (num_threads=$nthreads)" : "")
+        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds (num_threads=$nthreads)"
     end
 
     """Map BLAST subject id to DB key. Novel alleles use base name (e.g. TRGV2*01_S2223 → TRGV2*01) for reference/affix lookup."""
@@ -418,7 +413,7 @@ module Blast
         else
             @info "Running BLASTn. This may take a while."
             db_path = ensure_blast_db(combined_db_fasta)
-            blastn(query_fasta, db_path, blast_tsv, args=args, use_db=true)
+            blastn(query_fasta, db_path, blast_tsv, args=args)
             run(`gzip -f $blast_tsv`)
         end
 
