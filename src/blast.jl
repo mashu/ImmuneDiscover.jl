@@ -542,9 +542,12 @@ module Blast
         if forward_extension != 0 || reverse_extension != 0
             if isfile(affixes_path)
                 @info "Loading affixes from $affixes_path"
-                affixes = Tuple.(collect.(eachrow(CSV.File(affixes_path, delim='\t') |> DataFrame)))
                 affix_dict = Dict{String, Tuple{String, String}}()
-                for (name, prefix, suffix) in affixes
+                for row in eachrow(CSV.File(affixes_path, delim='\t') |> DataFrame)
+                    name = ismissing(row.name) ? "" : String(row.name)
+                    prefix = ismissing(row.prefix) ? "" : String(row.prefix)
+                    suffix = ismissing(row.suffix) ? "" : String(row.suffix)
+                    isempty(name) && continue
                     affix_dict[name] = (prefix, suffix)
                 end
 
