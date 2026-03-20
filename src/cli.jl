@@ -21,15 +21,19 @@ module Cli
         "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
     )
 
+    # V preset tuned for genomic IGHV novel recovery (see docs + tuning/README): more BLAST hits per
+    # read, slightly relaxed trim/core coverage and allelic ratio, longer extensions for affix alignment.
     const BLAST_PRESETS = Dict(
         "V" => Dict(
-            "forward" => 12,
-            "reverse" => 12,
-            "minfullratio" => 0.1,
-            "length" => 290,
-            "maxdist" => 10,
-            "minfullcount" => 10,
-            "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
+            "forward" => 20,
+            "reverse" => 20,
+            "minfullratio" => 0.035,
+            "length" => 283,
+            "maxdist" => 14,
+            "minfullcount" => 5,
+            "minquality" => 0.62,
+            "min-corecov" => 0.50,
+            "args" => "-task megablast -subject_besthit -num_alignments 25 -qcov_hsp_perc 50"
         ),
         "D" => Dict(
             "forward" => 40,
@@ -706,7 +710,7 @@ module Cli
             arg_type = Int
             range_tester = (x->x >= 0)
         "-q", "--minquality"
-            help = "Minimum quality of the trimming alignment. Affixes with lower quality will drop the candidate."
+            help = "Minimum fraction (0–1) of affix positions that match the read in the semi-global affix–read alignment used for 5'/3' trimming; prefix and suffix each must meet this or the candidate is dropped."
             default = 0.75
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))

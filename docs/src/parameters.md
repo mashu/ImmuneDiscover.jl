@@ -41,7 +41,7 @@ Maximum mismatches for allele assignment.
 
 | Gene | --maxdist | Rationale |
 |------|-----------|-----------|
-| **V genes** | 10 (default) | Moderately conserved |
+| **V genes** | 14 (`-g V` preset) | Genomic IGHV + novel recovery (trim vs reference) |
 | **D genes** | 20 (default) | Highly variable, short |
 | **J genes** | 10 (default) | Moderately conserved |
 | **Very strict** | 5 | High confidence only |
@@ -56,7 +56,7 @@ For BLAST and exact search.
 
 | Gene | --forward | --reverse | Purpose |
 |------|-----------|-----------|---------|
-| **V genes** | 12 | 12 | Capture RSS heptamer |
+| **V genes** | 20 | 20 | RSS + stable affix alignment for extended DB (`-g V` preset) |
 | **D genes** | 40 | 40 | Capture flanking V/J segments |
 | **J genes** | 12 | 12 | Capture RSS heptamer |
 | **No extension** | 0 | 0 | Use original sequences only |
@@ -80,6 +80,7 @@ Fraction of database sequence covered by alignment.
 Ratio of aligned sequence length to database sequence length after trimming.
 
 - **Default**: 0.6 (60%)
+- **V preset (`-g V`)**: 0.50 — keeps borderline full-length trims for novel alleles (raises false positives if lowered further)
 - **Strict**: 0.8+ (require near-full coverage)
 - **Permissive**: 0.4 (allow partial matches)
 
@@ -88,6 +89,7 @@ Ratio of aligned sequence length to database sequence length after trimming.
 Alignment quality = (length - mismatches) / length
 
 - **Default**: 0.75 (75% identity after trimming)
+- **V preset (`-g V`)**: 0.62 — slightly more permissive affix trimming for extended references
 - **D genes**: 0.5 (more variable)
 - **Strict**: 0.9+ (high identity only)
 

@@ -189,12 +189,16 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 - `-v, --verbose`: Save intermediate files
 - `-G, --show-presets`: Display gene presets and exit
 
+**Threading (not CLI flags):**
+- **`blastn`** runs with `-num_threads` set from the environment variable **`BLAST_NUM_THREADS`** if set (positive integer), otherwise from the machine’s logical CPU count (`Sys.CPU_THREADS`).
+- **Julia** uses its own thread pool for extension accumulation and trimming (`Folds`). Start the program with e.g. **`julia -t auto`** so that work is parallel; a single-threaded Julia process does not slow `blastn`, but post-BLAST steps will be slower.
+
 ### Gene Presets
 
 **V Gene:**
-- Extensions: forward=12, reverse=12
-- Filtering: minfullratio=0.1, length=290, maxdist=10, minfullcount=10
-- BLAST: `-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50`
+- Extensions: forward=20, reverse=20
+- Filtering: minfullratio=0.035, length=283, maxdist=14, minfullcount=5, minquality=0.62, min-corecov=0.50
+- BLAST: `-task megablast -subject_besthit -num_alignments 25 -qcov_hsp_perc 50`
 
 **D Gene:**
 - Extensions: forward=40, reverse=40

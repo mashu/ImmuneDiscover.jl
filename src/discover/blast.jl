@@ -6,6 +6,7 @@ module Blast
     using BioAlignments
     using BioSequences
     using Folds
+    using Base.Threads: nthreads
 
     using ..Data: load_fasta as data_load_fasta, unique_name
     using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter
@@ -87,17 +88,40 @@ module Blast
         blastn(query_file, database, output_file; args="")
 
     Run BLASTn: query sequences in `query_file` against BLAST DB at `database` (from `ensure_blast_db`),
-    write tabular results to `output_file`. Uses all available CPU threads.
+    write tabular results to `output_file`.
+
+    Thread count for the `blastn` process: `BLAST_NUM_THREADS` env if set (positive integer), else `Sys.CPU_THREADS`.
+    (Julia's own thread pool is separate — start Julia with `-t auto` so trimming / `Folds` use multiple threads.)
     """
+    function blastn_num_threads()
+        v = strip(get(ENV, "BLAST_NUM_THREADS", ""))
+        isempty(v) && return Sys.CPU_THREADS
+        p = tryparse(Int, v)
+        p === nothing && error("BLAST_NUM_THREADS must be a positive integer, got $(repr(v))")
+        p < 1 && error("BLAST_NUM_THREADS must be >= 1, got $p")
+        return p
+    end
+
+    # NCBI blastn expects single-dash long options (e.g. `-task`). GNU-style `--task` is rejected.
+    function blastn_cli_token(t::AbstractString)::String
+        s = String(t)
+        if startswith(s, "--") && length(s) >= 3 && !startswith(s, "---")
+            return string('-', SubString(s, 3))
+        end
+        return s
+    end
+
     function blastn(query_file::String, database::String, output_file::String; args::String="")
         outfmt = "6 " * join(columns, " ")
-        nthreads = Sys.CPU_THREADS
+        nthreads = blastn_num_threads()
         cmd = `blastn -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $outfmt`
-        if !isempty(args)
-            cmd = `$cmd $(split(args))`
+        if !isempty(strip(args))
+            # Julia 1.12+: `$(words...)` inside backticks concatenates into one argv; use `$words` for one arg each.
+            extra = map(blastn_cli_token, split(args))
+            cmd = `$cmd $extra`
         end
         elapsed = time_command(cmd)
-        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds (num_threads=$nthreads)"
+        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds (blastn num_threads=$nthreads, Julia nthreads=$(nthreads()))"
     end
 
     """Map BLAST subject id to DB key. Novel alleles use base name (e.g. TRGV2*01_S2223 → TRGV2*01) for reference/affix lookup."""
