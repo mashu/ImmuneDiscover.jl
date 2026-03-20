@@ -1,17 +1,20 @@
 module Blast
     using CSV
+    using CodecZlib
     using DataFrames
     using FASTX
     using DataStructures
     using BioAlignments
     using BioSequences
     using Folds
+    using MD5
     using Base.Threads: nthreads
 
     using ..Data: load_fasta as data_load_fasta, unique_name
     using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
+    export resolve_work_dir, blast_hits_gz_path
 
     const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "qlen", "slen", "evalue", "bitscore", "sstrand", "qseq"]
 
@@ -62,12 +65,6 @@ module Blast
         end
     end
 
-    function time_command(cmd::Cmd)
-        start_time = time()
-        run(cmd)
-        return time() - start_time
-    end
-
     """Return BLAST database path (no extension) for a FASTA. Build with makeblastdb if missing or stale."""
     function ensure_blast_db(fasta_path::String)
         dir = dirname(fasta_path)
@@ -85,10 +82,10 @@ module Blast
     end
 
     """
-        blastn(query_file, database, output_file; args="")
+        blastn(query_file, database, output_gz; args="")
 
-    Run BLASTn: query sequences in `query_file` against BLAST DB at `database` (from `ensure_blast_db`),
-    write tabular results to `output_file`.
+    Run BLASTn: query sequences in `query_file` against BLAST DB at `database` (from `ensure_blast_db`).
+    Streams tabular results to `output_gz` via gzip (`output_gz` must end in `.gz`; no uncompressed BLAST file is written).
 
     Thread count for the `blastn` process: `BLAST_NUM_THREADS` env if set (positive integer), else `Sys.CPU_THREADS`.
     (Julia's own thread pool is separate — start Julia with `-t auto` so trimming / `Folds` use multiple threads.)
@@ -111,17 +108,22 @@ module Blast
         return s
     end
 
-    function blastn(query_file::String, database::String, output_file::String; args::String="")
+    function blastn(query_file::String, database::String, output_gz::String; args::String="")
+        endswith(output_gz, ".gz") || error("BLAST cache path must end with .gz, got $(repr(output_gz))")
         outfmt = "6 " * join(columns, " ")
         nthreads = blastn_num_threads()
-        cmd = `blastn -num_threads $nthreads -query $query_file -db $database -out $output_file -outfmt $outfmt`
+        cmd = `blastn -num_threads $nthreads -query $query_file -db $database -out - -outfmt $outfmt`
         if !isempty(strip(args))
             # Julia 1.12+: `$(words...)` inside backticks concatenates into one argv; use `$words` for one arg each.
             extra = map(blastn_cli_token, split(args))
             cmd = `$cmd $extra`
         end
-        elapsed = time_command(cmd)
-        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds (blastn num_threads=$nthreads, Julia nthreads=$(nthreads()))"
+        start_time = time()
+        open(GzipCompressorStream, output_gz, "w") do gzio
+            run(pipeline(cmd, stdout=gzio))
+        end
+        elapsed = time() - start_time
+        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds (blastn num_threads=$nthreads, Julia nthreads=$(nthreads()), streamed to gzip)"
     end
 
     """Map BLAST subject id to DB key. Novel alleles use base name (e.g. TRGV2*01_S2223 → TRGV2*01) for reference/affix lookup."""
@@ -140,6 +142,33 @@ module Blast
         dir = dirname(path)
         base = first(split(basename(path), '.'))
         return joinpath(dir, base * "." * ext)
+    end
+
+    """
+        resolve_work_dir(path_str) -> String
+
+    Absolute work directory for caches and intermediates. Relative paths are resolved against `pwd()`;
+    empty `path_str` falls back to `joinpath(pwd(), \".immunediscover\")`.
+    """
+    function resolve_work_dir(path_str::AbstractString)::String
+        s = strip(String(path_str))
+        if isempty(s)
+            return abspath(joinpath(pwd(), ".immunediscover"))
+        end
+        ex = expanduser(s)
+        return isabspath(ex) ? abspath(ex) : abspath(joinpath(pwd(), ex))
+    end
+
+    """Stable subdirectory under `work_dir` for one demux input; used for BLAST cache and query FASTA."""
+    function blast_run_subdir(work_dir::AbstractString, input_tsv::AbstractString)::String
+        tag = bytes2hex(md5(codeunits(abspath(input_tsv))))[1:16]
+        return joinpath(work_dir, "blast", tag)
+    end
+
+    """Path to gzipped raw BLAST table for this input, matching `blast_discover` layout."""
+    function blast_hits_gz_path(work_dir::AbstractString, input_tsv::AbstractString)::String
+        d = blast_run_subdir(work_dir, input_tsv)
+        return joinpath(d, "hits.blast.gz")
     end
 
     function longest_common_suffix_str(a::String, b::String)
@@ -406,7 +435,7 @@ module Blast
 
     Perform assignments and discovery of alleles based on BLAST results.
     """
-    function blast_discover(tsv_path, combined_db_fasta; max_dist=10, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
+    function blast_discover(tsv_path, combined_db_fasta; work_dir::AbstractString, max_dist=10, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
         min_ver = v"2.15.0"
         max_ver = v"2.17.0"
         is_valid, message = verify_blastn_version(min_ver, max_ver)
@@ -415,10 +444,14 @@ module Blast
             error("Please install BLAST version $min_ver - $max_ver")
         end
 
+        run_dir = blast_run_subdir(work_dir, tsv_path)
+        isdir(run_dir) || mkpath(run_dir)
+        query_fasta = joinpath(run_dir, "query.fasta")
+        blast_file = joinpath(run_dir, "hits.blast.gz")
+        legacy_uncompressed = replace_extension(tsv_path, "blast")
+
         df = load_csv(tsv_path)
         @info "Read $(nrow(df)) rows from $tsv_path before BLAST assignment"
-        query_fasta = replace_extension(tsv_path, "fasta")
-        blast_tsv = replace_extension(tsv_path, "blast")
         unique_df = unique(df, :name)
         @info "Unique reads: $(nrow(unique_df))"
         if nrow(df) != nrow(unique_df)
@@ -429,7 +462,6 @@ module Blast
         query_sequences = collect.(eachrow(select_columns(df, [:well, :case, :name, :genomic_sequence])))
         save_to_fasta(query_sequences, query_fasta)
 
-        blast_file = blast_tsv * ".gz"
         file_exists = isfile(blast_file)
         @info "BLAST cache check: file='$blast_file', exists=$file_exists, overwrite=$overwrite"
         if file_exists && !overwrite
@@ -437,14 +469,17 @@ module Blast
         else
             @info "Running BLASTn. This may take a while."
             db_path = ensure_blast_db(combined_db_fasta)
-            blastn(query_fasta, db_path, blast_tsv, args=args)
-            run(`gzip -f $blast_tsv`)
+            if isfile(legacy_uncompressed)
+                rm(legacy_uncompressed)
+                @info "Removed legacy uncompressed BLAST file beside input: $(basename(legacy_uncompressed))"
+            end
+            blastn(query_fasta, db_path, blast_file; args=args)
         end
 
         rm(query_fasta)
 
-        blast_df = CSV.File(blast_tsv * ".gz", delim='\t', header=columns) |> DataFrame
-        @info "BLASTn results read from $(blast_tsv).gz: $(nrow(blast_df)) rows"
+        blast_df = CSV.File(blast_file, delim='\t', header=columns) |> DataFrame
+        @info "BLASTn results read from $blast_file: $(nrow(blast_df)) rows"
         if nrow(blast_df) == 0
             error("No BLASTn results found (wrong BLAST parameters?). Cannot proceed.")
         end
@@ -464,7 +499,7 @@ module Blast
         transform!(blast_df, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
         filter!(x -> !startswith(x.sseqid, "P"), blast_df)
         @info "After filtering pseudo genes: $(nrow(blast_df)) rows"
-        verbose && CSV.write(blast_tsv * "-pseudo.tsv", blast_df)
+        verbose && CSV.write(joinpath(run_dir, "pseudo.tsv"), blast_df)
 
         read_name = Dict([(r.name, (r.well, r.case)) for r in eachrow(df)])
         blast_df[:, :well] = [read_name[x.qseqid][1] for x in eachrow(blast_df)]
@@ -472,11 +507,11 @@ module Blast
 
         clusters = combine(groupby(blast_df, [:well, :case, :sseqid, :qseq, :mismatch]), :qseqid => length => :full_count)
         @info "Clusters after grouping: $(nrow(clusters)) rows"
-        verbose && CSV.write(blast_tsv * "-clusters.tsv", clusters)
+        verbose && CSV.write(joinpath(run_dir, "clusters.tsv"), clusters)
 
         filter!(x -> x.mismatch <= max_dist, clusters)
         @info "After filtering mismatches <= $max_dist: $(nrow(clusters)) rows"
-        verbose && CSV.write(blast_tsv * "-clusters-mismatch.tsv", clusters)
+        verbose && CSV.write(joinpath(run_dir, "clusters-mismatch.tsv"), clusters)
 
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
         transform!(groupby(clusters, [:well, :case, :gene]), :full_count => (x -> x ./ maximum(x)) => :full_ratio)
@@ -507,8 +542,9 @@ module Blast
 
         fasta_path = parsed_args["discover"]["blast"]["fasta"]
         output_path = parsed_args["discover"]["blast"]["output"]
-        work_dir = joinpath(dirname(abspath(output_path)), ".immunediscover")
+        work_dir = resolve_work_dir(parsed_args["discover"]["blast"]["work-dir"])
         isdir(work_dir) || mkpath(work_dir)
+        @info "Work directory (caches, intermediates): $work_dir"
         file_stem = split(basename(fasta_path), '.')[1]
         affixes_path = joinpath(work_dir, file_stem * ".affixes")
         DB = immunediscover_module.load_fasta(fasta_path, validate=false)
@@ -568,13 +604,14 @@ module Blast
         # Run BLAST discovery
         blast_clusters = blast_discover(
             parsed_args["discover"]["blast"]["input"],
-            ext_fasta_path,
+            ext_fasta_path;
+            work_dir=work_dir,
             max_dist=parsed_args["discover"]["blast"]["maxdist"],
             min_edge=parsed_args["discover"]["blast"]["edge"],
             min_scov=parsed_args["discover"]["blast"]["subjectcov"],
             args=parsed_args["discover"]["blast"]["args"],
             verbose=verbose,
-            overwrite=overwrite
+            overwrite=overwrite,
         )
 
         # Trim extensions if applicable

@@ -198,7 +198,7 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 **V Gene:**
 - Extensions: forward=20, reverse=20
 - Filtering: minfullratio=0.035, length=283, maxdist=14, minfullcount=5, minquality=0.62, min-corecov=0.50
-- BLAST: `-task megablast -subject_besthit -num_alignments 25 -qcov_hsp_perc 50`
+- BLAST: `-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50`
 
 **D Gene:**
 - Extensions: forward=40, reverse=40
@@ -216,6 +216,7 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 
 **Outputs:**
 - **{output}.tsv.gz**: Discovered alleles with columns for BLAST results, aligned sequences, coverage metrics, and novel allele names
+- **`--work-dir`** (default: `.immunediscover` vs current working directory): all caches and intermediates — per-input BLAST under `work-dir/blast/<16-hex>/hits.blast.gz` (streamed gzip), combined/extended FASTA, `makeblastdb` files, and affix TSV
 - **{fasta}-combined.fasta**: Combined database (pseudo + regular)
 - **{fasta}-combined-extended.fasta**: Extended sequences (if extensions used)
 - **{fasta}.affixes**: TSV with `name`, `prefix`, `suffix`
@@ -227,7 +228,7 @@ Plus standard BLAST columns: `pident`, `nident`, `length`, `mismatch`, `gapopen`
 ### Workflow
 
 1. **Extension**: Extends database by most common flanks from reads (optional)
-2. **BLAST**: Aligns reads to extended database
+2. **BLAST**: Aligns reads to extended database; caches raw hits under `--work-dir` as streamed gzip (`work-dir/blast/<tag>/hits.blast.gz`)
 3. **Re-alignment**: Trims extensions, re-aligns to original using Needleman-Wunsch
 4. **Filtering**: Applies coverage, quality, frequency, distance filters
 5. **Naming**: Assigns names with _S{hash} suffix for novel sequences
@@ -235,7 +236,7 @@ Plus standard BLAST columns: `pident`, `nident`, `length`, `mismatch`, `gapopen`
 ### Examples
 
 ```bash
-# V gene with preset
+# V gene with preset (caches under ./.immunediscover by default)
 immunediscover discover blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz -g V
 
 # D gene with preset

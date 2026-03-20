@@ -496,6 +496,7 @@ test_outcomes = Dict(
             @test parsed_args["discover"]["blast"]["minfullcount"] == 5
             @test parsed_args["discover"]["blast"]["minfullratio"] == 0.1
             @test parsed_args["discover"]["blast"]["subjectcov"] == 0.1
+            @test parsed_args["discover"]["blast"]["work-dir"] == ".immunediscover"
 
         # Module - test utility functions that don't require BLAST
         # Test Data.load_fasta (same path as blast pipeline FASTA reads)

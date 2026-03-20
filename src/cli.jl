@@ -18,11 +18,12 @@ module Cli
         "edge" => 0,
         "subjectcov" => 0.1,
         "minquality" => 0.75,
-        "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
+        "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50",
+        "work-dir" => ".immunediscover",
     )
 
-    # V preset tuned for genomic IGHV novel recovery (see docs + tuning/README): more BLAST hits per
-    # read, slightly relaxed trim/core coverage and allelic ratio, longer extensions for affix alignment.
+    # V preset tuned for genomic IGHV novel recovery (see docs + tuning/README): relaxed trim/core coverage
+    # and allelic ratio, longer affix extensions; BLAST capped at 5 alignments per query (see V_PRESET.md).
     const BLAST_PRESETS = Dict(
         "V" => Dict(
             "forward" => 20,
@@ -33,7 +34,7 @@ module Cli
             "minfullcount" => 5,
             "minquality" => 0.62,
             "min-corecov" => 0.50,
-            "args" => "-task megablast -subject_besthit -num_alignments 25 -qcov_hsp_perc 50"
+            "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
         ),
         "D" => Dict(
             "forward" => 40,
@@ -728,6 +729,10 @@ module Cli
         "-v", "--verbose"
             help = "Print verbose output and save intermediate files"
             action = :store_true
+        "--work-dir"
+            help = "Directory for BLAST cache, temporary query FASTA, combined/extended DB, and affix files (relative paths use pwd()). Nothing is written beside the input TSV."
+            default = ".immunediscover"
+            arg_type = String
         end
 
         @add_arg_table! s["search"]["exact"] begin
