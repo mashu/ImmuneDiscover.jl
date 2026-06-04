@@ -1,5 +1,13 @@
 module Profile
-    const dna2ind = Dict{Char,Int}('A'=>1,'C'=>2,'G'=>3,'T'=>4)
+    # Branch-based nucleotide → index (1..4, 0 for gaps/unknown). Allocation-free and
+    # type-stable, matching HSMM.dna_index; avoids a Dict lookup in the counting loop.
+    @inline function dna2ind(c::Char)::Int
+        c == 'A' && return 1
+        c == 'C' && return 2
+        c == 'G' && return 3
+        c == 'T' && return 4
+        return 0
+    end
 
     """
         counts(motifs)
@@ -9,10 +17,10 @@ module Profile
     function counts(motifs)
         cols = length(motifs[1])
         rows = length(motifs)
-        c = zeros(Int64, length(dna2ind), cols)
+        c = zeros(Int64, 4, cols)
         for col in 1:cols
             for row in 1:rows
-                ind = get(dna2ind,motifs[row][col],0)
+                ind = dna2ind(motifs[row][col])
                 if ind > 0  # Gaps have zero count and probability
                     c[ind,col] += 1
                 end
