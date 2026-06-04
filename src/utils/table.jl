@@ -184,17 +184,13 @@ module Table
             m = match(regex, string(value))
             if m !== nothing
                 result = replacement
-                for i in 1:length(m.captures)
-                    if m.captures[i] !== nothing
-                        result = replace(result, "\\$i" => m.captures[i])
-                    end
+                for (i, capture) in enumerate(m.captures)
+                    capture === nothing && continue
+                    result = replace(result, "\\$i" => capture)
                 end
                 push!(transformed_values, result)
-                if new_column !== nothing
-                    push!(extracted_values, join([c for c in m.captures if c !== nothing], ""))
-                else
-                    push!(extracted_values, "")
-                end
+                push!(extracted_values,
+                      new_column === nothing ? "" : join((c for c in m.captures if c !== nothing)))
             else
                 push!(transformed_values, string(value))
                 push!(extracted_values, "")
