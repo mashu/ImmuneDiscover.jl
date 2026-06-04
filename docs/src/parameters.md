@@ -95,32 +95,33 @@ Alignment quality = (length - mismatches) / length
 
 ---
 
-## Association Analysis Parameters
+## Co-occurrence Analysis Parameters
 
-### Support and Jaccard
+### Allele inclusion
 
-Control edge inclusion in association network.
+Control which alleles enter the co-occurrence network.
 
 | Parameter | Conservative | Moderate | Exploratory |
 |-----------|-------------|----------|-------------|
-| `--min-support` (n11) | 10+ | 3 (default) | 1 |
-| `--min-jaccard` | 0.5+ | 0.2 (default) | 0.1 |
 | `--min-donors` | 5+ | 2 (default) | 1 |
 
 **Interpretation:**
-- **min-support**: Absolute co-occurrence count (n11)
-- **min-jaccard**: Relative overlap = n11/(n11+n10+n01)
-- **min-donors**: Total donors with allele (any context)
+- **min-donors**: Minimum number of distinct donors carrying the allele
 
-### Similarity and Clustering
+All co-present allele pairs (support > 0) are written to the edges file with `rho`
+(phi), `jaccard`, `support` (n11), `p_value` (hypergeometric enrichment) and the
+Benjamini–Hochberg `q_value`; filter downstream on whichever column you need.
+
+### Clustering
 
 | Parameter | Value | Use Case |
 |-----------|-------|----------|
-| `--similarity r` | default | Haplotype pairs (positive correlation only) |
-| `--similarity r2` | | LD-style analysis (includes negative correlation) |
-| `--threshold` | 0.5 (default) | Moderate clustering |
-| `--threshold` | 0.7+ | Tight clusters (high confidence) |
-| `--threshold` | 0.3 | Loose clusters (exploratory) |
+| `--cluster-method components` | default | Connected components on rho ≥ threshold |
+| `--cluster-method complete/average/single` | | Hierarchical clustering on rho |
+| `--cluster-threshold` | 0.5 (default) | Moderate clustering |
+| `--cluster-threshold` | 0.7+ | Tight clusters (high confidence) |
+| `--cluster-threshold` | 0.3 | Loose clusters (exploratory) |
+| `--min-cluster-size` | 3 (default) | Minimum cluster size to output |
 
 ---
 

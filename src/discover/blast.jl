@@ -485,6 +485,11 @@ module Blast
             error("No BLASTn results found (wrong BLAST parameters?). Cannot proceed.")
         end
 
+        # Keep only the single best hit per read. Pseudo genes (P-prefixed) are in the
+        # database on purpose so they can WIN this best-hit step: a read whose best match is
+        # a pseudo gene is then dropped below, excluding reads that look more like a pseudo
+        # gene than a real allele. (Removing pseudo from the DB instead would let those reads
+        # be assigned to their second-best real gene — a false positive.)
         blast_df = combine(groupby(blast_df, :qseqid), x -> first(sort(x, [:pident, :qcovhsp, :qcovs, :bitscore], rev=true)))
         leftjoin!(blast_df, df, on=:qseqid => :name)
         transform!(blast_df, [:qseq, :genomic_sequence] => ByRow(edge) => [:five_prime_edge, :three_prime_edge])
@@ -498,6 +503,7 @@ module Blast
         @info "After filtering scov > $min_scov: $(nrow(blast_df)) rows"
 
         transform!(blast_df, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
+        # Drop reads whose best hit was a pseudo gene (see best-hit note above).
         filter!(x -> !startswith(x.sseqid, "P"), blast_df)
         @info "After filtering pseudo genes: $(nrow(blast_df)) rows"
         verbose && CSV.write(joinpath(run_dir, "pseudo.tsv"), blast_df)

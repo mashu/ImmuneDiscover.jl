@@ -110,7 +110,7 @@ These appear in multiple command outputs:
 
 ---
 
-## search blast Outputs
+## discover blast Outputs
 
 ### Core Columns
 
@@ -150,7 +150,7 @@ These appear in multiple command outputs:
 
 ---
 
-## search hsmm Outputs
+## discover hsmm Outputs
 
 | Column | Description |
 |--------|-------------|
@@ -228,20 +228,22 @@ These appear in multiple command outputs:
 
 ---
 
-## analyze association Outputs
+## analyze cooccurrence Outputs
 
-### Edges Output ({edges}.tsv.gz)
+### Edges Output ({input}_edges.tsv)
+
+One row per co-present allele pair (support > 0).
 
 | Column | Range | Description |
 |--------|-------|-------------|
 | `allele_a`, `allele_b` | - | Allele pair |
-| `r` | -1 to +1 | Phi coefficient (Pearson correlation for binary data) |
-| `r2` | 0 to 1 | Phi squared (≡ standardized LD r²) |
+| `rho` | -1 to +1 | Phi coefficient (Pearson correlation for binary data) |
 | `jaccard` | 0 to 1 | Jaccard index = n11/(n11+n10+n01) |
 | `support` | Integer | n11 (donors with both alleles) |
-| `similarity` | 0 to 1 | r or r2 after jaccard/support filtering |
+| `p_value` | 0 to 1 | Hypergeometric enrichment p-value |
+| `q_value` | 0 to 1 | Benjamini–Hochberg adjusted p-value |
 
-### Clusters Output ({clusters}.tsv, optional)
+### Clusters Output ({clusters}.tsv, only with `--clusters`)
 
 | Column | Description |
 |--------|-------------|
@@ -249,8 +251,6 @@ These appear in multiple command outputs:
 | `allele` | Allele name |
 | `donors` | Comma-separated donor list |
 | `n_donors` | Number of donors with this allele |
-| `mean_n11`, `mean_n10`, `mean_n01`, `mean_n00` | Average contingency counts within cluster |
-| `mean_r`, `max_r`, `min_r` | Phi coefficient statistics within cluster |
 
 ---
 
@@ -260,19 +260,19 @@ These appear in multiple command outputs:
 |--------|-------------|
 | `case` | Donor identifier |
 | `gene` | Gene identifier |
-| `genotype` | "homozygous", "heterozygous", or "uncertain" |
+| `genotype` | "homozygous", "heterozygous", or "duplication" |
 | `allele_1` | Primary allele (highest count) |
 | `allele_2` | Secondary allele (2nd highest, empty if homozygous) |
-| `count_1` | Count for allele_1 |
-| `count_2` | Count for allele_2 (0 if homozygous) |
-| `ratio` | Minor/major ratio = count_2 / count_1 |
+| `count_1` | Count for the top allele |
+| `count_2` | Count for the runner-up (0 if only one allele present) |
+| `ratio` | Runner-up/top ratio = count_2 / count_1 |
 | `total_count` | Total reads for this gene in this donor |
-| `other_alleles` | Comma-separated additional alleles (if >2 present) |
+| `other_alleles` | Comma-separated non-called alleles (includes the runner-up for homozygous calls) |
 | `novel_1`, `novel_2` | Boolean (if --novel-fasta provided) |
 
 ---
 
-## analyze bwa Outputs
+## search bwa Outputs
 
 Added to input TSV (only rows mapping to target chromosome kept):
 
@@ -342,11 +342,11 @@ posterior = exp(best_path_logprob - total_logprob)
 
 | Value | Meaning | Typical Ratio |
 |-------|---------|---------------|
-| homozygous | 1 allele OR minor allele below threshold | <0.1 |
-| heterozygous | 2 alleles with ratio ≥ min-ratio | 0.1-0.7 |
-| uncertain | >2 alleles present | varies |
+| homozygous | 1 allele OR runner-up below `--min-ratio` | <0.1 |
+| heterozygous | exactly 2 alleles with ratio ≥ `--min-ratio` | 0.1-0.7 |
+| duplication | >2 alleles at ratio ≥ `--min-ratio` | varies |
 
-**Note**: "uncertain" is unusual for diploid organisms and may indicate:
+**Note**: a "duplication" call is unusual for a diploid locus and may indicate:
 - Sequencing errors
 - Gene duplication/triplication
 - Mixed sample

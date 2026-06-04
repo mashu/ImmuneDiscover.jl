@@ -99,8 +99,8 @@ Common issues and solutions.
 - ✓ Check for plate effects (batch artifacts)
 - ✓ Verify donors are independent (no duplicates)
 - ✓ Look for contamination or barcode swapping
-- ✓ Increase `--min-support` to require more co-occurrences
-- ✓ Filter edges by `--min-jaccard` to reduce spurious correlations
+- ✓ Raise `--min-donors` so only well-supported alleles enter the network
+- ✓ Filter the edges file on `q_value`/`support`/`jaccard` to drop spurious correlations
 
 ### Low Heterozygosity
 

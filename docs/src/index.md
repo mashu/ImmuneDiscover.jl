@@ -19,22 +19,23 @@ Immunediscover provides a complete pipeline organized into command groups:
 
 | Group | Purpose | Subcommands |
 |-------|---------|-------------|
-| **demultiplex** | Barcode-based read segregation | (top-level) |
-| **search** | Allele discovery and matching | exact, blast, hsmm, heptamer |
-| **analyze** | Quality control and analysis | association, haplotype, bwa |
+| **preprocess** | Barcode-based read segregation | demultiplex |
+| **discover** | De novo allele discovery | blast, hsmm |
+| **search** | Search against known references | exact, heptamer, bwa |
+| **analyze** | Downstream analysis | cooccurrence, haplotype |
 | **table** | TSV data manipulation | outerjoin, leftjoin, transform, aggregate, unique, sort, filter, select, fasta, collect, exclude |
 | **fasta** | FASTA file operations | merge, diff, hash |
 
 ### Typical Pipeline
 
 ```
-FASTQ + indices → demultiplex → search → analyze → export
+FASTQ + indices → preprocess → discover/search → analyze → export
 ```
 
-1. **Demultiplex** raw reads by plate barcodes
-2. **Search** for alleles (exact match or discovery)
-3. **Analyze** results (association, haplotypes, QC)
-4. **Export** to FASTA for validation
+1. **preprocess demultiplex** raw reads by plate barcodes
+2. **discover** novel alleles (blast, hsmm) or **search** known references (exact, heptamer)
+3. **analyze** results (co-occurrence, haplotypes) and QC with **search bwa**
+4. **Export** to FASTA (`table fasta` / `fasta merge`) for validation
 
 ---
 
@@ -72,13 +73,13 @@ export JULIA_NUM_THREADS=16  # Use available CPU cores
 
 ```bash
 # 1. Demultiplex by barcodes
-immunediscover demultiplex reads.fastq.gz indices.tsv demux.tsv.gz
+immunediscover preprocess demultiplex reads.fastq.gz indices.tsv demux.tsv.gz
 
 # 2. Exact match to known V genes
 immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V
 
 # 3. Discover novel V genes
-immunediscover search blast demux.tsv.gz IGHV.fasta blast_V.tsv.gz -g V
+immunediscover discover blast demux.tsv.gz IGHV.fasta blast_V.tsv.gz -g V
 
 # 4. Export novel alleles
 immunediscover table fasta blast_V.tsv.gz novel_V.fasta \

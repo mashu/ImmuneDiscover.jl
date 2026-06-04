@@ -10,13 +10,13 @@ Complete pipeline from raw reads to validated novel alleles.
 
 ```bash
 # 1. Demultiplex plate
-immunediscover demultiplex plate_V.fastq.gz indices.tsv demux_V.tsv.gz --length 250
+immunediscover preprocess demultiplex plate_V.fastq.gz indices.tsv demux_V.tsv.gz --length 250
 
 # 2. Exact search for known alleles
 immunediscover search exact demux_V.tsv.gz IGHV_known.fasta exact_V.tsv.gz -g V
 
 # 3. BLAST discovery of novel alleles
-immunediscover search blast demux_V.tsv.gz IGHV_known.fasta blast_V.tsv.gz -g V
+immunediscover discover blast demux_V.tsv.gz IGHV_known.fasta blast_V.tsv.gz -g V
 
 # 4. Export novel alleles to FASTA
 immunediscover table fasta blast_V.tsv.gz novel_V_candidates.fasta \
@@ -28,7 +28,7 @@ bwa index GCF_000001405.25.fasta
 immunediscover table select blast_V.tsv.gz bwa_input.tsv.gz \
   --columns allele_name,prefix,aln_qseq,suffix
 # Map to genome
-immunediscover analyze bwa bwa_input.tsv.gz bwa_validated.tsv.gz \
+immunediscover search bwa bwa_input.tsv.gz bwa_validated.tsv.gz \
   GCF_000001405.25.fasta --chromosome "chromosome 14" \
   --colname allele_name --colseq prefix,aln_qseq,suffix
 
@@ -42,9 +42,10 @@ immunediscover fasta merge IGHV_updated.fasta IGHV_known.fasta novel_V.fasta
 # 8. Re-run exact search with updated database
 immunediscover search exact demux_V.tsv.gz IGHV_updated.fasta exact_V_final.tsv.gz -g V
 
-# 9. Association analysis to identify haplotype blocks
-immunediscover analyze association exact_V_final.tsv.gz association_edges.tsv.gz \
-  --min-donors 3 --min-support 5 --clusters association_clusters.tsv
+# 9. Co-occurrence analysis to identify haplotype blocks
+# (edges are written automatically to exact_V_final_edges.tsv)
+immunediscover analyze cooccurrence exact_V_final.tsv.gz \
+  --min-donors 3 --clusters cooccurrence_clusters.tsv
 
 # 10. Haplotype inference
 immunediscover analyze haplotype exact_V_final.tsv.gz haplotypes.tsv \
@@ -61,10 +62,10 @@ D genes are short and highly variable. Two approaches available:
 
 ```bash
 # 1. Demultiplex
-immunediscover demultiplex plate_D.fastq.gz indices.tsv demux_D.tsv.gz --length 200
+immunediscover preprocess demultiplex plate_D.fastq.gz indices.tsv demux_D.tsv.gz --length 200
 
 # 2. BLAST discovery with D gene preset
-immunediscover search blast demux_D.tsv.gz IGHD_known.fasta blast_D.tsv.gz -g D
+immunediscover discover blast demux_D.tsv.gz IGHD_known.fasta blast_D.tsv.gz -g D
 
 # 3. Export novel D genes
 immunediscover table fasta blast_D.tsv.gz novel_D.fasta \
@@ -80,10 +81,10 @@ Better for short D genes when V/J mask D regions.
 
 ```bash
 # 1. Demultiplex
-immunediscover demultiplex plate_D.fastq.gz indices.tsv demux_D.tsv.gz --length 200
+immunediscover preprocess demultiplex plate_D.fastq.gz indices.tsv demux_D.tsv.gz --length 200
 
 # 2. HSMM detection
-immunediscover search hsmm demux_D.tsv.gz IGHD_known.fasta hsmm_D.tsv.gz \
+immunediscover discover hsmm demux_D.tsv.gz IGHD_known.fasta hsmm_D.tsv.gz \
   --ratio 0.2 --mincount 10 --min-posterior 0.7
 
 # 3. Export novel D genes
@@ -104,7 +105,7 @@ Process multiple plates and aggregate results.
 # Demultiplex all plates
 for fastq in plate*.fastq.gz; do
   base=${fastq%.fastq.gz}
-  immunediscover demultiplex $fastq ${base}_indices.tsv ${base}_demux.tsv.gz
+  immunediscover preprocess demultiplex $fastq ${base}_indices.tsv ${base}_demux.tsv.gz
 done
 
 # Exact search on all plates
@@ -137,15 +138,15 @@ Analyze all gene segments from a complete library.
 
 ```bash
 # 1. Demultiplex V and D/J libraries separately
-immunediscover demultiplex plate_V.fastq.gz indices.tsv demux_V.tsv.gz
-immunediscover demultiplex plate_DJ.fastq.gz indices.tsv demux_DJ.tsv.gz
+immunediscover preprocess demultiplex plate_V.fastq.gz indices.tsv demux_V.tsv.gz
+immunediscover preprocess demultiplex plate_DJ.fastq.gz indices.tsv demux_DJ.tsv.gz
 
 # 2. V gene analysis
 immunediscover search exact demux_V.tsv.gz IGHV.fasta exact_V.tsv.gz -g V
-immunediscover search blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz -g V
+immunediscover discover blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz -g V
 
 # 3. D gene analysis
-immunediscover search hsmm demux_DJ.tsv.gz IGHD.fasta hsmm_D.tsv.gz
+immunediscover discover hsmm demux_DJ.tsv.gz IGHD.fasta hsmm_D.tsv.gz
 
 # 4. J gene analysis  
 immunediscover search exact demux_DJ.tsv.gz IGHJ.fasta exact_J.tsv.gz -g J
@@ -156,8 +157,8 @@ immunediscover table fasta blast_V.tsv.gz novel_V.fasta \
 immunediscover table fasta hsmm_D.tsv.gz novel_D.fasta \
   --colname allele_name --colseq sequence --filter "Novel" --mincase 3
 
-# 6. Association analysis for V genes
-immunediscover analyze association exact_V.tsv.gz association_V.tsv.gz \
+# 6. Co-occurrence analysis for V genes (edges -> exact_V_edges.tsv)
+immunediscover analyze cooccurrence exact_V.tsv.gz \
   --min-donors 3 --clusters clusters_V.tsv
 
 # 7. Haplotype inference across all genes
@@ -174,7 +175,7 @@ Comprehensive QC before finalizing novel alleles.
 
 ```bash
 # 1. Initial discovery
-immunediscover search blast demux.tsv.gz IGHV.fasta blast.tsv.gz -g V
+immunediscover discover blast demux.tsv.gz IGHV.fasta blast.tsv.gz -g V
 
 # 2. Check demux statistics
 cat demux.tsv.gz.log  # Review length distribution and counts per well
@@ -185,14 +186,15 @@ immunediscover table filter blast.tsv.gz filtered.tsv.gz \
 
 # 4. BWA genome mapping QC
 bwa index genome.fasta
-immunediscover analyze bwa filtered.tsv.gz bwa_qc.tsv.gz genome.fasta
+immunediscover search bwa filtered.tsv.gz bwa_qc.tsv.gz genome.fasta
 
-# 5. Association analysis to detect artifacts
-immunediscover analyze association bwa_qc.tsv.gz association.tsv.gz \
-  --min-support 5 --min-jaccard 0.3
+# 5. Co-occurrence analysis to detect artifacts
+# (edges -> bwa_qc_edges.tsv; clusters written via --clusters)
+immunediscover analyze cooccurrence bwa_qc.tsv.gz \
+  --min-donors 3 --clusters cooccurrence_clusters.tsv
 
-# 6. Review association clusters for unexpected patterns
-cat association_clusters.tsv
+# 6. Review co-occurrence clusters for unexpected patterns
+cat cooccurrence_clusters.tsv
 
 # 7. Haplotype inference to check heterozygosity rates
 immunediscover analyze haplotype bwa_qc.tsv.gz haplotypes.tsv
@@ -210,7 +212,7 @@ Compare and update allele databases.
 
 ```bash
 # 1. Discover alleles from your data
-immunediscover search blast demux.tsv.gz IGHV_v1.fasta blast.tsv.gz -g V
+immunediscover discover blast demux.tsv.gz IGHV_v1.fasta blast.tsv.gz -g V
 immunediscover table fasta blast.tsv.gz discovered.fasta \
   --colname allele_name --colseq aln_qseq --filter "Novel" --cleanup " Novel"
 
@@ -237,13 +239,13 @@ For best results, iterate discovery and exact search:
 
 ```bash
 # Round 1: Initial discovery
-immunediscover search blast demux.tsv.gz DB_v1.fasta blast_r1.tsv.gz -g V
+immunediscover discover blast demux.tsv.gz DB_v1.fasta blast_r1.tsv.gz -g V
 immunediscover table fasta blast_r1.tsv.gz novel_r1.fasta --filter "Novel" --mincase 3
 immunediscover fasta merge DB_v2.fasta DB_v1.fasta novel_r1.fasta
 
 # Round 2: Re-search with updated DB
 immunediscover search exact demux.tsv.gz DB_v2.fasta exact_r2.tsv.gz -g V
-immunediscover search blast demux.tsv.gz DB_v2.fasta blast_r2.tsv.gz -g V
+immunediscover discover blast demux.tsv.gz DB_v2.fasta blast_r2.tsv.gz -g V
 immunediscover table fasta blast_r2.tsv.gz novel_r2.fasta --filter "Novel" --mincase 5
 immunediscover fasta merge DB_v3.fasta DB_v2.fasta novel_r2.fasta
 
@@ -258,7 +260,7 @@ Process gene types in parallel:
 ```bash
 # Start all in background
 immunediscover search exact demux_V.tsv.gz IGHV.fasta exact_V.tsv.gz -g V &
-immunediscover search hsmm demux_DJ.tsv.gz IGHD.fasta hsmm_D.tsv.gz &
+immunediscover discover hsmm demux_DJ.tsv.gz IGHD.fasta hsmm_D.tsv.gz &
 immunediscover search exact demux_DJ.tsv.gz IGHJ.fasta exact_J.tsv.gz -g J &
 
 # Wait for completion

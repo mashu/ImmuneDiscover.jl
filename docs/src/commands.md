@@ -438,7 +438,7 @@ This analysis computes **phi coefficient** (correlation-based association) rathe
 - **φ²** (r²): Mathematically equivalent to standardized LD r² used in population genetics
 - Measures: "Do alleles A and B co-occur more than expected by chance?"
 
-**Equivalence**: `--similarity r2` provides LD-comparable results from unphased genotype data.
+**Note**: φ² is mathematically equivalent to the standardized LD r² used in population genetics, so the reported `rho` (φ) gives LD-comparable information from unphased genotype data.
 
 ### Synopsis
 ```bash
@@ -448,41 +448,37 @@ immunediscover analyze cooccurrence <input> [options]
 ### Arguments
 
 **Required:**
-- `input`: TSV with case and allele columns (any format with these columns)
-- `edges`: Output edges TSV
+- `input`: TSV with case and allele columns (the edges file is written automatically next to it)
 
 **Column Names:**
 - `-C, --case-col` (default: "case"): Donor column
 - `-A, --allele-col` (default: "db_name"): Allele column
 
 **Filtering:**
-- `-m, --min-donors` (default: 2): Min donors to include allele
-- `--min-support` (default: 3): Min co-occurrence count (n11)
-- `--min-jaccard` (default: 0.2): Min Jaccard index
+- `-m, --min-donors` (default: 2): Minimum distinct donors required to include an allele
 
 **Clustering:**
-- `--similarity` (default: "r"): Mode - "r" (phi) or "r2" (phi squared)
-- `--threshold` (default: 0.5): Similarity cutoff for clustering
-- `--min-cluster-size` (default: 3): Min cluster size
-- `--clusters`: Optional cluster output file
+- `--cluster-method` (default: "components"): `components`, `complete`, `average`, or `single`
+- `--cluster-threshold` (default: 0.5): Similarity (rho) cutoff for clustering
+- `--min-cluster-size` (default: 3): Minimum cluster size to output
+- `--clusters`: Optional path to write clusters TSV
+- `--debug-triangles`: Print rho-based triangle diagnostics at the cluster threshold
 
 ### Inputs/Outputs
 
-**Input:** Any TSV with at least two columns (default: `case` and `db_name`)
+**Input:** Any TSV with at least the case and allele columns (defaults: `case`, `db_name`)
 
-**Output: {edges}.tsv.gz** - Pairwise metrics:
+**Output: {input}_edges.tsv** - one row per co-present allele pair (support > 0):
 - `allele_a`, `allele_b`: Allele pair
-- `r`: Phi coefficient (-1 to +1)
-- `r2`: Phi squared (≡ LD r²)
+- `rho`: Phi coefficient (-1 to +1)
 - `jaccard`: Jaccard index (0 to 1)
-- `support`: n11 (co-present donors)
-- `similarity`: r or r2 after filtering
+- `support`: n11 (donors carrying both)
+- `p_value`: Hypergeometric enrichment p-value
+- `q_value`: Benjamini–Hochberg adjusted p-value
 
-**Output: {clusters}.tsv** (optional):
+**Output: {clusters}.tsv** (only with `--clusters`):
 - `group_id`: Cluster ID
 - `allele`, `donors`, `n_donors`
-- `mean_n11`, `mean_n10`, `mean_n01`, `mean_n00`: Contingency averages
-- `mean_r`, `max_r`, `min_r`: Phi statistics
 
 ### Metrics
 
@@ -563,10 +559,10 @@ immunediscover analyze haplotype <input> <output> [options]
 
 ### Inputs/Outputs
 
-**Input:** TSV with `case`, `gene`, `db_name` (allele), `count` columns. Typically from `search exact` or `search blast`.
+**Input:** TSV with `case`, `gene`, `db_name` (allele), `count` columns. Typically from `search exact` or `discover blast`.
 
 **Output: {output}.tsv**:
-- `case`, `gene`, `genotype` (homozygous/heterozygous/uncertain)
+- `case`, `gene`, `genotype` (homozygous/heterozygous/duplication)
 - `allele_1`, `allele_2`: Primary and secondary alleles
 - `count_1`, `count_2`: Respective counts
 - `ratio`: Minor/major ratio (count_2 / count_1)
