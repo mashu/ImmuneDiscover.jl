@@ -155,11 +155,15 @@ module Bwa
 
         @showprogress for (nallele, (name, sequence)) in enumerate(sequences)
             record = FASTA.Record(name, sequence)
+            # Match ANY genome: accept on the first genome that maps to the target
+            # chromosome and stop. result/position/etc default to false/"" so a sequence
+            # matching no genome stays unmatched (previously the last genome overwrote
+            # earlier matches, making the outcome order-dependent).
+            last_bad = nothing  # (genome_file, bad_chromosome) for discard reporting if nothing matches
             for (genome_file, aligner) in aligners
                 alns = BurrowsWheelerAligner.align(aligner, record)
                 if length(alns) == 0
                     @info "$name does **NOT** align to the $genome_file uniquely or at all (skipping)"
-                    result[nallele] = false
                     continue
                 end
                 max_score = maximum(map(x -> x.score, alns))
@@ -189,11 +193,13 @@ module Bwa
                     else
                         edit_distance[nallele] = best_aln.is_rev_is_alt_mapq_NM >> 10 & 0x003fffff
                     end
-                else
-                    bad_chromosome = first(nomatch)
-                    push!(discard, (genome_file, name, bad_chromosome))
-                    result[nallele] = false
+                    break  # accepted on this genome; do not let later genomes overwrite
+                elseif !isempty(nomatch)
+                    last_bad = (genome_file, first(nomatch))
                 end
+            end
+            if !result[nallele] && last_bad !== nothing
+                push!(discard, (last_bad[1], name, last_bad[2]))
             end
         end
         discarded = Vector{String}()
