@@ -1043,6 +1043,15 @@ test_outcomes = Dict(
         end
     end
 
+    @testset "heptamer extract handles short alleles" begin
+        # An allele shorter than the b+e trim must yield no matches, not crash.
+        tbl = DataFrame(well=[1], case=["D1"], name=["r1"],
+                        genomic_sequence=["ACGTACGTACGTCACAGTGACGT"])
+        db = [("IGHVshort*01", "ACG")]   # length 3 < b(1)+e(8)
+        hdf = Heptamer.extract_heptamers(tbl, db, ["CACAGTG"]; max_dist=0, b=1, e=8)
+        @test nrow(hdf) == 0
+    end
+
     @testset "cooccurrence CLI" begin
         empty!(ARGS)
         append!(ARGS, ["analyze", "cooccurrence", "test_input.tsv"])

@@ -30,7 +30,9 @@ module Heptamer
             query_name, query_seq = pair
             ProgressMeter.next!(p; showvalues = [(:query_name, query_name)])
             query = query_seq[b:end-e]
-            subtable = table[occursin.(query, table.genomic_sequence),:]
+            # Guard: an allele shorter than the b+e trim yields an empty query; matching ""
+            # against reads would later make findfirst return an empty range and crash.
+            subtable = isempty(query) ? table[1:0, :] : table[occursin.(query, table.genomic_sequence),:]
             short = Vector{Tuple{String, String, String, Int, Int, String, String}}()
             @inbounds for row in eachrow(subtable)
                 genomic_sequence = row[:genomic_sequence]

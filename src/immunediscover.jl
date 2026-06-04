@@ -68,7 +68,7 @@ module immunediscover
     )
 
     const ANALYZE_HANDLERS = Dict{String, Function}(
-        "cooccurrence" => (pa) -> Cooccurrence.handle_cooccurrence(pa, Cli.always_gz),
+        "cooccurrence" => (pa) -> Cooccurrence.handle_cooccurrence(pa),
         "haplotype"    => (pa) -> Haplotype.handle_haplotype(pa),
     )
 

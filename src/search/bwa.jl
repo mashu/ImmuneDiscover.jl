@@ -218,7 +218,10 @@ module Bwa
         @info "BWA search to filter candidates if they match correct chromosome"
         df = CSV.File(parsed_args["search"]["bwa"]["tsv"], delim='\t') |> DataFrame
         chromosome_name = parsed_args["search"]["bwa"]["chromosome"]
-        outtsv = parsed_args["search"]["bwa"]["output"]
+        out_arg = parsed_args["search"]["bwa"]["output"]
+        # Output is gzip-compressed (compress=true); force a .gz name so it isn't a
+        # gzip stream behind a plain .tsv name, consistent with the other commands.
+        outtsv = always_gz(out_arg)
         genome = parsed_args["search"]["bwa"]["genome"]
         colname = parsed_args["search"]["bwa"]["colname"]
         colseq = parsed_args["search"]["bwa"]["colseq"]
@@ -229,7 +232,7 @@ module Bwa
             (row[colname], concatenated_sequence)
         end
 
-        discarded_path = string(outtsv, ".discarded.tsv")
+        discarded_path = string(out_arg, ".discarded.tsv")
         indices, position, edit_dist, ref_seq, orient, cigar_str = bwa_sequences(genome, sequences, chromosome_name, tag=tag, discarded_path=discarded_path)
         df[:, :position] = position
         df[:, :edit_distance] = edit_dist

@@ -304,7 +304,7 @@ module Cooccurrence
         return edges
     end
 
-    function handle_cooccurrence(parsed_args, always_gz)
+    function handle_cooccurrence(parsed_args)
         @info "Co-occurrence analysis (Jaccard + support)"
         block = parsed_args["analyze"]["cooccurrence"]
         tsv = block["input"]
