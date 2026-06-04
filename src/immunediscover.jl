@@ -54,84 +54,47 @@ module immunediscover
 
     export load_fasta, blast_discover
 
-    # --- Command dispatch tables ---
+    # --- Command dispatch: one method per subcommand, dispatched on the Cli.Command
+    #     singleton (defined in cmd/cli.jl). Handlers live in the submodules. ---
 
-    const DISCOVER_HANDLERS = Dict{String, Function}(
-        "blast" => (pa) -> Blast.handle_blast(pa, immunediscover, Cli.always_gz),
-        "hsmm"  => (pa) -> HSMM.handle_hsmm(pa),
-    )
-
-    const SEARCH_HANDLERS = Dict{String, Function}(
-        "exact"    => (pa) -> Exact.handle_exact(pa, immunediscover, Cli.always_gz),
-        "heptamer" => (pa) -> Heptamer.handle_heptamer(pa, immunediscover, Cli.always_gz),
-        "bwa"      => (pa) -> Bwa.handle_bwa(pa, immunediscover, Cli.always_gz),
-    )
-
-    const ANALYZE_HANDLERS = Dict{String, Function}(
-        "cooccurrence" => (pa) -> Cooccurrence.handle_cooccurrence(pa),
-        "haplotype"    => (pa) -> Haplotype.handle_haplotype(pa),
-    )
-
-    const PREPROCESS_HANDLERS = Dict{String, Function}(
-        "demultiplex" => (pa) -> Demultiplex.handle_demultiplex(pa, Cli.always_gz),
-    )
-
-    const FASTA_HANDLERS = Dict{String, Function}(
-        "merge" => (pa) -> Merge.handle_merge(pa),
-        "diff"  => (pa) -> Fasta.handle_fasta_diff(pa, immunediscover),
-        "hash"  => (pa) -> Fasta.handle_fasta_hash(pa, immunediscover),
-    )
-
-    const TOPLEVEL_HANDLERS = Dict{String, Function}(
-        "table" => (pa) -> Table.handle_table(pa, immunediscover, Cli.always_gz),
-    )
-
-    const GROUP_HANDLERS = Dict{String, Dict{String, Function}}(
-        "discover"   => DISCOVER_HANDLERS,
-        "search"     => SEARCH_HANDLERS,
-        "analyze"    => ANALYZE_HANDLERS,
-        "preprocess" => PREPROCESS_HANDLERS,
-        "fasta"      => FASTA_HANDLERS,
-    )
-
-    """
-        dispatch_subcommand(parsed_args, group_key, handlers)
-
-    Look up and execute the subcommand handler from a dispatch table.
-    """
-    function dispatch_subcommand(parsed_args, group_key, handlers)
-        subcmd = get(parsed_args[group_key], "%COMMAND%", "")
-        handler = get(handlers, subcmd, nothing)
-        if handler !== nothing
-            handler(parsed_args)
-        else
-            @warn "Unknown $group_key subcommand: $subcmd"
-        end
-    end
+    Cli.run_command(::Cli.PreprocessDemultiplex, pa) = Demultiplex.handle_demultiplex(pa, Cli.always_gz)
+    Cli.run_command(::Cli.DiscoverBlast, pa)        = Blast.handle_blast(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.DiscoverHsmm, pa)         = HSMM.handle_hsmm(pa)
+    Cli.run_command(::Cli.SearchExact, pa)          = Exact.handle_exact(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.SearchHeptamer, pa)       = Heptamer.handle_heptamer(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.SearchBwa, pa)            = Bwa.handle_bwa(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.AnalyzeCooccurrence, pa)  = Cooccurrence.handle_cooccurrence(pa)
+    Cli.run_command(::Cli.AnalyzeHaplotype, pa)     = Haplotype.handle_haplotype(pa)
+    Cli.run_command(::Cli.TableOuterjoin, pa)       = Table.handle_outerjoin(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableLeftjoin, pa)        = Table.handle_leftjoin(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableTransform, pa)       = Table.handle_transform(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableAggregate, pa)       = Table.handle_aggregate(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableUnique, pa)          = Table.handle_unique(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableSort, pa)            = Table.handle_sort(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableFilter, pa)          = Table.handle_filter(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableSelect, pa)          = Table.handle_select(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableFasta, pa)           = Table.handle_fasta_export(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableCollect, pa)         = Table.handle_collect(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.TableExclude, pa)         = Table.handle_exclude(pa, immunediscover, Cli.always_gz)
+    Cli.run_command(::Cli.FastaMerge, pa)           = Merge.handle_merge(pa)
+    Cli.run_command(::Cli.FastaDiff, pa)            = Fasta.handle_fasta_diff(pa, immunediscover)
+    Cli.run_command(::Cli.FastaHash, pa)            = Fasta.handle_fasta_hash(pa, immunediscover)
 
     """
         real_main(args=[])
 
-    Main entry point — routes top-level and grouped subcommands via dispatch tables.
+    Main entry point — parse the command line, resolve the Command, and run it.
     """
     function real_main(args=[])
         parsed_args = parse_commandline(args)
-        if parsed_args === nothing
+        parsed_args === nothing && return
+        cmd = Cli.command_for(parsed_args)
+        if cmd === nothing
+            @warn "Unknown or missing command: $(get(parsed_args, "%COMMAND%", ""))"
             return
         end
-
-        cmd = get(parsed_args, "%COMMAND%", "")
-
-        toplevel = get(TOPLEVEL_HANDLERS, cmd, nothing)
-        if toplevel !== nothing
-            toplevel(parsed_args)
-            return
-        end
-
-        handlers = get(GROUP_HANDLERS, cmd, nothing)
-        if handlers !== nothing
-            dispatch_subcommand(parsed_args, cmd, handlers)
-        end
+        Cli.run_command(cmd, parsed_args)
+        return
     end
 
     """

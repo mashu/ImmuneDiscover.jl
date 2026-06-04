@@ -5,7 +5,7 @@ module Table
     using Glob
 
     export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv, sort_tsv, select_tsv
-    export handle_table
+    # Per-subcommand handlers (handle_*) are accessed qualified by the dispatch layer.
 
     "Parse a comma-separated CLI value into trimmed column names."
     parse_csv_list(s::AbstractString) = String.(strip.(split(s, ',')))
@@ -448,29 +448,5 @@ module Table
         end
         output = always_gz(parsed_args["table"]["exclude"]["output"])
         CSV.write(output, data_df, compress=true, delim='\t')
-    end
-
-    const TABLE_HANDLERS = Dict{String, Function}(
-        "outerjoin"  => handle_outerjoin,
-        "leftjoin"   => handle_leftjoin,
-        "transform"  => handle_transform,
-        "aggregate"  => handle_aggregate,
-        "unique"     => handle_unique,
-        "sort"       => handle_sort,
-        "filter"     => handle_filter,
-        "select"     => handle_select,
-        "fasta"      => handle_fasta_export,
-        "collect"    => handle_collect,
-        "exclude"    => handle_exclude,
-    )
-
-    function handle_table(parsed_args, immunediscover_module, always_gz)
-        subcmd = get(parsed_args["table"], "%COMMAND%", "")
-        handler = get(TABLE_HANDLERS, subcmd, nothing)
-        if handler !== nothing
-            handler(parsed_args, immunediscover_module, always_gz)
-        else
-            @warn "Unknown table subcommand: $subcmd"
-        end
     end
 end
