@@ -271,8 +271,8 @@ module Exact
     # ========================== Utility ==========================
 
     function get_ratio(expect_dict, row, ratio)
-        row.db_name in keys(expect_dict) && (@info "Skipping allelic ratio filters for $(row.db_name) in case $(row.case)"; return 0)
-        row.gene in keys(expect_dict) && (@info "Skipping gene ratio filters for $(row.db_name) in case $(row.case)"; return 0)
+        row.db_name in keys(expect_dict) && (@info "Skipping allelic ratio filters for $(row.db_name) in case $(row.case)"; return 0.0)
+        row.gene in keys(expect_dict) && (@info "Skipping gene ratio filters for $(row.db_name) in case $(row.case)"; return 0.0)
         return ratio
     end
 
@@ -403,8 +403,13 @@ module Exact
         transform!(groupby(df, [:well, :case, :gene]), :count => (x->x./maximum(x)) => :ratio)
         sort!(df, [:full_count, :count], rev=[true, true])
         udf = sort(unique(df),[:well, :case, :gene, :db_name, :sequence])
-        filter!(row -> (row.full_count >= mincount) & (row.full_ratio >= get_ratio(expect_dict, row, minratio)), udf)
-        filter!(row -> (row.count >= mincount) && (row.ratio >= get_ratio(expect_dict, row, minratio)), udf)
+        # Single pass over count/full_count and their ratios; get_ratio (with its
+        # per-allele skip logging) is evaluated once per row instead of twice.
+        filter!(udf) do row
+            thr = get_ratio(expect_dict, row, minratio)
+            (row.full_count >= mincount) && (row.full_ratio >= thr) &&
+                (row.count >= mincount) && (row.ratio >= thr)
+        end
 
         priority_columns = ["well", "case", "gene", "db_name", "count", "full_count", "ratio", "full_ratio"]
         remaining_columns = setdiff(names(udf), priority_columns)
@@ -444,6 +449,20 @@ module Exact
         return sequence_lookup
     end
 
+    """
+        load_ratio_dict(path) -> Dict{String,Float64}
+
+    Load a per-allele/per-gene ratio threshold file (columns `name`, `ratio`) into a typed
+    dict. Returns an empty typed dict when `path` is nothing (no throwaway DataFrame).
+    """
+    function load_ratio_dict(path)
+        path === nothing && return Dict{String,Float64}()
+        df = CSV.read(path, DataFrame, delim='\t')
+        @assert all(n in names(df) for n in ["name", "ratio"]) "ratio file $path must have columns: name, ratio"
+        @info "Using ratio file $path with $(nrow(df)) entries"
+        return Dict{String,Float64}(string(n) => Float64(r) for (n, r) in zip(df.name, df.ratio))
+    end
+
     # ========================== CLI handler ==========================
 
     function handle_exact(parsed_args, immunediscover_module, always_gz)
@@ -479,15 +498,8 @@ module Exact
         expect = parsed_args["search"]["exact"]["expect"]
         deletion = parsed_args["search"]["exact"]["deletion"]
 
-        expect_df = DataFrame(name=[], ratio=[])
-        expect !== nothing && (expect_df = CSV.read(expect, DataFrame, delim='\t'); @assert all([n in names(expect_df) for n in ["name","ratio"]]))
-        nrow(expect_df) > 0 && @info "Using expect file with $(nrow(expect_df)) entries"
-        expect_dict = Dict(zip(expect_df.name, expect_df.ratio))
-
-        deletion_df = DataFrame(name=[], ratio=[])
-        deletion !== nothing && (deletion_df = CSV.read(deletion, DataFrame, delim='\t'); @assert all([n in names(deletion_df) for n in ["name","ratio"]]))
-        nrow(deletion_df) > 0 && @info "Using deletion file with $(nrow(deletion_df)) entries"
-        deletion_dict = Dict(zip(deletion_df.name, deletion_df.ratio))
+        expect_dict = load_ratio_dict(expect)
+        deletion_dict = load_ratio_dict(deletion)
 
         raw = parsed_args["search"]["exact"]["raw"]
         locus = parsed_args["search"]["exact"]["locus"]

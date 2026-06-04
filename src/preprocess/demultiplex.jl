@@ -60,6 +60,8 @@ module Demultiplex
             close(writer)
         end
 
+        @info "Demultiplex scanned $total reads; dropped $short shorter than $min_length nt; matched $(length(records))"
+
         if isempty(records)
             @warn "No reads were demultiplexed. Check your indices and FASTQ file."
             return DataFrame(well=Int[], case=String[], name=String[], genomic_sequence=String[]),

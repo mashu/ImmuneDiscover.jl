@@ -120,8 +120,10 @@ module Cooccurrence
                                 min_donors::Int=1)
         case_sym = Symbol(case_col)
         allele_sym = Symbol(allele_col)
-        allele_counts = combine(groupby(df, allele_sym), nrow => :count)
-        valid_alleles = allele_counts[allele_counts.count .>= min_donors, allele_sym]
+        # min_donors is a donor threshold: count DISTINCT donors per allele, not rows
+        # (input may carry several rows per donor/allele, e.g. exact-search output).
+        donor_counts = combine(groupby(df, allele_sym), case_sym => (x -> length(unique(x))) => :n_donors)
+        valid_alleles = Set(donor_counts[donor_counts.n_donors .>= min_donors, allele_sym])
         filtered_df = filter(x -> x[allele_sym] in valid_alleles, df)
         donors, alleles, allele_to_donors = compute_presence_maps(filtered_df, case_sym, allele_sym)
         N = length(donors)

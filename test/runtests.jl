@@ -309,7 +309,6 @@ test_outcomes = Dict(
             # Summarize Heptamers Tests
             summary_df = Heptamer.summarize(
                 heptamer_df,
-                db,
                 ratio=parsed_args["search"]["heptamer"]["ratio"],
                 count=parsed_args["search"]["heptamer"]["mincount"]
             )
@@ -1030,6 +1029,15 @@ test_outcomes = Dict(
         q = Cooccurrence.adjust_bh([0.01, 0.02, 0.03, 0.04])
         @test all(isapprox.(q, 0.04; atol=1e-12))
         @test all(0.0 .<= Cooccurrence.adjust_bh([0.5, 0.001, 0.9, 0.2]) .<= 1.0)
+
+        # min_donors is a DONOR threshold, not a row count: X*01 has 5 rows but 1 donor.
+        df_rows = DataFrame(
+            case    = ["D1","D1","D1","D1","D1","D2","D3"],
+            db_name = ["X*01","X*01","X*01","X*01","X*01","Y*01","Y*01"],
+        )
+        s2 = Cooccurrence.compute_full_stats(df_rows; case_col="case", allele_col="db_name", min_donors=2)
+        @test !("X*01" in String.(s2.alleles))   # 5 rows but only 1 donor → excluded
+        @test "Y*01" in String.(s2.alleles)       # 2 donors → included
     end
 
     @testset "table exclude" begin

@@ -166,19 +166,19 @@ module Data
         get_ratio_threshold(expect_dict, row; type="allele_ratio")
 
     Look up a per-allele or per-gene ratio threshold from expect_dict.
-    Returns the threshold value if found, otherwise 0.
+    Returns the threshold value (as Float64) if found, otherwise 0.0.
     """
     function get_ratio_threshold(expect_dict, row; type="allele_ratio")
         val = get(expect_dict, row.db_name, nothing)
         if val !== nothing
             @info "Applying $type >= $val for $(row.db_name)"
-            return val
+            return Float64(val)
         end
         val = get(expect_dict, row.gene, nothing)
         if val !== nothing
             @info "Applying $type >= $val for $(row.db_name)"
-            return val
+            return Float64(val)
         end
-        return 0
+        return 0.0
     end
 end
