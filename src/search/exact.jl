@@ -425,7 +425,9 @@ module Exact
         ref_row = filter(row -> startswith(row.db_name, name), group_df)
         ref_count = 1
         well, case = first(map(r->(r.well, r.case), eachrow(unique(group_df, [:well,:case]))))
-        isempty(ref_row) ? (@warn "Reference name $name not found in well $well and case $case") : (@info "Applying name $name to well $well and case $case"; ref_count = ref_row.count)
+        # sum() over the reference gene's alleles → a scalar denominator. Using ref_row.count
+        # (a vector) errored with DimensionMismatch whenever the refgene matched >1 allele.
+        isempty(ref_row) ? (@warn "Reference name $name not found in well $well and case $case") : (@info "Applying name $name to well $well and case $case"; ref_count = sum(ref_row.count))
         group_df[!, "$(count_col)_$(first(split(name,'*')))_ratio"] = group_df[:, count_col] ./ ref_count
         return group_df
     end

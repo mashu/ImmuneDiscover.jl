@@ -546,6 +546,21 @@ test_outcomes = Dict(
         end
     end
 
+    @testset "exact grouped_ratios refgene (multi-allele)" begin
+        # A refgene that matches several alleles in a (well,case) must use a scalar
+        # (summed) reference count, not a vector (which previously DimensionMismatch'd).
+        cdf = DataFrame(
+            well = [1, 1, 1], case = ["D1", "D1", "D1"],
+            db_name = ["IGHV3-23*01", "IGHV3-23*02", "IGHV1-2*01"],
+            count = [10, 30, 20],
+        )
+        out = Exact.grouped_ratios(cdf, "IGHV3-23", count_col=:count)
+        col = "count_IGHV3-23_ratio"
+        @test col in names(out)
+        @test out[out.db_name .== "IGHV1-2*01", col][1] ≈ 20 / 40   # 20 / (10+30)
+        @test out[out.db_name .== "IGHV3-23*02", col][1] ≈ 30 / 40
+    end
+
     @testset "blast accumulate_affixes" begin
         # A gene present in reads is extended by its common flanks; a decoy/pseudo absent
         # from the reads survives as an unextended singleton (so -p decoys reach the DB).
