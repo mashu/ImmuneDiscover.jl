@@ -1,0 +1,51 @@
+function add_fasta_args!(s)
+        @add_arg_table! s["fasta"] begin
+            "merge"
+                help = "Merge multiple FASTA files, keeping only unique sequences"
+                action = :command
+            "diff"
+                help = "Diff two FASTA files based on sequence identity but keep associated names"
+                action = :command
+            "hash"
+                help = "Add hash based _S suffix to all allele names in the FASTA file"
+                action = :command
+        end
+
+        @add_arg_table! s["fasta"]["merge"] begin
+        "output"
+            help = "Output merged FASTA file"
+            required = true
+        "inputs"
+            help = "Input FASTA files to merge (2 or more files)"
+            nargs = '+'
+            required = true
+        "-c", "--cleanup"
+            help = "Optional regex pattern to remove from sequence names (e.g., ' Novel')"
+            default = nothing
+            arg_type = Union{String, Nothing}
+        "--no-sort"
+            help = "Disable sorting sequences by name (default: sort enabled)"
+            action = :store_true
+        "--prefer-last"
+            help = "When duplicate sequences have different names, prefer the last encountered (default: prefer first)"
+            action = :store_true
+        "--add-source-prefix"
+            help = "Add source filename as prefix to sequence names"
+            action = :store_true
+        end
+
+        @add_arg_table! s["fasta"]["diff"] begin
+            "fasta"
+                help = "FASTA files with sequences"
+                nargs = '+'
+                required = true
+        end
+
+        @add_arg_table! s["fasta"]["hash"] begin
+        "fastain"
+            help = "Input FASTA file path"
+            required = true
+        end
+
+    return s
+end
