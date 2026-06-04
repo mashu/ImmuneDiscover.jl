@@ -135,27 +135,23 @@ module Cooccurrence
                                         min_donors::Int=1,
                                         min_support::Int=3,
                                         min_jaccard::Float64=0.2)
+        # Reuse the single matrix computation (rho/jaccard/support/p) instead of
+        # recomputing phi/jaccard/hypergeometric per pair.
         stats = compute_full_stats(df; case_col=case_col, allele_col=allele_col, min_donors=min_donors)
         alleles = stats.alleles
         allele_to_donors = stats.allele_to_donors
-        N = stats.N
+        R, J, SUP, P = stats.R, stats.J, stats.SUP, stats.P
         rows = NamedTuple{(:allele_a,:allele_b,:n_a,:n_b,:n_shared,:jaccard,:rho,:p_enrich), Tuple{String,String,Int,Int,Int,Float64,Float64,Float64}}[]
         for i in 1:(length(alleles)-1)
             ai = String(alleles[i])
-            donors_a = allele_to_donors[ai]
-            n_a = length(donors_a)
+            n_a = length(allele_to_donors[ai])
             for j in (i+1):length(alleles)
-                bj = String(alleles[j])
-                donors_b = allele_to_donors[bj]
-                n_b = length(donors_b)
-                jac, n11 = jaccard_index(donors_a, donors_b)
+                n11 = SUP[i, j]
+                jac = J[i, j]
                 if (n11 >= min_support) && (jac >= min_jaccard)
-                    n10 = length(setdiff(donors_a, donors_b))
-                    n01 = length(setdiff(donors_b, donors_a))
-                    n00 = N - (n11 + n10 + n01)
-                    rho = phi_coefficient(n11, n10, n01, n00)
-                    p = hypergeom_p_enrichment(N, n_a, n_b, n11)
-                    push!(rows, (allele_a=ai, allele_b=bj, n_a=n_a, n_b=n_b, n_shared=n11, jaccard=jac, rho=rho, p_enrich=p))
+                    bj = String(alleles[j])
+                    push!(rows, (allele_a=ai, allele_b=bj, n_a=n_a, n_b=length(allele_to_donors[bj]),
+                                 n_shared=n11, jaccard=jac, rho=R[i, j], p_enrich=P[i, j]))
                 end
             end
         end
@@ -287,7 +283,8 @@ module Cooccurrence
     """
         build_edges_from_matrices(R, J, SUP, P, alleles) -> DataFrame
 
-    Convert rho/jaccard/support/pvalue matrices into an edges DataFrame.
+    Convert rho/jaccard/support/pvalue matrices into an edges DataFrame, adding a
+    Benjamini–Hochberg `q_value` for the enrichment p-values (multiple-testing control).
     """
     function build_edges_from_matrices(R, J, SUP, P, alleles)
         n = length(alleles)
@@ -300,7 +297,9 @@ module Cooccurrence
                              rho=R[i,j], jaccard=J[i,j], support=SUP[i,j], p_value=P[i,j]))
             end
         end
-        return DataFrame(rows)
+        edges = DataFrame(rows)
+        edges[:, :q_value] = nrow(edges) > 0 ? adjust_bh(Vector{Float64}(edges[:, :p_value])) : Float64[]
+        return edges
     end
 
     function handle_cooccurrence(parsed_args, always_gz)

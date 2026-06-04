@@ -986,6 +986,18 @@ test_outcomes = Dict(
         @test length(stats.alleles) > 0
         @test stats.N == 4
         @test size(stats.R, 1) == length(stats.alleles)
+
+        # Shipped CLI edge builder must carry Benjamini–Hochberg q-values.
+        edges_m = Cooccurrence.build_edges_from_matrices(stats.R, stats.J, stats.SUP, stats.P, String.(stats.alleles))
+        @test "q_value" in names(edges_m)
+        @test nrow(edges_m) > 0
+        @test all(0.0 .<= edges_m.q_value .<= 1.0)
+
+        # Benjamini–Hochberg correction: monotone, in [0,1], empty-safe.
+        @test Cooccurrence.adjust_bh(Float64[]) == Float64[]
+        q = Cooccurrence.adjust_bh([0.01, 0.02, 0.03, 0.04])
+        @test all(isapprox.(q, 0.04; atol=1e-12))
+        @test all(0.0 .<= Cooccurrence.adjust_bh([0.5, 0.001, 0.9, 0.2]) .<= 1.0)
     end
 
     @testset "table exclude" begin
