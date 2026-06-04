@@ -716,7 +716,7 @@ module Cli
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "-i", "--isin"
-            help = "Keep sequences that are substrings of known alleles"
+            help = "On by default: a non-exact candidate whose trimmed sequence is an exact substring of a known allele is labelled with that allele. Pass -i/--isin to disable, always emitting a novel hashed name instead."
             action = :store_false
         "--keep-failed"
             help = "Keep rows where trimming failed (aln_qseq empty). By default such rows are dropped."

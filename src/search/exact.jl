@@ -408,7 +408,7 @@ module Exact
 
         priority_columns = ["well", "case", "gene", "db_name", "count", "full_count", "ratio", "full_ratio"]
         remaining_columns = setdiff(names(udf), priority_columns)
-        udf[:, vcat(priority_columns, remaining_columns)]
+        udf = udf[:, vcat(priority_columns, remaining_columns)]
         gdf = groupby(udf, [:well, :case, :gene, :db_name, :sequence])
         udf_indexed = transform(gdf, :well => (x -> 1:length(x)) => :flank_index)
         return filter(x->x.flank_index <= N, udf_indexed)

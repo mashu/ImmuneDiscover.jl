@@ -12,7 +12,7 @@ module Heptamer
 
     function find_heptamer(suffix, heptamer_iter; max_dist=1, heptamer_length=7)
         for d in 0:max_dist
-            for k in 1:length(suffix)-heptamer_length
+            for k in 1:length(suffix)-heptamer_length+1
                 for heptamer in heptamer_iter
                     if evaluate(Hamming(), heptamer, suffix[k:k+heptamer_length-1]) <= d
                         return k

@@ -158,11 +158,6 @@ function extract_dgene(sequence::AbstractString, model::DGeneRSSHSMM)
     return (gene_seq=r.gene_seq, prefix_start=r.prefix_start, prefix_end=r.prefix_end, gene_start=r.gene_start, gene_end=r.gene_end, suffix_start=r.suffix_start, suffix_end=r.suffix_end, log_prob=r.log_path_prob)
 end
 
-function from_pwm_and_duration(pn,ps,ph,oh,os,on,ge_logp,dur)
-    @assert size(pn)==(9,4);@assert size(ps)==(12,4);@assert size(ph)==(7,4);@assert size(oh)==(7,4);@assert size(os)==(12,4);@assert size(on)==(9,4)
-    DGeneRSSHSMM(FixedMotif{9,PWMLogEmission{9}}(PWMLogEmission{9}(pn)),FixedMotif{12,PWMLogEmission{12}}(PWMLogEmission{12}(ps)),FixedMotif{7,PWMLogEmission{7}}(PWMLogEmission{7}(ph)),DGeneState{IIDLogEmission,DiscreteDuration}(IIDLogEmission(ge_logp),dur),FixedMotif{7,PWMLogEmission{7}}(PWMLogEmission{7}(oh)),FixedMotif{12,PWMLogEmission{12}}(PWMLogEmission{12}(os)),FixedMotif{9,PWMLogEmission{9}}(PWMLogEmission{9}(on)))
-end
-
     # Typed buffer row for HSMM scan results
     const HSMMScanRow = NamedTuple{
         (:well,:case,:sequence,:pre_nonamer,:pre_spacer,:pre_heptamer,
@@ -174,7 +169,7 @@ end
        AbstractHSMMState, FixedMotif, DGeneState, DGeneRSSHSMM,
        build_pwm_log, estimate_iid_log_emission, empirical_duration,
        discretize_truncated_normal, fit_dgene_rss_hsmm, extract_dgene,
-       from_pwm_and_duration, encode_dna, handle_hsmm
+       encode_dna, handle_hsmm
 
 function run_hsmm(tsv::String, fasta_path::String, output::String;
     ratio::Float64=0.2, mincount::Int=5, min_gene_len::Int=0, max_gene_len::Int=0,
