@@ -50,14 +50,10 @@ module Merge
             
             open(FASTA.Reader, input_file) do reader
                 for record in reader
-                    identifier = FASTA.identifier(record)
-                    description = FASTA.description(record)
-                    # Only add description if it's different from identifier to avoid duplicates
-                    if isempty(description) || description == identifier
-                        name = identifier
-                    else
-                        name = "$identifier $description"
-                    end
+                    # FASTA.description returns the full header (identifier + any trailing
+                    # description), matching how Data.load_fasta treats names; use it directly
+                    # so multi-token headers don't get the identifier duplicated.
+                    name = string(FASTA.description(record))
                     sequence = string(FASTA.sequence(record))
                     
                     # Clean up name if cleanup pattern is specified

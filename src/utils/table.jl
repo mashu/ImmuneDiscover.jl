@@ -7,6 +7,9 @@ module Table
     export outerjoin_tsv, leftjoin_tsv, filter_tsv, transform_tsv, aggregate_tsv, unique_tsv, sort_tsv, select_tsv
     export handle_table
 
+    "Parse a comma-separated CLI value into trimmed column names."
+    parse_csv_list(s::AbstractString) = String.(strip.(split(s, ',')))
+
     # --- Unified join implementation ---
 
     """
@@ -300,15 +303,15 @@ module Table
 
     function route_join(parsed_args, subcmd, how)
         block = parsed_args["table"][subcmd]
-        left_keys = split(block["keys"], ",")
+        left_keys = parse_csv_list(block["keys"])
         right_keys = get(block, "right-keys", nothing)
-        if right_keys !== nothing; right_keys = split(right_keys, ","); end
+        if right_keys !== nothing; right_keys = parse_csv_list(right_keys); end
         left_prefix = get(block, "left-prefix", nothing)
         right_prefix = get(block, "right-prefix", nothing)
         left_select = get(block, "left-select", nothing)
         right_select = get(block, "right-select", nothing)
-        if left_select !== nothing; left_select = split(left_select, ","); end
-        if right_select !== nothing; right_select = split(right_select, ","); end
+        if left_select !== nothing; left_select = parse_csv_list(left_select); end
+        if right_select !== nothing; right_select = parse_csv_list(right_select); end
 
         join_tsv(block["left"], block["right"], block["output"];
                  how=how, left_keys=left_keys, right_keys=right_keys,
@@ -341,10 +344,10 @@ module Table
 
     function handle_aggregate(parsed_args, _, _)
         @info "Aggregating TSV file"
-        group_by = split(parsed_args["table"]["aggregate"]["group-by"], ",")
+        group_by = parse_csv_list(parsed_args["table"]["aggregate"]["group-by"])
         keep_columns = get(parsed_args["table"]["aggregate"], "keep-columns", nothing)
         if keep_columns !== nothing
-            keep_columns = split(keep_columns, ",")
+            keep_columns = parse_csv_list(keep_columns)
         end
         count_column = get(parsed_args["table"]["aggregate"], "count-column", "count")
         aggregate_tsv(
@@ -355,12 +358,12 @@ module Table
     end
 
     function handle_unique(parsed_args, _, _)
-        columns = split(parsed_args["table"]["unique"]["columns"], ",")
+        columns = parse_csv_list(parsed_args["table"]["unique"]["columns"])
         unique_tsv(parsed_args["table"]["unique"]["input"], parsed_args["table"]["unique"]["output"]; columns=columns)
     end
 
     function handle_sort(parsed_args, _, _)
-        columns = split(parsed_args["table"]["sort"]["columns"], ",")
+        columns = parse_csv_list(parsed_args["table"]["sort"]["columns"])
         reverse = get(parsed_args["table"]["sort"], "reverse", false)
         sort_tsv(parsed_args["table"]["sort"]["input"], parsed_args["table"]["sort"]["output"]; columns=columns, reverse=reverse)
     end
@@ -375,7 +378,7 @@ module Table
     end
 
     function handle_select(parsed_args, _, _)
-        columns = split(parsed_args["table"]["select"]["columns"], ",")
+        columns = parse_csv_list(parsed_args["table"]["select"]["columns"])
         select_tsv(parsed_args["table"]["select"]["input"], parsed_args["table"]["select"]["output"]; columns=columns)
     end
 

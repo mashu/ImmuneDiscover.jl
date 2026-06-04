@@ -67,15 +67,15 @@ function (gf::GermlineFilter)(df::DataFrame)
     for criterion in gf.criteria
         before = nrow(df)
         filter!(row -> passes(row, criterion), df)
-        _print_filter_step(criterion.label, nrow(df), before)
+        report_filter_step(criterion.label, nrow(df), before)
     end
-    _print_filter_total(start_rows, nrow(df))
+    report_filter_summary(start_rows, nrow(df))
     return df
 end
 
 # --- Colored diagnostics for the filter cascade (respects the terminal's color support) ---
 
-function _print_filter_step(label::AbstractString, kept::Int, before::Int)
+function report_filter_step(label::AbstractString, kept::Int, before::Int)
     removed = before - kept
     printstyled("  ✓ "; color = :green, bold = true)
     print(rpad(label, 34), " ")
@@ -85,8 +85,7 @@ function _print_filter_step(label::AbstractString, kept::Int, before::Int)
     println()
 end
 
-function _print_filter_total(start_rows::Int, kept::Int)
-    removed = start_rows - kept
+function report_filter_summary(start_rows::Int, kept::Int)
     printstyled("  Σ "; color = :blue, bold = true)
     print("kept ")
     printstyled(string(kept); color = (kept == 0 ? :light_red : :green), bold = true)
