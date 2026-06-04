@@ -7,6 +7,10 @@ module Cli
     using Logging
     using Dates
 
+    # Allowed values for the gene / chain selectors (shared across arg tables).
+    const GENES = ["V", "D", "J"]
+    const CHAINS = ["IGKV", "IGLV", "IGHV"]
+
     # CLI defaults for blast command - single source of truth (based on v0.0.66)
     const BLAST_CLI_DEFAULTS = Dict(
         "forward" => 20,
@@ -159,18 +163,20 @@ module Cli
         endswith(file_path, ".gz") ? file_path : file_path * ".gz"
     end
 
-    """
-        parse_commandline(args)
+    "Append the invocation to immunediscover.log; never aborts the run."
+    function log_invocation(args)
+        logpath = "immunediscover.log"
+        isdir(dirname(abspath(logpath))) || return nothing
+        open(logpath, "a") do io
+            with_logger(ConsoleLogger(io)) do
+                @info "$(software_version()) $(Dates.now()) - Parsing command line arguments: $args"
+            end
+        end
+        return nothing
+    end
 
-    Handle command line
-    """
-    function parse_commandline(args)
-        s = ArgParseSettings("Tool for processing immune NGS data",
-                            commands_are_required = true,
-                            version = "$(software_version()) (git $(software_git_hash()))",
-                            add_version = true,
-                            usage = "usage: immunediscover <command> [-h|--help]",
-                            epilog = "GKHLab, $(software_version()) (git $(software_git_hash()))")
+    "Register the top-level command groups on the settings object."
+    function add_command_groups!(s)
         @add_arg_table! s begin
             "discover"
                 help = "De novo allele discovery (blast, hsmm)"
@@ -190,11 +196,23 @@ module Cli
             "fasta"
                 help = "FASTA utilities (merge, diff, hash)"
                 action = :command
-            end
+        end
+        return s
+    end
 
-        # Define the genes and choices for ArgParse
-        genes = ["V", "D", "J"]
-        choices = ["IGKV", "IGLV", "IGHV"]
+    """
+        parse_commandline(args)
+
+    Handle command line
+    """
+    function parse_commandline(args)
+        s = ArgParseSettings("Tool for processing immune NGS data",
+                            commands_are_required = true,
+                            version = "$(software_version()) (git $(software_git_hash()))",
+                            add_version = true,
+                            usage = "usage: immunediscover <command> [-h|--help]",
+                            epilog = "GKHLab, $(software_version()) (git $(software_git_hash()))")
+        add_command_groups!(s)
 
         @add_arg_table! s["preprocess"] begin
             "demultiplex"
@@ -614,9 +632,9 @@ module Cli
                 default = "heptamers.json"
             "-c", "--chain"
                 default = "IGHV"
-                range_tester = (x->x ∈ choices)
+                range_tester = (x->x ∈ CHAINS)
                 arg_type = String
-                help = "chain; must be one of " * join(choices, ", ", " or ")
+                help = "chain; must be one of " * join(CHAINS, ", ", " or ")
             "-d", "--maxdist"
                 help = "A positive integer indicating maximum Hamming distance from any of heptamers in JSON file"
                 arg_type = Int
@@ -794,9 +812,9 @@ module Cli
             action = :store_true
         "-g", "--gene"
             default = "V"
-            range_tester = (x->x ∈ genes)
+            range_tester = (x->x ∈ GENES)
             arg_type = String
-            help = "gene; must be one of " * join(genes, ", ", " or ")
+            help = "gene; must be one of " * join(GENES, ", ", " or ")
         "-a", "--affix"
             help = "Number of bases to extract from the non-RSS side of the sequence"
             arg_type = Int
@@ -1020,22 +1038,7 @@ module Cli
             arg_type = String
         end
 
-        # Log command invocation (non-critical, silently skip on any failure)
-        let logpath = "immunediscover.log"
-            io = nothing
-            opened = false
-            if isdir(dirname(abspath(logpath)))
-                io = open(logpath, "a")
-                opened = true
-            end
-            if opened
-                logger = ConsoleLogger(io)
-                with_logger(logger) do
-                    @info "$(software_version()) $(Dates.now()) - Parsing command line arguments: $args"
-                end
-                close(io)
-            end
-        end
+        log_invocation(args)
 
         # CLI-boundary catch: ArgParse throws ArgParseError by design for invalid user input.
         # This is the standard pattern and acceptable at the CLI entry point.
