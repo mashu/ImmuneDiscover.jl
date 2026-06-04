@@ -136,7 +136,7 @@ module Bwa
         return sum(c1 != c2 for (c1, c2) in zip(seq1, seq2))
     end
 
-    function bwa_sequences(genome_path, sequences, chromosome_name; tag="Primary Assembly")
+    function bwa_sequences(genome_path, sequences, chromosome_name; tag="Primary Assembly", discarded_path::Union{Nothing,String}=nothing)
         result = zeros(Bool, length(sequences))
         aligners = create_aligner(genome_path)
         discard = Accumulator{Tuple{String,String,String}, Int}()
@@ -201,8 +201,10 @@ module Bwa
             @info "Discarded $name matching $chr in $genome_file (total $n)"
             push!(discarded, name)
         end
-        CSV.write("/tmp/discarded.tsv", DataFrame(name=discarded), delim='\t')
-        @info "Discarded sequence names written to /tmp/discarded.tsv"
+        if discarded_path !== nothing
+            CSV.write(discarded_path, DataFrame(name=discarded), delim='\t')
+            @info "Discarded sequence names written to $discarded_path"
+        end
         return result, position, edit_distance, ref_sequence, orientation, cigar
     end
 
@@ -221,7 +223,8 @@ module Bwa
             (row[colname], concatenated_sequence)
         end
 
-        indices, position, edit_dist, ref_seq, orient, cigar_str = bwa_sequences(genome, sequences, chromosome_name, tag=tag)
+        discarded_path = string(outtsv, ".discarded.tsv")
+        indices, position, edit_dist, ref_seq, orient, cigar_str = bwa_sequences(genome, sequences, chromosome_name, tag=tag, discarded_path=discarded_path)
         df[:, :position] = position
         df[:, :edit_distance] = edit_dist
         df[:, :ref_sequence] = ref_seq

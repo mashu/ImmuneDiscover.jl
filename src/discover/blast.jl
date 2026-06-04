@@ -427,7 +427,8 @@ module Blast
         m = findfirst(nogaps(qseq), read)
         isnothing(m) && return missing, missing
         five_prime, three_prime = extrema(m)
-        return five_prime, length(read) - three_prime
+        # nt of read flanking the match on each side (symmetric: start-1 before, len-stop after)
+        return five_prime - 1, length(read) - three_prime
     end
 
     """
