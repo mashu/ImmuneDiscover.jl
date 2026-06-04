@@ -5,7 +5,7 @@ module Exact
     using Folds
     using FASTX
     using Statistics
-    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, CustomFilter
+    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, CustomFilter, add_group_ratio!
 
     # ========================== GeneType dispatch hierarchy ==========================
 
@@ -403,8 +403,8 @@ module Exact
 
         raw !== nothing && CSV.write(raw*".gz", result_df, delim='\t', compress=true)
 
-        transform!(groupby(df, [:well, :case, :gene]), :full_count => (x->x./maximum(x)) => :full_ratio)
-        transform!(groupby(df, [:well, :case, :gene]), :count => (x->x./maximum(x)) => :ratio)
+        add_group_ratio!(df, :full_count, [:well, :case, :gene], :full_ratio)
+        add_group_ratio!(df, :count, [:well, :case, :gene], :ratio)
         sort!(df, [:full_count, :count], rev=[true, true])
         udf = sort(unique(df),[:well, :case, :gene, :db_name, :sequence])
         # Single pass over count/full_count and their ratios; get_ratio (with its

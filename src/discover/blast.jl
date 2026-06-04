@@ -11,7 +11,7 @@ module Blast
     using Base.Threads: nthreads
 
     using ..Data: load_fasta as data_load_fasta, unique_name
-    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter
+    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter, add_group_ratio!
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
     export resolve_work_dir, blast_hits_gz_path
@@ -515,7 +515,7 @@ module Blast
         verbose && CSV.write(joinpath(run_dir, "clusters-mismatch.tsv"), clusters)
 
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
-        transform!(groupby(clusters, [:well, :case, :gene]), :full_count => (x -> x ./ maximum(x)) => :full_ratio)
+        add_group_ratio!(clusters, :full_count, [:well, :case, :gene], :full_ratio)
 
         return sort(clusters, [:well, :case, :sseqid], rev=false)
     end

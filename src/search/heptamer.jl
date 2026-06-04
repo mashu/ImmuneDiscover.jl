@@ -7,6 +7,7 @@ module Heptamer
     using JSON
     using CSV
     using ..Data
+    using ..Filters: add_group_ratio!
 
     export extract_heptamers, summarize, load_heptamers, handle_heptamer
 
@@ -71,7 +72,7 @@ module Heptamer
     function summarize(df; ratio=0.2, count=10)
         nrow(df) == 0 && return DataFrame()
         summary = combine(groupby(df, [:db_name, :sequence, :heptamer]), nrow => :count)
-        transform!(groupby(summary, :db_name), :count => (x -> x ./ maximum(x)) => :ratio)
+        add_group_ratio!(summary, :count, [:db_name], :ratio)
         filter!(x -> x.count >= count && x.ratio >= ratio, summary)
         sort!(summary, [:db_name, :count], rev=[false, true])
         return summary

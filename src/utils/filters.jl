@@ -1,10 +1,9 @@
 module Filters
 
 using DataFrames
-using Logging
 
 export FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter
-export GermlineFilter, passes, apply_filters!
+export GermlineFilter, passes, apply_filters!, add_group_ratio!
 
 abstract type FilterCriterion end
 
@@ -63,12 +62,54 @@ struct GermlineFilter
 end
 
 function (gf::GermlineFilter)(df::DataFrame)
+    isempty(gf.criteria) && return df
+    start_rows = nrow(df)
     for criterion in gf.criteria
         before = nrow(df)
         filter!(row -> passes(row, criterion), df)
-        @info "$(criterion.label): $(nrow(df))/$before rows kept"
+        _print_filter_step(criterion.label, nrow(df), before)
     end
+    _print_filter_total(start_rows, nrow(df))
     return df
+end
+
+# --- Colored diagnostics for the filter cascade (respects the terminal's color support) ---
+
+function _print_filter_step(label::AbstractString, kept::Int, before::Int)
+    removed = before - kept
+    printstyled("  ✓ "; color = :green, bold = true)
+    print(rpad(label, 34), " ")
+    printstyled(string(kept); color = :cyan, bold = true)
+    print("/$before kept")
+    removed > 0 && printstyled("  −$removed"; color = :light_red)
+    println()
+end
+
+function _print_filter_total(start_rows::Int, kept::Int)
+    removed = start_rows - kept
+    printstyled("  Σ "; color = :blue, bold = true)
+    print("kept ")
+    printstyled(string(kept); color = (kept == 0 ? :light_red : :green), bold = true)
+    print("/$start_rows")
+    start_rows > 0 && print(" (", round(100 * kept / start_rows; digits = 1), "%)")
+    println()
+end
+
+# Compact and pretty `show` for the GermlineFilter functor.
+function Base.show(io::IO, gf::GermlineFilter)
+    n = length(gf.criteria)
+    printstyled(io, "GermlineFilter"; color = :cyan, bold = true)
+    print(io, "(", n, n == 1 ? " criterion)" : " criteria)")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", gf::GermlineFilter)
+    printstyled(io, "GermlineFilter"; color = :cyan, bold = true)
+    println(io, " with $(length(gf.criteria)) criteria:")
+    for c in gf.criteria
+        printstyled(io, "  • "; color = :green)
+        printstyled(io, c.label; color = :yellow)
+        println(io)
+    end
 end
 
 """
@@ -78,6 +119,19 @@ Convenience: apply individual FilterCriterion values without constructing a Germ
 """
 function apply_filters!(df::DataFrame, criteria::FilterCriterion...)
     GermlineFilter(collect(FilterCriterion, criteria))(df)
+end
+
+"""
+    add_group_ratio!(df, value_col, group_cols, ratio_col)
+
+Add `ratio_col` = `value_col` divided by its per-group maximum (groups defined by
+`group_cols`). This is the standard "allelic ratio within gene" computed across the
+pipeline before applying a ratio threshold; factored here so every caller is consistent.
+Returns `df`.
+"""
+function add_group_ratio!(df::DataFrame, value_col::Symbol, group_cols, ratio_col::Symbol)
+    transform!(groupby(df, group_cols), value_col => (x -> x ./ maximum(x)) => ratio_col)
+    return df
 end
 
 end

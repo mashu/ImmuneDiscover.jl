@@ -11,7 +11,7 @@ using StringDistances
 # Shared modules — avoids duplicate type definitions from repeated include()
 using ..Data
 using ..Exact
-using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, CustomFilter
+using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, CustomFilter, add_group_ratio!
 import ..Data: unique_name
 
 @inline function dna_index(c::Char)::Int
@@ -242,7 +242,7 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     collapsed[!,:heptamer_prob_post] = map(x->isfinite(x) ? exp(x) : 0.0, collapsed.heptamer_logp_post)
     collapsed[!,:gene] = map(r->(n=String(r.nearest_db); n=="" ? "" : first(split(n,'*'))), eachrow(collapsed))
     if any(x->x!="", collapsed.gene)
-        transform!(groupby(collapsed, [:well,:case,:gene]), :count=>(x->x./maximum(x))=>:ratio)
+        add_group_ratio!(collapsed, :count, [:well,:case,:gene], :ratio)
         GermlineFilter([
             MinThreshold(:count, Float64(out_mincount), "Min output count"),
             MinThreshold(:ratio, out_minratio, "Min output ratio"),

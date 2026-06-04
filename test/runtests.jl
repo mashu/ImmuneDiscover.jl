@@ -157,6 +157,17 @@ test_outcomes = Dict(
         @test !passes((count=3, ratio=1.0), MinThreshold(:count, 5.0, ""))
         @test passes((mismatch=3,), MaxThreshold(:mismatch, 5.0, ""))
         @test !passes((mismatch=6,), MaxThreshold(:mismatch, 5.0, ""))
+
+        # add_group_ratio!: value / per-group maximum (shared "allelic ratio" helper)
+        gr = DataFrame(gene=["V","V","D"], count=[2,4,5])
+        Filters.add_group_ratio!(gr, :count, [:gene], :ratio)
+        @test gr[gr.gene .== "V", :ratio] == [0.5, 1.0]
+        @test gr[gr.gene .== "D", :ratio] == [1.0]
+
+        # GermlineFilter show methods
+        gf = GermlineFilter([MinThreshold(:count, 5.0, "Min count")])
+        @test sprint(show, gf) == "GermlineFilter(1 criterion)"
+        @test occursin("Min count", sprint(show, MIME("text/plain"), gf))
     end
 
     @testset "simulate.jl" begin
