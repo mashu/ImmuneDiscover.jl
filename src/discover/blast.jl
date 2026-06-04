@@ -111,8 +111,8 @@ module Blast
     function blastn(query_file::String, database::String, output_gz::String; args::String="")
         endswith(output_gz, ".gz") || error("BLAST cache path must end with .gz, got $(repr(output_gz))")
         outfmt = "6 " * join(columns, " ")
-        nthreads = blastn_num_threads()
-        cmd = `blastn -num_threads $nthreads -query $query_file -db $database -out - -outfmt $outfmt`
+        blast_num_threads = blastn_num_threads()
+        cmd = `blastn -num_threads $blast_num_threads -query $query_file -db $database -out - -outfmt $outfmt`
         if !isempty(strip(args))
             # Julia 1.12+: `$(words...)` inside backticks concatenates into one argv; use `$words` for one arg each.
             extra = map(blastn_cli_token, split(args))
@@ -123,7 +123,7 @@ module Blast
             run(pipeline(cmd, stdout=gzio))
         end
         elapsed = time() - start_time
-        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds (blastn num_threads=$nthreads, Julia nthreads=$(nthreads()), streamed to gzip)"
+        @info "BLASTn completed in $(round(elapsed, digits=2)) seconds (blastn num_threads=$blast_num_threads, Julia nthreads=$(nthreads()), streamed to gzip)"
     end
 
     """Map BLAST subject id to DB key. Novel alleles use base name (e.g. TRGV2*01_S2223 → TRGV2*01) for reference/affix lookup."""
@@ -694,7 +694,7 @@ module Blast
         min_length = parsed_args["discover"]["blast"]["length"]
 
         criteria = FilterCriterion[
-            MinThreshold(:full_count, min_fullcount, "Min cluster size"),
+            MinThreshold(:full_count, min_fullcount, "Min full cluster count (--minfullcount)"),
             MinThreshold(:full_ratio, min_fullratio, "Min allelic ratio"),
             MinStringLength(:qseq, min_length, "Min read length"),
         ]

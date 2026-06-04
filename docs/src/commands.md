@@ -175,7 +175,7 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 - `-s, --subjectcov` (default: 0.1): Min subject coverage fraction
 
 **Filtering:**
-- `-c, --minfullcount` (default: 5): Min cluster size
+- `-c, --minfullcount` (default: 5): Minimum read count per (well, case, allele, sequence) cluster (`full_count` after BLAST grouping)
 - `-f, --minfullratio` (default: 0.1): Min allelic ratio within gene (count / max)
 - `-l, --length` (default: 290): Min aligned length
 - `-q, --minquality` (default: 0.75): Min alignment quality (1 - mismatch/length)

@@ -50,7 +50,7 @@ dispatch-based criteria to a DataFrame, logging kept/total counts at each step.
 # Usage
 ```julia
 gf = GermlineFilter([
-    MinThreshold(:full_count, 5, "Min cluster size"),
+    MinThreshold(:full_count, 5, "Min full cluster count (--minfullcount)"),
     MaxThreshold(:mismatch, 10, "Max edit distance"),
     MinStringLength(:qseq, 290, "Min read length"),
 ])
