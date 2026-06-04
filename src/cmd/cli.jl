@@ -11,13 +11,15 @@ module Cli
     const GENES = ["V", "D", "J"]
     const CHAINS = ["IGKV", "IGLV", "IGHV"]
 
-    # Per-command argument tables live in src/cli/*.jl (one builder per group).
-    include("cli/preprocess.jl")
-    include("cli/discover.jl")
-    include("cli/search.jl")
-    include("cli/analyze.jl")
-    include("cli/table.jl")
-    include("cli/fasta.jl")
+    # Per-group argument tables live alongside this file in src/cmd/ (one builder per
+    # command group). To add a new command: register it in add_command_groups! and add
+    # its `@add_arg_table! s[<group>][<name>]` block to the matching group file.
+    include("preprocess.jl")
+    include("discover.jl")
+    include("search.jl")
+    include("analyze.jl")
+    include("table.jl")
+    include("fasta.jl")
 
     # CLI defaults for blast command - single source of truth (based on v0.0.66)
     const BLAST_CLI_DEFAULTS = Dict(

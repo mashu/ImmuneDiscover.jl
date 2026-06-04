@@ -1,6 +1,6 @@
 module immunediscover
     # --- CLI scaffolding ---
-    include("cli.jl")
+    include("cmd/cli.jl")
 
     # --- Utils (no inter-module deps) ---
     include("utils/data.jl")
