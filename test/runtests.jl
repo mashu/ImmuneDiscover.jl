@@ -961,6 +961,38 @@ test_outcomes = Dict(
         @test long_d[1:12] == trunc_d
     end
 
+    @testset "simulate decoys (no false-positive D detection)" begin
+        # Train on genuine short Ds, then confirm non-D background and broken-RSS reads
+        # never look as good as a real D — the signal the posterior/heptamer filters use.
+        Random.seed!(99)
+        d_genes = [Simulate.random_sequence(L, L) for L in (10, 12, 14, 16, 18)]
+        tuples = NTuple{7,String}[]
+        true_reads = String[]
+        for g in d_genes
+            r, f = Simulate.simulate_d_read(g; flank=12)
+            push!(tuples, (f.pre_nonamer, f.pre_spacer, f.pre_heptamer, f.gene,
+                           f.post_heptamer, f.post_spacer, f.post_nonamer))
+            push!(true_reads, r)
+        end
+        model = HSMM.fit_dgene_rss_hsmm(tuples, minimum(length.(d_genes)), maximum(length.(d_genes)))
+
+        # Reference: best-path log-prob of a genuine D read (RSS intact).
+        true_score = HSMM.scan_best_and_total(true_reads[1], model).log_path_prob
+        @test isfinite(true_score)
+
+        # 1) Pure random background: must score strictly below a genuine D.
+        for _ in 1:20
+            det = HSMM.scan_best_and_total(Simulate.decoy_read(; len=rand(80:120)), model)
+            @test det.log_path_prob < true_score
+        end
+
+        # 2) Invalid D (gene present but heptamers scrambled): broken RSS scores far worse.
+        for g in d_genes
+            det = HSMM.scan_best_and_total(Simulate.invalid_d_read(g; flank=12), model)
+            @test det.log_path_prob < true_score
+        end
+    end
+
     @testset "cooccurrence CLI" begin
         empty!(ARGS)
         append!(ARGS, ["analyze", "cooccurrence", "test_input.tsv"])

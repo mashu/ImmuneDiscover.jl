@@ -24,7 +24,7 @@ module Simulate
 
     export generate_fasta_with_mutations, unique_name, sequence_hash
     export rss_prefix, rss_suffix, assemble_read, simulate_d_read,
-           v_end_variant, short_d_variant
+           v_end_variant, short_d_variant, decoy_read, invalid_d_read
 
     function hamming_distance(s1::String, s2::String)
         @assert length(s1) == length(s2)
@@ -250,5 +250,32 @@ module Simulate
         L = length(germline)
         len >= L && return String(germline)
         return String(germline[1:len])
+    end
+
+    # ===================== Negative controls (false-positive checks) =====================
+
+    """
+        decoy_read(; len)
+
+    A purely random read with no RSS architecture at all. Represents background sequence
+    that is not a D gene; a correct detector must not call a confident D here.
+    """
+    decoy_read(; len::Int=100) = random_sequence(len, len)
+
+    """
+        invalid_d_read(gene_seq; flank)
+
+    A read shaped like a D context (gene flanked by nonamer–spacer on each side) but with the
+    conserved heptamers replaced by random 7-mers, i.e. a broken/invalid RSS. The recombination
+    signal a real D depends on is absent, so it should score far below a genuine D read.
+    """
+    function invalid_d_read(gene_seq::AbstractString; flank::Int=10)
+        scramble() = random_sequence(length(HEPTAMER), length(HEPTAMER))
+        pre_spacer  = random_sequence(SPACER12, SPACER12)
+        post_spacer = random_sequence(SPACER12, SPACER12)
+        prefix = random_sequence(flank, flank)
+        suffix = random_sequence(flank, flank)
+        return string(prefix, NONAMER, pre_spacer, scramble(), gene_seq,
+                      scramble(), post_spacer, NONAMER, suffix)
     end
 end
