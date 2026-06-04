@@ -1151,6 +1151,86 @@ test_outcomes = Dict(
         end
     end
 
+    @testset "pure helpers" begin
+        @testset "bwa cigar/seq" begin
+            @test Bwa.reverse_complement_seq("ACGT") == "ACGT"
+            @test Bwa.reverse_complement_seq("AAAA") == "TTTT"
+            @test Bwa.reverse_complement_seq("") == ""
+            @test Bwa.calculate_ref_span_from_cigar("10M") == 10
+            @test Bwa.calculate_ref_span_from_cigar("10M5D3M") == 18
+            @test Bwa.calculate_ref_span_from_cigar("5S10M") == 10
+            @test Bwa.calculate_ref_span_from_cigar("") == 0
+            @test Bwa.calculate_leading_n_from_cigar("5N10M") == 5
+            @test Bwa.calculate_leading_n_from_cigar("10M5N") == 0
+            @test Bwa.calculate_leading_n_from_cigar("") == 0
+            @test Bwa.hamming_distance("ACGT", "ACGA") == 1
+            @test Bwa.hamming_distance("AB", "ABC") == -1
+        end
+
+        @testset "data utils" begin
+            @test Data.validate_sequence("ACGT")
+            @test !Data.validate_sequence("ACGN")
+            @test !Data.validate_sequence("acgt")
+            @test Data.validate_identifier("IGHV1-2*01")
+            @test Data.validate_identifier("IGHV1*01_S1234")
+            @test !Data.validate_identifier("foo")
+            @test startswith(Data.sequence_hash("ACGT"), "S")
+            @test length(Data.sequence_hash("ACGT")) == 5
+            @test Data.sequence_hash("ACGT") == Data.sequence_hash("ACGT")
+            @test startswith(Data.unique_name("IGHV1-2_x", "ACGT"), "IGHV1-2_S")
+            @test Data.concatenate_columns((a="X", b="Y"), ["a", "b"]) == "XY"
+            @test Data.validate_types(["heptamer", "spacer"]) === nothing
+            @test_throws ErrorException Data.validate_types(["bad"])
+            @test_throws ErrorException Data.validate_types(String[])
+            @test Data.get_ratio_threshold(Dict("A*01" => 0.5), (db_name="A*01", gene="A")) == 0.5
+            @test Data.get_ratio_threshold(Dict{String,Float64}(), (db_name="A*01", gene="A")) == 0.0
+        end
+
+        @testset "blast string utils" begin
+            @test Blast.sseqid_to_db_key("TRGV2*01_S2223", Set(["TRGV2*01"])) == "TRGV2*01"
+            @test Blast.sseqid_to_db_key("X*01", Set(["X*01"])) == "X*01"
+            @test Blast.sseqid_to_db_key("Q*01_S9", Set(["Z"])) == "Q*01_S9"
+            @test Blast.longest_common_suffix_str("ABCDEF", "XYZDEF") == "DEF"
+            @test Blast.longest_common_suffix_str("ABC", "XYZ") == ""
+            @test Blast.longest_common_prefix_str("ABCDEF", "ABCXYZ") == "ABC"
+            @test Blast.longest_common_prefix_str("ABC", "XYZ") == ""
+            @test Blast.edge("CCC", "AAACCCGGG") == (3, 3)   # 3 nt before, 3 after
+            @test Blast.blastn_cli_token("--task") == "-task"
+            @test Blast.blastn_cli_token("-num_threads") == "-num_threads"
+            @test Blast.blastn_cli_token("megablast") == "megablast"
+            @test Blast.nogaps("AC-G-T") == "ACGT"
+            @test isabspath(Blast.resolve_work_dir(""))
+            @test endswith(Blast.resolve_work_dir(""), ".immunediscover")
+            @test Blast.resolve_work_dir("/tmp/wd") == "/tmp/wd"
+        end
+
+        @testset "exact gene-type dispatch" begin
+            @test Exact.gene_type_from_name("IGHV1-2") isa VGene
+            @test Exact.gene_type_from_name("IGHD3") isa DGene
+            @test Exact.gene_type_from_name("IGHJ4") isa JGene
+            @test Exact.gene_type_from_name("XYZ") === nothing
+            @test Exact.parse_gene_type("V") isa VGene
+            @test_throws ErrorException Exact.parse_gene_type("Q")
+            @test Exact.gene_string(VGene()) == "V"
+            @test Exact.gene_string(DGene()) == "D"
+            @test Exact.gene_string(JGene()) == "J"
+            # V extension reaches the 3' border -> reject; short extension -> keep
+            @test Exact.extension_overlaps_border(5, 10, 20, "V", 15, 3)
+            @test !Exact.extension_overlaps_border(5, 10, 20, "V", 2, 3)
+        end
+
+        @testset "cooccurrence math" begin
+            # Perfect co-occurrence -> phi = 1; mutual exclusion -> phi = -1
+            @test Cooccurrence.phi_coefficient(2, 0, 0, 2) ≈ 1.0
+            @test Cooccurrence.phi_coefficient(0, 2, 2, 0) ≈ -1.0
+            @test Cooccurrence.phi_coefficient(0, 0, 0, 0) == 0.0   # degenerate denom
+            ji, n11 = Cooccurrence.jaccard_index(Set(["a","b"]), Set(["b","c"]))
+            @test n11 == 1
+            @test ji ≈ 1/3
+            @test Cooccurrence.hypergeom_p_enrichment(10, 0, 5, 0) == 1.0
+        end
+    end
+
     # Cleanup test files
     for file in ["test.fasta", "reference.fasta", "novel.fasta", "test_indices.tsv",
                  "test.tsv.gz", "test_exact.tsv.gz", "test_heptamer.tsv.gz",
