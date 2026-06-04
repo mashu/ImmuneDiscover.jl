@@ -276,6 +276,10 @@ module Exact
         return ratio
     end
 
+    # Ratio with an explicit 0-denominator convention: control genes (0 reference count/median)
+    # yield Inf so they pass the downstream min-ratio filters by design, never NaN.
+    safe_ratio(num, den) = den == 0 ? Inf : num / den
+
     # ========================== exact_search ==========================
 
     function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=13, rss=["heptamer", "spacer", "nonamer"], extension=nothing, N=10, raw=nothing, expect_dict=Dict{String,Float64}(), sequence_lookup=nothing, border::Int=0, adjust_per_gene_extension::Bool=false, adjust_percent::Float64=1.0)
@@ -541,10 +545,14 @@ module Exact
             DataFrame(cross_case_median_allele_count = fill(isempty(fg) ? 0 : median(fg.count), nrow(group)))
         end
 
-        counts_df[:,:allele_case_freq] = counts_df.count ./ counts_df.case_count
-        counts_df[:,:gene_case_freq] = counts_df.gene_count ./ counts_df.case_count
-        counts_df[:,:allele_to_cross_case_median_ratio] = counts_df.count ./ counts_df.cross_case_median_allele_count
-        counts_df[:,:gene_to_cross_case_median_ratio] = counts_df.gene_count ./ counts_df.cross_case_median_gene_count
+        # Control genes (not matching --locus) have a 0 reference count/median; a 0 denominator
+        # yields a ratio of Inf so they pass the downstream min-ratio filters by design (controls
+        # are not subject to locus frequency filtering). Make that explicit instead of relying on
+        # IEEE Inf/NaN (count==0 over 0 would otherwise be NaN and fail the filter).
+        counts_df[:,:allele_case_freq] = safe_ratio.(counts_df.count, counts_df.case_count)
+        counts_df[:,:gene_case_freq] = safe_ratio.(counts_df.gene_count, counts_df.case_count)
+        counts_df[:,:allele_to_cross_case_median_ratio] = safe_ratio.(counts_df.count, counts_df.cross_case_median_allele_count)
+        counts_df[:,:gene_to_cross_case_median_ratio] = safe_ratio.(counts_df.gene_count, counts_df.cross_case_median_gene_count)
         transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
 
         GermlineFilter([

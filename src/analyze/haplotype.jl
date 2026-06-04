@@ -222,7 +222,11 @@ function infer_haplotypes(input_file::String, output_file::String;
             other_idxs = [i for i in 3:length(sorted_alleles) if ratios_to_major[i] >= min_ratio]
             other_alleles = isempty(other_idxs) ? "" : join(sorted_alleles[other_idxs], ",")
         else
-            other_alleles = length(sorted_alleles) > 2 ? join(sorted_alleles[3:end], ",") : ""
+            # All non-called alleles go to other_alleles. For a homozygous call only allele_1
+            # is selected, so the runner-up (index 2) must be listed here too — previously it
+            # was dropped (started at index 3) even though count_2/freq_2 still reported it.
+            start_other = n_selected + 1
+            other_alleles = length(sorted_alleles) >= start_other ? join(sorted_alleles[start_other:end], ",") : ""
         end
 
         freq_1 = total_count > 0 ? count_1 / total_count : 0.0

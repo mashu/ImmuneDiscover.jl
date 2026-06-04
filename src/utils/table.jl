@@ -235,16 +235,15 @@ module Table
 
         selected_columns = vcat(group_by, keep_columns)
         df_selected = df[:, selected_columns]
-        grouped_df = combine(groupby(df_selected, group_by), nrow => count_column)
 
-        if !isempty(keep_columns)
-            for col in keep_columns
-                if !(col in names(grouped_df))
-                    first_values = combine(groupby(df_selected, group_by), col => first => col)
-                    grouped_df = leftjoin(grouped_df, first_values, on=group_by)
-                end
-            end
+        # Single grouped reduction: the row count plus the first value of each kept column.
+        # (Previously this did one leftjoin per kept column.)
+        agg_specs = Any[nrow => count_column]
+        for col in keep_columns
+            (col in group_by || col == count_column) && continue  # already produced by grouping / nrow
+            push!(agg_specs, col => first => col)
         end
+        grouped_df = combine(groupby(df_selected, group_by), agg_specs...)
 
         @info "Aggregated from $(nrow(df)) rows to $(nrow(grouped_df)) unique groups"
         output_gz = endswith(output_file, ".gz") ? output_file : output_file * ".gz"

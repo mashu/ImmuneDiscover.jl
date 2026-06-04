@@ -477,10 +477,21 @@ test_outcomes = Dict(
         @test isfile("test_haplotype_novel.tsv")
         
         # Clean up test files
-        for file in ["test_haplotype_input.tsv", "test_haplotype_basic.tsv", 
+        for file in ["test_haplotype_input.tsv", "test_haplotype_basic.tsv",
                     "test_haplotype_custom.tsv", "test_haplotype_novel.tsv", "test_novel_alleles.fasta"]
             isfile(file) && rm(file)
         end
+
+        # Homozygous call must still report the runner-up in other_alleles (not drop it).
+        homo_df = DataFrame(case=["D1","D1"], db_name=["A*01","A*02"], gene=["V","V"],
+                            count=[100, 2], sequence=["ACGT","TTTT"])
+        CSV.write("test_hap_homo.tsv", homo_df, delim='\t')
+        res = Haplotype.infer_haplotypes("test_hap_homo.tsv", "test_hap_homo_out.tsv"; mincount=1, min_ratio=0.1)
+        hrow = first(filter(r -> r.case == "D1" && r.gene == "V", res))
+        @test hrow.genotype == "homozygous"
+        @test hrow.allele_2 == ""
+        @test occursin("A*02", hrow.other_alleles)   # runner-up retained
+        for f in ["test_hap_homo.tsv", "test_hap_homo_out.tsv"]; isfile(f) && rm(f); end
     end
 
     @testset "blast.jl" begin
@@ -896,6 +907,17 @@ test_outcomes = Dict(
             @test nrow(result) == 2
             @test "count" in names(result)
             isfile("test_agg_in.tsv") && rm("test_agg_in.tsv")
+
+            # keep_columns path (single combine): first value of kept column per group.
+            agg_df2 = DataFrame(gene=["V","V","D"], case=["A","A","B"], extra=["x","y","z"])
+            CSV.write("test_agg_in2.tsv", agg_df2, delim='\t')
+            result2 = Table.aggregate_tsv("test_agg_in2.tsv", "test_agg_out2.tsv.gz",
+                group_by=["gene","case"], keep_columns=["extra"])
+            @test nrow(result2) == 2
+            @test "count" in names(result2)
+            @test "extra" in names(result2)
+            @test result2[(result2.gene .== "D") .& (result2.case .== "B"), "extra"][1] == "z"
+            isfile("test_agg_in2.tsv") && rm("test_agg_in2.tsv")
         end
 
         for f in Glob.glob("test_table_*.tsv"); isfile(f) && rm(f); end
