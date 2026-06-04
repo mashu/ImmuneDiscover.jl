@@ -18,6 +18,7 @@ module Cli
         "edge" => 0,
         "subjectcov" => 0.1,
         "minquality" => 0.75,
+        "min-corecov" => 0.6,
         "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50",
         "work-dir" => ".immunediscover",
     )

@@ -498,6 +498,18 @@ test_outcomes = Dict(
             @test parsed_args["discover"]["blast"]["subjectcov"] == 0.1
             @test parsed_args["discover"]["blast"]["work-dir"] == ".immunediscover"
 
+        # Preset application: untouched params take the V preset, explicit overrides are kept.
+        empty!(ARGS)
+        append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V"])
+        pa_preset = Cli.apply_blast_presets!(Cli.parse_commandline(ARGS))
+        @test pa_preset["discover"]["blast"]["minfullratio"] ≈ 0.035   # V preset
+        @test pa_preset["discover"]["blast"]["min-corecov"] == 0.50     # V preset (was default 0.6)
+
+        empty!(ARGS)
+        append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V", "--min-corecov", "0.9"])
+        pa_override = Cli.apply_blast_presets!(Cli.parse_commandline(ARGS))
+        @test pa_override["discover"]["blast"]["min-corecov"] == 0.9    # explicit override respected
+
         # Module - test utility functions that don't require BLAST
         # Test Data.load_fasta (same path as blast pipeline FASTA reads)
         test_fasta_content = ">seq1\nATCGATCG\n>seq2\nGCTAGCTA\n"
@@ -532,6 +544,30 @@ test_outcomes = Dict(
         for file in ["test_blast_fasta.fasta", "test_blast_save.fasta", "test_blast_input.tsv"]
             isfile(file) && rm(file)
         end
+    end
+
+    @testset "blast accumulate_affixes" begin
+        # A gene present in reads is extended by its common flanks; a decoy/pseudo absent
+        # from the reads survives as an unextended singleton (so -p decoys reach the DB).
+        gene = "ACGTACGTACGT"
+        demux = DataFrame(
+            well = [1, 1], case = ["D1", "D1"], name = ["r1", "r2"],
+            genomic_sequence = ["AAAAA" * gene * "TTTTT", "AAAAA" * gene * "TTTTT"],
+        )
+        db = [("G1*01", gene), ("Pdecoy*01", "GGGGGGGGGGGG")]
+        extended = Blast.accumulate_affixes(db, demux; forward_extension=5, reverse_extension=5)
+        d = Dict(name => (seq, pre, suf) for (name, seq, pre, suf) in extended)
+
+        @test haskey(d, "G1*01")
+        @test haskey(d, "Pdecoy*01")          # decoy preserved in the extended DB
+        g1seq, g1pre, g1suf = d["G1*01"]
+        @test g1pre == "AAAAA"
+        @test g1suf == "TTTTT"
+        @test g1seq == "AAAAA" * gene * "TTTTT"
+        pseq, ppre, psuf = d["Pdecoy*01"]
+        @test ppre == ""                       # absent in reads → unextended
+        @test psuf == ""
+        @test pseq == "GGGGGGGGGGGG"
     end
 
     @testset "bwa.jl" begin

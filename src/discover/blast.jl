@@ -591,7 +591,11 @@ module Blast
             if !isfile(ext_fasta_path) || overwrite
                 @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
                 demux = load_csv(parsed_args["discover"]["blast"]["input"])
-                extended = accumulate_affixes(DB, demux,
+                # Extend the COMBINED db (real + pseudo) so the BLAST database matches the
+                # no-extension branch. Pseudo decoys absent in reads become unextended
+                # singletons but remain in the DB; using DB (real only) here silently dropped
+                # them, disabling -p in the default extension mode.
+                extended = accumulate_affixes(db_p, demux,
                     forward_extension=forward_extension,
                     reverse_extension=reverse_extension)
                 affixes = save_extended(extended, ext_fasta_path)
