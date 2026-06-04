@@ -22,6 +22,7 @@ using immunediscover.Table
 using immunediscover.Cooccurrence
 using immunediscover.HSMM
 using Glob
+using Random
 
 # Initialize a dictionary to track test outcomes
 test_outcomes = Dict(
@@ -891,6 +892,73 @@ test_outcomes = Dict(
         obs = HSMM.encode_dna("ACGT")
         @test obs == [1, 2, 3, 4]
         @test HSMM.encode_dna("N") == [0]
+    end
+
+    @testset "simulate V end-variants (exact detection)" begin
+        # Two V alleles that differ ONLY in their last 8 nt — the 3' V/RSS border case.
+        Random.seed!(2024)
+        germline = Simulate.random_sequence(100, 100)
+        variant  = Simulate.v_end_variant(germline; n_end=8)
+        @test length(germline) == length(variant)
+        @test germline != variant
+        @test germline[1:90] == variant[1:90]      # share a long 5' prefix
+        @test germline[93:100] != variant[93:100]  # differ only at the 3' end
+
+        db = [("IGHV1-1*01", germline), ("IGHV1-1*02", variant)]
+
+        names_ = String[]; seqs = String[]
+        for (allele, gseq) in db, r in 1:10
+            push!(names_, "$(allele)_r$(r)")
+            push!(seqs, Simulate.assemble_read(VGene(), gseq; flank=15))
+        end
+        table = DataFrame(well=fill(1, length(names_)), case=fill("D1", length(names_)),
+                          name=names_, genomic_sequence=seqs)
+
+        counts = Exact.exact_search(table, db, "V"; mincount=1, minratio=0.0, N=10)
+        @test nrow(counts) > 0
+        # Both the germline and the end-variant must be recovered as distinct alleles.
+        @test "IGHV1-1*01" in counts.db_name
+        @test "IGHV1-1*02" in counts.db_name
+        # A read built from one allele must not be assigned the other (3' end discriminates).
+        v01_seq = first(filter(r -> r.db_name == "IGHV1-1*01", counts)).sequence
+        v02_seq = first(filter(r -> r.db_name == "IGHV1-1*02", counts)).sequence
+        @test v01_seq == germline
+        @test v02_seq == variant
+    end
+
+    @testset "simulate short-D variants (HSMM detection)" begin
+        # Very short D segments (down to 8 nt) embedded in full RSS, recovered by the HSMM.
+        Random.seed!(1234)
+        d_genes = [Simulate.random_sequence(L, L) for L in (8, 10, 12, 14, 16)]
+
+        tuples = NTuple{7,String}[]
+        reads = String[]
+        for g in d_genes
+            read, f = Simulate.simulate_d_read(g; flank=10)
+            push!(tuples, (f.pre_nonamer, f.pre_spacer, f.pre_heptamer, f.gene,
+                           f.post_heptamer, f.post_spacer, f.post_nonamer))
+            push!(reads, read)
+        end
+
+        model = HSMM.fit_dgene_rss_hsmm(tuples, minimum(length.(d_genes)), maximum(length.(d_genes)))
+
+        # Each short D must be localized and extracted exactly from its read.
+        for (g, read) in zip(d_genes, reads)
+            det = HSMM.extract_dgene(read, model)
+            @test det.gene_seq == g
+        end
+
+        # Explicitly assert the very-short (8 nt) D variant is recovered at full length.
+        short_read, _ = Simulate.simulate_d_read(d_genes[1]; flank=10)
+        det = HSMM.extract_dgene(short_read, model)
+        @test length(det.gene_seq) == 8
+        @test det.gene_seq == d_genes[1]
+
+        # short_d_variant: truncating a germline yields a shorter allele with shared prefix.
+        long_d = Simulate.random_sequence(30, 30)
+        trunc_d = Simulate.short_d_variant(long_d; len=12)
+        @test length(trunc_d) == 12
+        @test long_d[1:12] == trunc_d
     end
 
     @testset "cooccurrence CLI" begin

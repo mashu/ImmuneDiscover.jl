@@ -6,13 +6,25 @@ module Simulate
     using MD5
 
     using ..Data: unique_name, sequence_hash
+    using ..Exact: GeneType, VGene, DGene, JGene
 
     const NUCLEOTIDES = ['A', 'C', 'G', 'T']
     const RSS_SIGNAL = "CACAGTG"
     const LEADER_SIGNAL = "GTTTTTGT"
     const BARCODE_LENGTH = 10
 
+    # Canonical recombination signal sequence (RSS) building blocks for synthetic
+    # V/D/J reads. Real RSS = heptamer(7) – spacer(12 or 23) – nonamer(9). These let
+    # the simulator emit reads with the flank architecture that the exact/heptamer
+    # search and the D-gene HSMM expect, so detection can be tested end-to-end.
+    const HEPTAMER = RSS_SIGNAL          # 7 nt conserved heptamer (CACAGTG)
+    const NONAMER  = "ACAAAAACC"         # 9 nt conserved nonamer
+    const SPACER12 = 12                  # 12 nt spacer (D genes; one V/J side)
+    const SPACER23 = 23                  # 23 nt spacer (V/J genes)
+
     export generate_fasta_with_mutations, unique_name, sequence_hash
+    export rss_prefix, rss_suffix, assemble_read, simulate_d_read,
+           v_end_variant, short_d_variant
 
     function hamming_distance(s1::String, s2::String)
         @assert length(s1) == length(s2)
@@ -79,7 +91,7 @@ module Simulate
     )
 
     function apply_random_mutation(seq::String, mutation_type::String, mutation_length::Int)
-        safe_start = max(1, 50)
+        safe_start = 50  # legacy generator keeps mutations away from both ends
         safe_end = min(length(seq) - 50, length(seq) - mutation_length)
         if safe_start >= safe_end
             safe_start = max(1, div(length(seq), 4))
@@ -155,5 +167,88 @@ module Simulate
         end
 
         return records, indices
+    end
+
+    # ===================== Gene-type-aware synthetic reads (dispatch) =====================
+    #
+    # The legacy `generate_fasta_with_mutations` above only mutates the middle of a single
+    # random reference. The functions below model real V/D/J architecture so the simulator
+    # can produce the two cases the detection pipeline must handle: variants at the 3' end of
+    # V genes, and very short D genes. Construction mirrors the layout the consumers expect:
+    #   V read:  [prefix]                      gene  HEPTAMER spacer23 NONAMER  [suffix]
+    #   D read:  [prefix] NONAMER spacer12 HEPTAMER gene  HEPTAMER spacer12 NONAMER [suffix]
+    #   J read:  [prefix] NONAMER spacer23 HEPTAMER gene                          [suffix]
+
+    """5' RSS flank emitted before the gene segment for a given gene type."""
+    rss_prefix(::VGene) = ""
+    rss_prefix(::DGene) = string(NONAMER, random_sequence(SPACER12, SPACER12), HEPTAMER)
+    rss_prefix(::JGene) = string(NONAMER, random_sequence(SPACER23, SPACER23), HEPTAMER)
+
+    """3' RSS flank emitted after the gene segment for a given gene type."""
+    rss_suffix(::VGene) = string(HEPTAMER, random_sequence(SPACER23, SPACER23), NONAMER)
+    rss_suffix(::DGene) = string(HEPTAMER, random_sequence(SPACER12, SPACER12), NONAMER)
+    rss_suffix(::JGene) = ""
+
+    """
+        assemble_read(gene_type, gene_seq; barcode_f, barcode_r, flank)
+
+    Build a synthetic read embedding `gene_seq` with the RSS architecture for `gene_type`,
+    flanked by random padding (and optional barcodes). The gene appears as an exact substring
+    so exact/heptamer search can recover it.
+    """
+    function assemble_read(gt::GeneType, gene_seq::AbstractString;
+                           barcode_f::AbstractString="", barcode_r::AbstractString="", flank::Int=20)
+        prefix = random_sequence(flank, flank)
+        suffix = random_sequence(flank, flank)
+        return string(barcode_f, prefix, rss_prefix(gt), gene_seq, rss_suffix(gt), suffix, barcode_r)
+    end
+
+    """
+        simulate_d_read(gene_seq; flank) -> (read, flanks)
+
+    Build a D-gene read with full pre/post RSS (nonamer–spacer12–heptamer on each side) and
+    return both the read and the exact flank components, so the HSMM can be trained on the same
+    motifs it is asked to detect.
+    """
+    function simulate_d_read(gene_seq::AbstractString; flank::Int=10)
+        pre_spacer  = random_sequence(SPACER12, SPACER12)
+        post_spacer = random_sequence(SPACER12, SPACER12)
+        prefix = random_sequence(flank, flank)
+        suffix = random_sequence(flank, flank)
+        read = string(prefix, NONAMER, pre_spacer, HEPTAMER, gene_seq,
+                      HEPTAMER, post_spacer, NONAMER, suffix)
+        flanks = (pre_nonamer=NONAMER, pre_spacer=pre_spacer, pre_heptamer=HEPTAMER,
+                  gene=String(gene_seq),
+                  post_heptamer=HEPTAMER, post_spacer=post_spacer, post_nonamer=NONAMER)
+        return read, flanks
+    end
+
+    """
+        v_end_variant(seq; n_end)
+
+    Return a V allele variant that differs from `seq` only within its last `n_end` nucleotides
+    (each substituted to a different base). Mimics alleles separated only at the 3' V border,
+    the hardest case for border/heptamer logic.
+    """
+    function v_end_variant(seq::AbstractString; n_end::Int=10)
+        L = length(seq)
+        n = min(n_end, L)
+        head = seq[1:L-n]
+        tail = String([rand(setdiff(NUCLEOTIDES, [seq[i]])) for i in (L-n+1):L])
+        return string(head, tail)
+    end
+
+    """
+        short_d_variant(; len)
+        short_d_variant(germline; len)
+
+    Generate a very short D segment (default 10 nt). With a `germline` argument, truncate it to
+    `len` to mimic a shorter allelic variant; otherwise emit a fresh random short D.
+    """
+    short_d_variant(; len::Int=10) = random_sequence(len, len)
+    function short_d_variant(germline::AbstractString; len::Int=10)
+        L = length(germline)
+        len >= L && return String(germline)
+        return String(germline[1:len])
     end
 end
