@@ -6,14 +6,10 @@ module Data
     using Statistics
     using CSV
     using MD5
-    using Requires
 
+    # Set by the UnicodePlots package extension (ext/UnicodePlotsExt.jl) when UnicodePlots
+    # is loaded; otherwise barplot_if_available falls back to a plain text table.
     const barplot_fn = Ref{Union{Nothing, Function}}(nothing)
-    function __init__()
-        @require UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228" begin
-            barplot_fn[] = (x, y) -> UnicodePlots.barplot(x, y)
-        end
-    end
 
     export load_fasta, plotgenes, unique_name, sequence_hash, load_demultiplex
     export concatenate_columns, validate_types, get_ratio_threshold
