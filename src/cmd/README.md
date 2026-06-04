@@ -18,10 +18,9 @@ src/
 └── search/exact.jl …     # reusable library module: exposes exact_search(...) + handle_exact(...)
 ```
 
-A **command** has two parts that follow the same skeleton everywhere:
+A **command** has three small parts that follow the same skeleton everywhere:
 
-1. **Argument table** — lives in the matching `src/cmd/<group>.jl`, inside
-   `add_<group>_args!(s)`:
+1. **Argument table** — in the matching `src/cmd/<group>.jl`, inside `add_<group>_args!(s)`:
 
    ```julia
    @add_arg_table! s["<group>"]["<name>"] begin
@@ -36,23 +35,33 @@ A **command** has two parts that follow the same skeleton everywhere:
    end
    ```
 
-2. **Handler** — `handle_<name>(parsed_args, immunediscover_module, always_gz)` in the
-   library module that owns the algorithm (e.g. `Exact.handle_exact`). The handler reads
-   `parsed_args[<group>][<name>]`, calls the library function, and writes output.
+2. **Command identity** — a singleton type in `cli.jl`, dispatched on rather than looked up:
+
+   ```julia
+   struct SearchExact <: Command end
+   cli_path(::SearchExact) = ("search", "exact")
+   # …and add SearchExact() to the COMMANDS tuple
+   ```
+
+3. **Handler binding** — one `run_command` method in `src/immunediscover.jl` that routes the
+   command to the library handler (the science stays in the library module):
+
+   ```julia
+   Cli.run_command(::Cli.SearchExact, pa) = Exact.handle_exact(pa, immunediscover, Cli.always_gz)
+   ```
+
+Routing is multiple dispatch on the concrete `Command` type — no `Dict{String,Function}`,
+no boxed closures. The only run-time step is `Cli.command_for`, which maps the parsed
+`(group, subcommand)` strings to the matching singleton once per invocation; every call
+after that is statically dispatched and precompilable.
 
 ## Adding a new subcommand
 
-1. Declare it under its group in `cli.jl :: add_command_groups!` (if it's a new group) and
-   add a `… action = :command` entry to the group list inside `add_<group>_args!(s)`.
-2. Add its `@add_arg_table! s["<group>"]["<name>"] begin … end` block to `src/cmd/<group>.jl`.
-3. Write `handle_<name>(...)` in the relevant library module (keep the science in the library;
-   the handler is only glue: parse args → call library → write output).
-4. Register the handler in the dispatch table in `src/immunediscover.jl`
-   (`<GROUP>_HANDLERS`).
-
-## Direction
-
-The next refactor (tracked separately, CI-gated) folds steps 1–4 into a single
-self-contained command file per subcommand via a `Subcommand` registry
-`(group, name, configure!, handler)`, so the parser and the dispatch are both derived
-from one declaration and adding a command touches exactly one file.
+1. If it's a new group, declare the group in `cli.jl :: add_command_groups!`; add a
+   `"<name>" … action = :command` entry to the group list in `add_<group>_args!(s)` and the
+   subcommand's `@add_arg_table! s["<group>"]["<name>"] begin … end` block there.
+2. In `cli.jl`: add a `struct <Name> <: Command end`, a `cli_path(::<Name>)` method, and the
+   instance to `COMMANDS`.
+3. In `src/immunediscover.jl`: add `Cli.run_command(::Cli.<Name>, pa) = <Module>.handle_<name>(…)`,
+   and write `handle_<name>` in the library module (glue only: parse args → call library →
+   write output).
