@@ -1,10 +1,15 @@
 # Discovery transparency, metrics, and self-test
 
-`discover blast` is built to explain *why* every candidate is kept or rejected, to expose
-metrics that separate genuine novel alleles from artifacts, and to let you measure recovery of
-known-vs-novel alleles. This page describes how those pieces fit together.
+The discovery and search commands (`discover blast`, `search exact`, `discover hsmm`) explain
+*why* every candidate is kept or rejected, expose metrics that separate genuine novel alleles
+from artifacts, and let you measure recovery of known-vs-novel alleles. This page describes how
+those pieces fit together; the richest set (quality metrics) lives in `discover blast`.
 
 ## Transparency: reject reasons and two output tables
+
+`discover blast`, `search exact`, and `discover hsmm` all annotate their filters rather than
+dropping rows, and each writes two tables: the filtered result, and a full annotated table
+(`<output>.full.tsv.gz`) with `reject_reason` / `reject_stage` for every candidate.
 
 Filtering annotates rather than drops. Each candidate carries `reject_reason` (the label of the
 first filter it failed, empty if accepted) and `reject_stage` (the stage that rejected it). The
