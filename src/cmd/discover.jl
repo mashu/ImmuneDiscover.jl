@@ -151,7 +151,9 @@ function add_discover_args!(s)
             action = :store_true
         end
 
-        @add_arg_table! s["discover"]["hsmm"] begin
+        hs = s["discover"]["hsmm"]
+
+        @add_arg_table! hs begin
         "tsv"
             help = "TSV/TSV.GZ demultiplex file with columns well, case, name, genomic_sequence"
             required = true
@@ -161,6 +163,10 @@ function add_discover_args!(s)
         "output"
             help = "TSV.GZ file to save detected D alleles (novel and/or known) with flanks"
             required = true
+        end
+
+        add_arg_group!(hs, "Training (known-D selection)", "hsmm_train")
+        @add_arg_table! hs begin
         "-r", "--ratio"
             help = "Allelic ratio threshold for known D selection per donor and gene"
             default = 0.2
@@ -171,6 +177,15 @@ function add_discover_args!(s)
             default = 10
             arg_type = Int
             range_tester = (x->x >= 1)
+        "-l", "--limit"
+            help = "Limit number of demultiplexed reads to process (0 means no limit)"
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        end
+
+        add_arg_group!(hs, "HSMM model", "hsmm_model")
+        @add_arg_table! hs begin
         "--min-posterior"
             help = "Minimum posterior probability for accepting an HSMM detection"
             default = 0.7
@@ -186,11 +201,10 @@ function add_discover_args!(s)
             default = 70
             arg_type = Int
             range_tester = (x->x >= 0)
-        "-l", "--limit"
-            help = "Limit number of demultiplexed reads to process (0 means no limit)"
-            default = 0
-            arg_type = Int
-            range_tester = (x->x >= 0)
+        end
+
+        add_arg_group!(hs, "Output filters", "hsmm_out")
+        @add_arg_table! hs begin
         "--out-mincount"
             help = "Minimum count for an extracted D (after HSMM) to keep in output"
             default = 10
