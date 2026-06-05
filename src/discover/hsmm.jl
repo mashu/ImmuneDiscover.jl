@@ -11,7 +11,9 @@ using StringDistances
 # Shared modules — avoids duplicate type definitions from repeated include()
 using ..Data
 using ..Exact
-using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, CustomFilter, add_group_ratio!
+using ..Filters: FilterCriterion, MinThreshold, add_group_ratio!,
+                 init_rejection_columns!, mark_rejected!, accepted, passes
+using ..Report: section, stage_report
 import ..Data: unique_name
 
 @inline function dna_index(c::Char)::Int
@@ -241,20 +243,36 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     collapsed[!,:heptamer_prob_pre] = map(x->isfinite(x) ? exp(x) : 0.0, collapsed.heptamer_logp_pre)
     collapsed[!,:heptamer_prob_post] = map(x->isfinite(x) ? exp(x) : 0.0, collapsed.heptamer_logp_post)
     collapsed[!,:gene] = map(r->(n=String(r.nearest_db); n=="" ? "" : first(split(n,'*'))), eachrow(collapsed))
+    init_rejection_columns!(collapsed)
+    criteria = FilterCriterion[]
     if any(x->x!="", collapsed.gene)
         add_group_ratio!(collapsed, :count, [:well,:case,:gene], :ratio)
-        GermlineFilter([
-            MinThreshold(:count, Float64(out_mincount), "Min output count"),
-            MinThreshold(:ratio, out_minratio, "Min output ratio"),
-        ])(collapsed)
+        push!(criteria, MinThreshold(:count, Float64(out_mincount), "min output count (--out-mincount $out_mincount)"))
+        push!(criteria, MinThreshold(:ratio, out_minratio, "min output ratio (--out-minratio $out_minratio)"))
     end
-    heptamer_criteria = FilterCriterion[]
-    min_heptamer_prob_pre > 0 && push!(heptamer_criteria, MinThreshold(:heptamer_prob_pre, min_heptamer_prob_pre, "Min pre-heptamer prob"))
-    min_heptamer_prob_post > 0 && push!(heptamer_criteria, MinThreshold(:heptamer_prob_post, min_heptamer_prob_post, "Min post-heptamer prob"))
-    !isempty(heptamer_criteria) && GermlineFilter(heptamer_criteria)(collapsed)
-    outpath = endswith(output,".gz") ? output : output*".gz"
-    CSV.write(outpath, collapsed, compress=true, delim='\t'); @info "Saved to $outpath ($(nrow(collapsed)) rows)"
-    return collapsed
+    min_heptamer_prob_pre > 0 && push!(criteria, MinThreshold(:heptamer_prob_pre, min_heptamer_prob_pre, "min pre-heptamer prob (--min-heptamer-prob-pre $min_heptamer_prob_pre)"))
+    min_heptamer_prob_post > 0 && push!(criteria, MinThreshold(:heptamer_prob_post, min_heptamer_prob_post, "min post-heptamer prob (--min-heptamer-prob-post $min_heptamer_prob_post)"))
+
+    # Annotate (not drop) so a full table records why each detection was rejected.
+    section("HSMM D detection — output filters")
+    for criterion in criteria
+        before = count(isempty, collapsed.reject_reason)
+        fail = Bool[!passes(row, criterion) for row in eachrow(collapsed)]
+        mark_rejected!(collapsed, fail, criterion.label, "output filter")
+        stage_report(criterion.label, count(isempty, collapsed.reject_reason), before)
+    end
+
+    reason_cols = [:reject_reason, :reject_stage]
+    kept = accepted(collapsed)
+    outpath = endswith(output, ".gz") ? output : output * ".gz"
+    full_output = replace(replace(outpath, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv.gz"
+    section("HSMM D detection — summary")
+    stage_report("accepted (passed all filters)", nrow(kept), nrow(collapsed))
+    CSV.write(outpath, select(kept, Not(reason_cols)), compress=true, delim='\t')
+    @info "Filtered D detections ($(nrow(kept)) rows) saved to $outpath"
+    CSV.write(full_output, collapsed, compress=true, delim='\t')
+    @info "Full annotated table ($(nrow(collapsed)) candidates + reject reason) saved to $full_output"
+    return kept
 end
 
 function handle_hsmm(parsed_args)

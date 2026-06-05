@@ -5,7 +5,9 @@ module Exact
     using Folds
     using FASTX
     using Statistics
-    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, CustomFilter, add_group_ratio!
+    using ..Filters: FilterCriterion, MinThreshold, CustomFilter, add_group_ratio!,
+                     init_rejection_columns!, mark_rejected!, accepted, passes
+    using ..Report: section, stage_report
 
     # ========================== GeneType dispatch hierarchy ==========================
 
@@ -555,23 +557,39 @@ module Exact
         counts_df[:,:gene_to_cross_case_median_ratio] = safe_ratio.(counts_df.gene_count, counts_df.cross_case_median_gene_count)
         transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
 
-        GermlineFilter([
-            CustomFilter(x -> x.allele_freq >= immunediscover_module.get_ratio_threshold(expect_dict, x, type="allele_freq"), "Allele frequency threshold"),
-            CustomFilter(x -> x.gene_case_freq >= immunediscover_module.get_ratio_threshold(deletion_dict, x, type="gene_case_freq"), "Gene case frequency threshold"),
-            MinThreshold(:allele_to_cross_case_median_ratio, parsed_args["search"]["exact"]["min-allele-mratio"], "Min allele median ratio"),
-            MinThreshold(:gene_to_cross_case_median_ratio, parsed_args["search"]["exact"]["min-gene-mratio"], "Min gene median ratio"),
-        ])(counts_df)
+        section("Exact search — frequency filters")
+        criteria = FilterCriterion[
+            CustomFilter(x -> x.allele_freq >= immunediscover_module.get_ratio_threshold(expect_dict, x, type="allele_freq"), "allele frequency"),
+            CustomFilter(x -> x.gene_case_freq >= immunediscover_module.get_ratio_threshold(deletion_dict, x, type="gene_case_freq"), "gene-case frequency"),
+            MinThreshold(:allele_to_cross_case_median_ratio, parsed_args["search"]["exact"]["min-allele-mratio"], "min allele median ratio (--min-allele-mratio)"),
+            MinThreshold(:gene_to_cross_case_median_ratio, parsed_args["search"]["exact"]["min-gene-mratio"], "min gene median ratio (--min-gene-mratio)"),
+        ]
+        # Annotate (not drop) so a full table records why each candidate was rejected.
+        init_rejection_columns!(counts_df)
+        for criterion in criteria
+            before = count(isempty, counts_df.reject_reason)
+            fail = Bool[!passes(row, criterion) for row in eachrow(counts_df)]
+            mark_rejected!(counts_df, fail, criterion.label, "frequency filter")
+            stage_report(criterion.label, count(isempty, counts_df.reject_reason), before)
+        end
 
-        output = always_gz(parsed_args["search"]["exact"]["output"])
+        reason_cols = [:reject_reason, :reject_stage]
+        kept = accepted(counts_df)
         if length(refgenes) > 0
             for refgene in refgenes
-                counts_df = grouped_ratios(counts_df, refgene, count_col=:count)
-                transform!(groupby(counts_df, [:well, :case, :gene]), :count => sum => :ref_gene_count)
-                counts_df = grouped_ratios(counts_df, refgene, count_col=:ref_gene_count)
+                kept = grouped_ratios(kept, refgene, count_col=:count)
+                transform!(groupby(kept, [:well, :case, :gene]), :count => sum => :ref_gene_count)
+                kept = grouped_ratios(kept, refgene, count_col=:ref_gene_count)
             end
         end
-        CSV.write(output, counts_df, compress=true, delim='\t')
-        @info "Exact search data saved in compressed $output file"
+        output = always_gz(parsed_args["search"]["exact"]["output"])
+        full_output = always_gz(replace(replace(output, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv")
+        section("Exact search — summary")
+        stage_report("accepted (passed all filters)", nrow(kept), nrow(counts_df))
+        CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')
+        @info "Filtered exact results ($(nrow(kept)) rows) saved to $output"
+        CSV.write(full_output, counts_df, compress=true, delim='\t')
+        @info "Full annotated table ($(nrow(counts_df)) candidates + reject reason) saved to $full_output"
     end
 
     export grouped_ratios, transform_counts, build_sequence_lookup, handle_exact
