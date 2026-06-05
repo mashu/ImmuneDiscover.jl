@@ -10,7 +10,8 @@ module Blast
     using MD5
     using Base.Threads: nthreads
 
-    using ..Data: load_fasta as data_load_fasta, unique_name
+    using ..Data: load_fasta as data_load_fasta, unique_name, barplot_if_available
+    using ..SeqStats: gc_content, max_homopolymer
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
                      add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Report: stage_report, section, cluster_profile_heatmap
@@ -237,6 +238,21 @@ module Blast
 
     "Subject coverage of a BLAST hit: aligned span on the subject ÷ subject length, in (0, 1]."
     subject_coverage(sstart::Integer, send::Integer, slen::Integer) = (abs(send - sstart) + 1) / slen
+
+    "Bar plot of how many distinct accepted candidate cores recur in 1, 2, 3, … donors."
+    function report_recurrence(kept)
+        nrow(kept) == 0 && return nothing
+        uniq = unique(select(kept, [:aln_qseq, :n_donors]))
+        tally = Dict{Int,Int}()
+        for r in eachrow(uniq)
+            tally[r.n_donors] = get(tally, r.n_donors, 0) + 1
+        end
+        isempty(tally) && return nothing
+        ks = sort(collect(keys(tally)))
+        println("  distinct accepted candidates by #donors (recurrence):")
+        barplot_if_available(string.(ks), [tally[k] for k in ks])
+        return nothing
+    end
 
     function check_affix_quality_warning(affix_length::Int, quality_threshold::Float64)
         if affix_length > 0 && affix_length <= 20 && quality_threshold > 0.5
@@ -762,6 +778,17 @@ module Blast
         end
         blast_clusters[:, :allele_name] = map(allele_name_row, eachrow(blast_clusters))
 
+        # Phase-2 candidate-quality metrics (columns for inspection / self-test / tuning):
+        #  - composition: gc_content, max_homopolymer of the trimmed core
+        #  - cross-donor recurrence: n_donors (distinct cases sharing this exact core)
+        #  - support: n_reads_total (reads backing this core across the run)
+        # A genuine novel allele tends to recur across donors with solid support and benign
+        # composition; an artifact is usually one donor, few reads, or composition-extreme.
+        blast_clusters[:, :gc_content] = gc_content.(blast_clusters.aln_qseq)
+        blast_clusters[:, :max_homopolymer] = max_homopolymer.(blast_clusters.aln_qseq)
+        transform!(groupby(blast_clusters, :aln_qseq), :case => (x -> length(unique(x))) => :n_donors)
+        transform!(groupby(blast_clusters, :aln_qseq), :full_count => sum => :n_reads_total)
+
         # Two outputs: the filtered table (candidates that passed every stage) and a full table
         # holding every candidate plus reject_reason / reject_stage, for inspection and tuning.
         reason_cols = [:reject_reason, :reject_stage]
@@ -774,6 +801,7 @@ module Blast
         section("BLAST discovery — summary")
         kept = accepted(blast_clusters)
         stage_report("accepted (passed all filters)", nrow(kept), nrow(blast_clusters))
+        report_recurrence(kept)
         # Quick look at how consistent the accepted candidates are (base composition over the
         # dominant length); no-op unless ≥2 accepted candidates share a length.
         nrow(kept) >= 2 && cluster_profile_heatmap(String.(kept.aln_qseq); title="accepted candidates")

@@ -19,6 +19,7 @@ using immunediscover.Haplotype
 using immunediscover.Bwa
 using immunediscover.Filters
 using immunediscover.Report
+using immunediscover.SeqStats
 using immunediscover.Table
 using immunediscover.Cooccurrence
 using immunediscover.HSMM
@@ -209,6 +210,24 @@ test_outcomes = Dict(
         @test Report.dominant_length(["AAA", "CCC", "GG"]) == 3
         @test Report.cluster_profile_heatmap(["ACGT", "ACGA"]) === nothing
         @test Report.cluster_profile_heatmap(["ACGT"]) === nothing      # <2 of a length → no-op
+    end
+
+    @testset "seqstats" begin
+        @test SeqStats.gc_content("GCGC") == 1.0
+        @test SeqStats.gc_content("ATAT") == 0.0
+        @test SeqStats.gc_content("GCAT") == 0.5
+        @test SeqStats.gc_content("") == 0.0
+        @test SeqStats.max_homopolymer("AAATTC") == 3
+        @test SeqStats.max_homopolymer("ACGT") == 1
+        @test SeqStats.max_homopolymer("") == 0
+        @test SeqStats.n_content("ANNA") == 0.5
+        @test SeqStats.n_content("ACGT") == 0.0
+        @test SeqStats.shannon_entropy(["AAA", "AAA"]) == 0.0
+        @test SeqStats.shannon_entropy(["AA", "AT"]) == 0.5      # 0 bits + 1 bit, averaged
+        @test SeqStats.shannon_entropy(String[]) == 0.0
+        @test SeqStats.consensus_fraction(["AAA", "AAA"]) == 1.0
+        @test SeqStats.consensus_fraction(["AA", "AT"]) == 0.75
+        @test_throws ArgumentError SeqStats.shannon_entropy(["AA", "AAA"])
     end
 
     @testset "simulate.jl" begin

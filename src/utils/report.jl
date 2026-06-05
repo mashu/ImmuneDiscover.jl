@@ -2,6 +2,7 @@ module Report
     using Statistics
     using Printf
     using ..Data: histogram_if_available, heatmap_if_available
+    using ..SeqStats: shannon_entropy
 
     export stage_report, stage_summary, distribution_summary, section, cluster_profile_heatmap
 
@@ -97,6 +98,8 @@ module Report
             i === nothing || (M[i, j] += 1.0)
         end
         M ./= length(sel)
+        printstyled("      mean positional entropy: ", round(shannon_entropy(sel); digits=3),
+                    " bits  (n=$(length(sel)), L=$L)\n"; color=:light_black)
         heatmap_if_available(M; title="$title (rows A/C/G/T, n=$(length(sel)), L=$L)")
         return nothing
     end

@@ -83,6 +83,22 @@ New `src/utils/report.jl` (`Report` module) reusing the colored style in
 
 ## Phase 2 — Discriminative metrics (true novel vs artifact)
 
+**Status: in progress.** Implemented so far (added as columns to both the filtered and full
+blast tables, and surfaced in the summary):
+- `gc_content`, `max_homopolymer` of the trimmed core (composition / artifact-proneness);
+- `n_donors` — distinct donors (cases) sharing the exact trimmed core (cross-donor recurrence,
+  the strongest single signal: real alleles recur, errors don't);
+- `n_reads_total` — read support for the core across the run;
+- `SeqStats.shannon_entropy` / `consensus_fraction` reusable helpers (used by the accepted-
+  candidate heatmap and available to the self-test);
+- summary shows a recurrence bar plot (candidates per #donors) and the accepted-candidate
+  base-composition heatmap with mean positional entropy.
+
+Remaining ideas below (nearest-known distance, read-level within-allele entropy, optional
+filter criteria on these columns) are deferred until the self-test shows which thresholds help.
+
+
+
 Per-candidate cluster metrics, computed from the reads assigned to each candidate:
 
 - `n_reads` (support),
