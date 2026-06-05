@@ -2,7 +2,18 @@ module Report
     using Statistics
     using Printf
 
-    export stage_report, stage_summary, distribution_summary
+    export stage_report, stage_summary, distribution_summary, section
+
+    """
+        section(title)
+
+    Print a bold colored section header. Returns nothing.
+    """
+    function section(title::AbstractString)
+        bar = "━"^max(3, 56 - length(title))
+        printstyled("\n━━ ", title, " ", bar, "\n"; color=:blue, bold=true)
+        return nothing
+    end
 
     """
         stage_summary(name, kept, before) -> String
