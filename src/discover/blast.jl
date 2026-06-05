@@ -11,7 +11,9 @@ module Blast
     using Base.Threads: nthreads
 
     using ..Data: load_fasta as data_load_fasta, unique_name
-    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter, add_group_ratio!
+    using ..Filters: GermlineFilter, FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter,
+                     add_group_ratio!, init_rejection_columns!, mark_rejected!, annotate_rejections!, accepted
+    using ..Report: stage_report
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
     export resolve_work_dir, blast_hits_gz_path
@@ -671,8 +673,12 @@ module Blast
                     row.db_length > 0 ? length(row.aln_qseq) / row.db_length : 0.0
                 end
                 before_corecov = nrow(blast_clusters)
-                filter!(x -> x.corecov >= min_corecov, blast_clusters)
-                @info "Core coverage filter (>= $min_corecov): kept $(nrow(blast_clusters)) / $before_corecov"
+                # Annotate instead of drop, so rejected candidates survive into the full table.
+                mark_rejected!(blast_clusters, blast_clusters.corecov .< min_corecov,
+                               "corecov < $min_corecov", "corecov")
+                kept_corecov = count(isempty, blast_clusters.reject_reason)
+                @info "Core coverage filter (>= $min_corecov): kept $kept_corecov / $before_corecov (rest annotated)"
+                stage_report("core coverage ≥ $min_corecov", kept_corecov, before_corecov; values=blast_clusters.corecov)
 
                 @info "Alignment stats: $(stats.total_attempts) attempts, $(stats.prefix_failures) prefix, $(stats.suffix_failures) suffix failures"
                 if verbose
@@ -702,7 +708,9 @@ module Blast
             push!(criteria, NonNegative(:aln_mismatch, "Exclude failed trimming"))
         end
         push!(criteria, MaxThreshold(:aln_mismatch, Float64(parsed_args["discover"]["blast"]["maxdist"]), "Max distance"))
-        GermlineFilter(criteria)(blast_clusters)
+        before_filter = nrow(blast_clusters)
+        annotate_rejections!(blast_clusters, criteria; stage="output filter")
+        stage_report("output filters", count(isempty, blast_clusters.reject_reason), before_filter)
         # allele_name: exact match (aln_mismatch==0) -> sseqid; else if isin, substring of known allele -> that allele; else Novel
         db_seqs = [(strip(String(n)), String(s)) for (n, s) in DB]
         function allele_name_row(row)
@@ -718,8 +726,21 @@ module Blast
             return unique_name(row.sseqid, row.aln_qseq)
         end
         blast_clusters[:, :allele_name] = map(allele_name_row, eachrow(blast_clusters))
+
+        # Two outputs: the filtered table (candidates that passed every stage) and a full table
+        # holding every candidate plus reject_reason / reject_stage, for inspection and tuning.
+        reason_cols = [:reject_reason, :reject_stage]
         output = always_gz(parsed_args["discover"]["blast"]["output"])
-        @info "Saving discovered gene sequences in compressed $output file"
-        CSV.write(output, blast_clusters, compress=true, delim='\t')
+        full_arg = get(parsed_args["discover"]["blast"], "full-output", nothing)
+        full_output = (full_arg === nothing || isempty(full_arg)) ?
+            always_gz(replace(replace(output, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv") :
+            always_gz(full_arg)
+
+        kept = accepted(blast_clusters)
+        stage_report("FINAL accepted", nrow(kept), nrow(blast_clusters))
+        CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')
+        @info "Filtered discoveries ($(nrow(kept)) rows) saved to $output"
+        CSV.write(full_output, blast_clusters, compress=true, delim='\t')
+        @info "Full annotated table ($(nrow(blast_clusters)) candidates + reject reason) saved to $full_output"
     end
 end

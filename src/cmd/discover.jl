@@ -98,6 +98,9 @@ function add_discover_args!(s)
             help = "Directory for BLAST cache, temporary query FASTA, combined/extended DB, and affix files (relative paths use pwd()). Nothing is written beside the input TSV."
             default = ".immunediscover"
             arg_type = String
+        "--full-output"
+            help = "Path for the full annotated candidate table (every candidate + reject_reason/reject_stage). Default: <output>.full.tsv.gz"
+            arg_type = String
         end
 
         @add_arg_table! s["discover"]["hsmm"] begin

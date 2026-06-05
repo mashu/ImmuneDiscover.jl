@@ -636,6 +636,34 @@ test_outcomes = Dict(
         @test pseq == "GGGGGGGGGGGG"
     end
 
+    @testset "blast annotate + partition (full vs filtered)" begin
+        # Mirrors handle_blast's final stages without needing blastn: annotate, then split.
+        clusters = DataFrame(
+            sseqid = ["A*01", "B*01", "C*01", "D*01"],
+            full_count = [10, 2, 10, 10],         # B fails Min count
+            full_ratio = [1.0, 1.0, 0.01, 1.0],   # C fails Min ratio
+            qseq = ["ACGTACGTAC", "ACGTACGTAC", "ACGTACGTAC", "AC"],  # D fails Min len
+            aln_mismatch = [0, 0, 0, 0],
+            corecov = [0.9, 0.9, 0.9, 0.9],
+        )
+        Filters.mark_rejected!(clusters, clusters.corecov .< 0.5, "corecov < 0.5", "corecov")
+        criteria = FilterCriterion[
+            MinThreshold(:full_count, 5.0, "Min count"),
+            MinThreshold(:full_ratio, 0.1, "Min ratio"),
+            MinStringLength(:qseq, 5, "Min len"),
+            MaxThreshold(:aln_mismatch, 14.0, "Max dist"),
+        ]
+        Filters.annotate_rejections!(clusters, criteria; stage="output filter")
+        @test clusters.reject_reason == ["", "Min count", "Min ratio", "Min len"]
+
+        kept = Filters.accepted(clusters)
+        @test nrow(kept) == 1
+        @test kept.sseqid == ["A*01"]
+        filtered = select(kept, Not([:reject_reason, :reject_stage]))
+        @test !("reject_reason" in names(filtered))   # filtered output drops the reason columns
+        @test nrow(clusters) == 4                       # full table keeps every candidate
+    end
+
     @testset "bwa.jl" begin
         # CLI - bwa is now under analyze group
         empty!(ARGS)
