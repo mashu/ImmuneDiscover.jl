@@ -48,7 +48,7 @@ module Report
     `values` underneath. Returns nothing.
     """
     function stage_report(name::AbstractString, kept::Integer, before::Integer;
-                          values=nothing, histogram::Bool=false)
+                          values=nothing, histogram::Bool=false, hist_closed::Symbol=:left)
         removed = before - kept
         printstyled("  ▸ "; color=:magenta, bold=true)
         print(rpad(name, 28), " ")
@@ -59,7 +59,7 @@ module Report
         println()
         if values !== nothing && !isempty(values)
             printstyled("      ", distribution_summary(values), "\n"; color=:light_black)
-            histogram && histogram_if_available(values; nbins=20, title=name)
+            histogram && histogram_if_available(values; nbins=20, title=name, closed=hist_closed)
         end
         return nothing
     end

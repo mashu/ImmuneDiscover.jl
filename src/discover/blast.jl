@@ -522,7 +522,7 @@ module Blast
         before = nrow(blast_df)
         scov_vals = copy(blast_df.scov)
         filter!(x -> x.scov > min_scov, blast_df)
-        stage_report("subject coverage > $min_scov", nrow(blast_df), before; values=scov_vals, histogram=true)
+        stage_report("subject coverage > $min_scov", nrow(blast_df), before; values=scov_vals, histogram=true, hist_closed=:right)
 
         transform!(blast_df, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
         before = nrow(blast_df)
@@ -704,7 +704,7 @@ module Blast
                                "core coverage < $min_corecov (core÷DB len)", "core coverage")
                 kept_corecov = count(isempty, blast_clusters.reject_reason)
                 stage_report("core coverage ≥ $min_corecov (core÷DB len)", kept_corecov, before_corecov;
-                             values=blast_clusters.corecov, histogram=true)
+                             values=blast_clusters.corecov, histogram=true, hist_closed=:right)
 
                 @info "Alignment stats: $(stats.total_attempts) attempts, $(stats.prefix_failures) prefix, $(stats.suffix_failures) suffix failures"
                 if verbose
