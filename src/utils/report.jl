@@ -4,7 +4,7 @@ module Report
     using ..Data: histogram_if_available, heatmap_if_available
     using ..SeqStats: shannon_entropy
 
-    export stage_report, stage_summary, distribution_summary, section, cluster_profile_heatmap
+    export stage_report, stage_summary, distribution_summary, section, cluster_profile_heatmap, params_report
 
     """
         section(title)
@@ -14,6 +14,39 @@ module Report
     function section(title::AbstractString)
         bar = "━"^max(3, 56 - length(title))
         printstyled("\n━━ ", title, " ", bar, "\n"; color=:blue, bold=true)
+        return nothing
+    end
+
+    format_value(v) = v === nothing ? "(unset)" : (v == "" ? "(empty)" : string(v))
+
+    """
+        params_report(block, groups; title)
+
+    Print a CLI argument `block` (a Dict) grouped and ordered by `groups` — a vector of
+    `"Group name" => ["key1", "key2", …]` pairs — with a header per group. Any keys not listed
+    in `groups` (and not internal `%…%` keys) are printed under "other", so nothing is hidden.
+    """
+    function params_report(block::AbstractDict, groups; title::AbstractString="parameters")
+        section(title)
+        shown = Set{String}()
+        for (gname, keys) in groups
+            present = [(k, block[k]) for k in keys if haskey(block, k)]
+            isempty(present) && continue
+            printstyled("  ", gname, "\n"; color=:cyan, bold=true)
+            for (k, v) in present
+                push!(shown, String(k))
+                printstyled("    --", rpad(String(k), 18); color=:light_black)
+                println(format_value(v))
+            end
+        end
+        leftover = sort([(String(k), v) for (k, v) in block if !(String(k) in shown) && !startswith(String(k), "%")])
+        if !isempty(leftover)
+            printstyled("  other\n"; color=:cyan, bold=true)
+            for (k, v) in leftover
+                printstyled("    --", rpad(k, 18); color=:light_black)
+                println(format_value(v))
+            end
+        end
         return nothing
     end
 

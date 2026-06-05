@@ -211,6 +211,9 @@ test_outcomes = Dict(
         @test Report.dominant_length(["AAA", "CCC", "GG"]) == 3
         @test Report.cluster_profile_heatmap(["ACGT", "ACGA"]) === nothing
         @test Report.cluster_profile_heatmap(["ACGT"]) === nothing      # <2 of a length → no-op
+        # grouped parameter display: runs, groups known keys, "other" catches the rest
+        @test Report.params_report(Dict("input" => "a.tsv", "gene" => "V", "extra" => 1),
+                                   ["IO" => ["input"], "Gene" => ["gene"]]) === nothing
     end
 
     @testset "seqstats" begin
@@ -694,6 +697,14 @@ test_outcomes = Dict(
         filtered = select(kept, Not([:reject_reason, :reject_stage]))
         @test !("reject_reason" in names(filtered))   # filtered output drops the reason columns
         @test nrow(clusters) == 4                       # full table keeps every candidate
+
+        # optional quality-metric criteria (recurrence / homopolymer) annotate like the rest
+        cl2 = DataFrame(sseqid=["A", "B"], n_donors=[3, 1], max_homopolymer=[2, 9])
+        Filters.annotate_rejections!(cl2, FilterCriterion[
+            MinThreshold(:n_donors, 2.0, "min recurrence"),
+            MaxThreshold(:max_homopolymer, 5.0, "max homopolymer"),
+        ])
+        @test cl2.reject_reason == ["", "min recurrence"]   # B fails recurrence (n_donors 1 < 2) first
     end
 
     @testset "blast neighbor stats (satellite detection)" begin

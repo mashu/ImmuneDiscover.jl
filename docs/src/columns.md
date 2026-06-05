@@ -112,23 +112,58 @@ These appear in multiple command outputs:
 
 ## discover blast Outputs
 
+`discover blast` writes **two** tables: the filtered discoveries (`<output>`, candidates that
+passed every stage) and the **full annotated table** (`<output>.full.tsv.gz` or `--full-output`)
+containing *every* candidate plus the reason it was kept or rejected. The self-test consumes the
+full table.
+
 ### Core Columns
 
 | Column | Description |
 |--------|-------------|
-| `qseqid` | Query sequence identifier |
-| `sseqid` | Subject (database) sequence identifier |
+| `qseqid` | Query (read) identifier |
+| `sseqid` | Subject (database) allele identifier |
 | `gene` | Gene name (from sseqid) |
-| `qseq` | Original query sequence |
-| `db_seq` | Database reference sequence |
-| `prefix`, `suffix` | Extension sequences |
-| `aln_qseq` | Aligned query sequence (gaps removed, extensions trimmed) |
-| `aln_mismatch` | Mismatches in aligned core (after trimming) |
-| `corecov` | Core coverage = length(aln_qseq) / length(db_seq) |
-| `isin_db` | Boolean: Is aln_qseq substring of known allele? |
-| `allele_name` | Final name (original if exact match, or with "_S{hash} Novel") |
-| `full_count` | Cluster size before collapsing |
-| `full_ratio` | Allelic ratio within well/case/gene (count / max in gene) |
+| `qseq` | Query core sequence (gaps removed) |
+| `aln_qseq` | Trimmed core: the read segment left after removing the prefix/suffix affixes |
+| `aln_mismatch` | Edit distance of the trimmed core to the assigned reference (−1 if trimming failed) |
+| `scov` | Subject coverage = aligned subject span `(|send−sstart|+1)/slen`, bounded in (0, 1] |
+| `corecov` | Core ÷ reference length = `length(aln_qseq)/length(db allele)`. **Can exceed 1.0** when the candidate is longer than the reference (an insertion) |
+| `isin_db` | Whether `aln_qseq` is an exact substring of a known allele |
+| `allele_name` | Final name (the known allele if exact, else `{gene}_S{hash}` for a novel candidate) |
+| `full_count` | Reads in the (well, case, sseqid, qseq) cluster |
+| `full_ratio` | Allelic ratio within well/case/gene (full_count / max in gene) |
+
+### Transparency Columns (Phase 1)
+
+| Column | Description |
+|--------|-------------|
+| `reject_reason` | Label of the first filter the candidate failed; empty if accepted |
+| `reject_stage` | Stage that rejected it (`core coverage`, `output filter`, …); empty if accepted |
+
+The filtered table = rows with empty `reject_reason`. The full table keeps all rows so you can
+see *why* each candidate was dropped — and the self-test uses `reject_stage` to tell you which
+filter to relax.
+
+### Quality / discriminative metrics (Phase 2)
+
+These help separate genuine novel alleles from artifacts (errors). Rationale: a real allele tends
+to **recur across donors** with solid read support and benign composition; an artifact is usually
+seen in one donor, has few reads, sits 1 bp from a much more abundant allele, or is
+composition-extreme.
+
+| Column | Description |
+|--------|-------------|
+| `n_donors` | Distinct donors (cases) sharing this exact trimmed core — **cross-donor recurrence**, the strongest single signal |
+| `n_reads_total` | Total reads backing this core across the run (support) |
+| `gc_content` | G/C fraction of the trimmed core |
+| `max_homopolymer` | Longest single-base run in the trimmed core (long runs ↔ context errors) |
+| `nn_dist` | Edit distance to the nearest **more-abundant** core of the same gene (its likely "parent"); −1 if none. Hamming when equal length, else Levenshtein |
+| `parent_ratio` | Parent reads ÷ this core's reads. **Small `nn_dist` + large `parent_ratio` = an error satellite** of a dominant allele (between-cluster separation) |
+
+Optional filters built on these (off by default): `--min-recurrence` (require `n_donors ≥ N`) and
+`--max-homopolymer` (drop cores with a run longer than N). When set, they appear in
+`reject_reason` like any other filter.
 
 ### BLAST Standard Columns
 

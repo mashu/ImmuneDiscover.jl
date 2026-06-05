@@ -109,6 +109,16 @@ function add_discover_args!(s)
             default = 0
             arg_type = Int
             range_tester = (x -> x >= 0)
+        "--min-recurrence"
+            help = "Quality filter: require a candidate to appear in at least this many donors (n_donors). 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x -> x >= 0)
+        "--max-homopolymer"
+            help = "Quality filter: drop candidates whose trimmed core has a homopolymer run longer than this. 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x -> x >= 0)
         end
 
         @add_arg_table! s["discover"]["hsmm"] begin

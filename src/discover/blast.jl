@@ -14,7 +14,7 @@ module Blast
     using ..SeqStats: gc_content, max_homopolymer
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
                      add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes
-    using ..Report: stage_report, section, cluster_profile_heatmap
+    using ..Report: stage_report, section, cluster_profile_heatmap, params_report
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
     export resolve_work_dir, blast_hits_gz_path
@@ -654,16 +654,10 @@ module Blast
         using_cli = immunediscover_module.Cli
         parsed_args = using_cli.apply_blast_presets!(parsed_args)
         gene = parsed_args["discover"]["blast"]["gene"]
-        if haskey(using_cli.BLAST_PRESETS, gene)
-            @info "Initial $gene preset parameters:"
-            for (param, value) in using_cli.BLAST_PRESETS[gene]
-                @info "  --$param = $value"
-            end
-        end
-        @info "Running with the following parameters:"
-        for (param, value) in parsed_args["discover"]["blast"]
-            @info "  --$param = $value"
-        end
+        haskey(using_cli.BLAST_PRESETS, gene) && @info "Applied $gene gene preset (overrides logged above)"
+        # Grouped, ordered parameter display (final values after presets/overrides).
+        params_report(parsed_args["discover"]["blast"], using_cli.BLAST_PARAM_GROUPS;
+                      title="discover blast — parameters")
         @info "Discovery with BLAST assignments"
 
         fasta_path = parsed_args["discover"]["blast"]["fasta"]
@@ -814,10 +808,22 @@ module Blast
             blast_clusters[:, :aln_mismatch] = blast_clusters[:, :mismatch]
         end
 
+        # Candidate-quality metrics (composition + cross-donor recurrence + support) — computed
+        # before the output filters so they can also serve as optional filter criteria.
+        #  - gc_content / max_homopolymer: composition of the trimmed core,
+        #  - n_donors: distinct donors sharing the exact core (cross-donor recurrence),
+        #  - n_reads_total: reads backing the core across the run.
+        blast_clusters[:, :gc_content] = gc_content.(blast_clusters.aln_qseq)
+        blast_clusters[:, :max_homopolymer] = max_homopolymer.(blast_clusters.aln_qseq)
+        transform!(groupby(blast_clusters, :aln_qseq), :case => (x -> length(unique(x))) => :n_donors)
+        transform!(groupby(blast_clusters, :aln_qseq), :full_count => sum => :n_reads_total)
+
         # Apply output filters
         min_fullcount = parsed_args["discover"]["blast"]["minfullcount"]
         min_fullratio = parsed_args["discover"]["blast"]["minfullratio"]
         min_length = parsed_args["discover"]["blast"]["length"]
+        min_recurrence = get(parsed_args["discover"]["blast"], "min-recurrence", 0)
+        max_homop = get(parsed_args["discover"]["blast"], "max-homopolymer", 0)
 
         criteria = FilterCriterion[
             MinThreshold(:full_count, min_fullcount, "min cluster reads (--minfullcount $min_fullcount)"),
@@ -829,6 +835,11 @@ module Blast
         end
         push!(criteria, MaxThreshold(:aln_mismatch, Float64(parsed_args["discover"]["blast"]["maxdist"]),
                                      "max edit distance (--maxdist $(parsed_args["discover"]["blast"]["maxdist"]))"))
+        # Optional quality-metric filters (off by default — 0 disables).
+        min_recurrence > 0 && push!(criteria,
+            MinThreshold(:n_donors, Float64(min_recurrence), "min donor recurrence (--min-recurrence $min_recurrence)"))
+        max_homop > 0 && push!(criteria,
+            MaxThreshold(:max_homopolymer, Float64(max_homop), "max homopolymer (--max-homopolymer $max_homop)"))
 
         # Apply each output filter in turn, annotating (not dropping) so the full table keeps
         # every candidate, and report how many each filter removes — separately.
@@ -856,18 +867,8 @@ module Blast
         end
         blast_clusters[:, :allele_name] = map(allele_name_row, eachrow(blast_clusters))
 
-        # Phase-2 candidate-quality metrics (columns for inspection / self-test / tuning):
-        #  - composition: gc_content, max_homopolymer of the trimmed core
-        #  - cross-donor recurrence: n_donors (distinct cases sharing this exact core)
-        #  - support: n_reads_total (reads backing this core across the run)
-        # A genuine novel allele tends to recur across donors with solid support and benign
-        # composition; an artifact is usually one donor, few reads, or composition-extreme.
-        blast_clusters[:, :gc_content] = gc_content.(blast_clusters.aln_qseq)
-        blast_clusters[:, :max_homopolymer] = max_homopolymer.(blast_clusters.aln_qseq)
-        transform!(groupby(blast_clusters, :aln_qseq), :case => (x -> length(unique(x))) => :n_donors)
-        transform!(groupby(blast_clusters, :aln_qseq), :full_count => sum => :n_reads_total)
-        # Between-cluster separation: nearest more-abundant core ("parent"). A small nn_dist
-        # with a large parent_ratio flags an error satellite of a dominant allele.
+        # Between-cluster separation (diagnostic): for each accepted core, the nearest
+        # more-abundant core ("parent"). Small nn_dist + large parent_ratio = error satellite.
         add_neighbor_stats!(blast_clusters)
 
         # Two outputs: the filtered table (candidates that passed every stage) and a full table

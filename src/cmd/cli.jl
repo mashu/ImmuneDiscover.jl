@@ -1,7 +1,19 @@
 module Cli
     using ArgParse
     export parse_commandline, apply_blast_presets!, show_blast_presets, show_blast_params
-    export BLAST_PRESETS, BLAST_CLI_DEFAULTS
+    export BLAST_PRESETS, BLAST_CLI_DEFAULTS, BLAST_PARAM_GROUPS
+
+    # Logical grouping for displaying `discover blast` parameters (order matters; any key not
+    # listed falls under "other" so nothing is hidden).
+    const BLAST_PARAM_GROUPS = [
+        "Inputs / outputs"          => ["input", "fasta", "pseudo", "output", "full-output", "work-dir"],
+        "Gene preset"               => ["gene", "show-presets"],
+        "Extension & trimming"      => ["forward", "reverse", "minquality", "min-corecov"],
+        "BLAST search"              => ["args", "maxdist", "edge", "subjectcov", "min-read-length"],
+        "Cluster & output filters"  => ["minfullcount", "minfullratio", "length", "isin", "keep-failed"],
+        "Quality-metric filters"    => ["min-recurrence", "max-homopolymer"],
+        "Run control"               => ["overwrite", "verbose"],
+    ]
     import ArgParse.parse_item
     using ArgParse: @add_arg_table!
     using Logging
