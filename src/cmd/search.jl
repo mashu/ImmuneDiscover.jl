@@ -90,7 +90,9 @@ function add_search_args!(s)
                 range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
-        @add_arg_table! s["search"]["exact"] begin
+        ex = s["search"]["exact"]
+
+        @add_arg_table! ex begin
         "tsv"
             help = "TSV file with demultiplexed data"
             required = true
@@ -100,30 +102,32 @@ function add_search_args!(s)
         "output"
             help = "TSV file to save ouput"
             required = true
-        "-f", "--minratio"
-            help = "Minimum allelic ratio applied within each gene group"
-            default = 0.1
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-c", "--mincount"
-            help = "Minimum cluster size"
-            default = 5
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "--min-allele-mratio"
-            help = "Minimum allelic ratio applied within each gene group for the allele against median"
-            default = 0.05
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0))
-        "--min-gene-mratio"
-            help = "Minimum allelic ratio applied within each gene group for the gene against median"
-            default = 0.05
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0))
+        end
+
+        add_arg_group!(ex, "Gene selection", "exact_gene")
+        @add_arg_table! ex begin
+        "-g", "--gene"
+            default = "V"
+            range_tester = (x->x ∈ GENES)
+            arg_type = String
+            help = "gene; must be one of " * join(GENES, ", ", " or ")
+        "--locus"
+            help = "Locus to filter genes to start with this string (e.g. IGHV) excluding other genes from the analysis (i.e control genes)"
+            arg_type = String
+            default = "IG"
+        end
+
+        add_arg_group!(ex, "RSS / core extraction", "exact_rss")
+        @add_arg_table! ex begin
         "--rss"
             help = "Comma-separated list of rss fragments: heptamer, spacer, nonamer"
             default = "heptamer"
             arg_type = String
+        "-a", "--affix"
+            help = "Number of bases to extract from the non-RSS side of the sequence"
+            arg_type = Int
+            default = 13
+            range_tester = (x->x >= 1)
         "--extension"
             help = "Length of extension on RSS side instead of RSS elements"
             arg_type = Int
@@ -140,49 +144,67 @@ function add_search_args!(s)
             arg_type = Float64
             default = 1.0
             range_tester = (x-> (x > 0.0) & (x <= 1.0))
-        "--raw"
-            help = "Unfiltered exact search results for diagnostics"
-            arg_type = String
-        "-n","--noplot"
-            help = "Disable unicode gene plot"
-            action = :store_true
-        "-g", "--gene"
-            default = "V"
-            range_tester = (x->x ∈ GENES)
-            arg_type = String
-            help = "gene; must be one of " * join(GENES, ", ", " or ")
-        "-a", "--affix"
-            help = "Number of bases to extract from the non-RSS side of the sequence"
+        end
+
+        add_arg_group!(ex, "Count and ratio filters", "exact_filters")
+        @add_arg_table! ex begin
+        "-c", "--mincount"
+            help = "Minimum cluster size"
+            default = 5
             arg_type = Int
-            default = 13
             range_tester = (x->x >= 1)
+        "-f", "--minratio"
+            help = "Minimum allelic ratio applied within each gene group"
+            default = 0.1
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-allele-mratio"
+            help = "Minimum allelic ratio applied within each gene group for the allele against median"
+            default = 0.05
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0))
+        "--min-gene-mratio"
+            help = "Minimum allelic ratio applied within each gene group for the gene against median"
+            default = 0.05
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0))
+        end
+
+        add_arg_group!(ex, "Reference frequency thresholds", "exact_ref")
+        @add_arg_table! ex begin
+        "-e", "--expect"
+            help = "TSV file containing gene names and their corresponding allele_freq threshold, with two columns: name and ratio"
+            arg_type = String
+        "-d", "--deletion"
+            help = "TSV file containing gene names and their corresponding gene_case_freq threshold, with two columns: name and ratio"
+            arg_type = String
+        "-r", "--refgene"
+            help = "Space separated reference genes to use for computing ratio"
+            nargs = '*'  # Accepts zero or more values
+            arg_type = String
+        "--ref-fasta"
+            help = "Optional reference FASTA file to check if sequences are in database (adds isin_db column)"
+            arg_type = String
+        end
+
+        add_arg_group!(ex, "Output and diagnostics", "exact_out")
+        @add_arg_table! ex begin
         "-t", "--top"
             help = "Saves at most N records of flank and sequence."
             arg_type = Int
             default = 1
             range_tester = (x->x >= 1)
-        "-r", "--refgene"
-            help = "Space separated reference genes to use for computing ratio"
-            nargs = '*'  # Accepts zero or more values
-            arg_type = String
         "-l", "--limit"
             help = "Limit to this number of sequences, zero means no limit"
             arg_type = Int
             default = 0
             range_tester = (x->x >= 0)
-        "-e","--expect"
-            help = "TSV file containing gene names and their corresponding allele_freq threshold, with two columns: name and ratio"
+        "--raw"
+            help = "Unfiltered exact search results for diagnostics"
             arg_type = String
-        "-d","--deletion"
-            help = "TSV file containing gene names and their corresponding gene_case_freq threshold, with two columns: name and ratio"
-            arg_type = String
-        "--locus"
-            help = "Locus to filter genes to start with this string (e.g. IGHV) excluding other genes from the analysis (i.e control genes)"
-            arg_type = String
-            default = "IG"
-        "--ref-fasta"
-            help = "Optional reference FASTA file to check if sequences are in database (adds isin_db column)"
-            arg_type = String
+        "-n", "--noplot"
+            help = "Disable unicode gene plot"
+            action = :store_true
         end
 
     return s
