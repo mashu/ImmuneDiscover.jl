@@ -1271,6 +1271,11 @@ test_outcomes = Dict(
             @test isabspath(Blast.resolve_work_dir(""))
             @test endswith(Blast.resolve_work_dir(""), ".immunediscover")
             @test Blast.resolve_work_dir("/tmp/wd") == "/tmp/wd"
+            # subject coverage from sstart..send span, bounded ≤ 1 (incl. minus strand)
+            @test Blast.subject_coverage(1, 100, 100) == 1.0
+            @test Blast.subject_coverage(1, 50, 100) == 0.5
+            @test Blast.subject_coverage(100, 1, 100) == 1.0   # send < sstart on minus strand
+            @test Blast.subject_coverage(10, 19, 100) == 0.1
         end
 
         @testset "exact gene-type dispatch" begin

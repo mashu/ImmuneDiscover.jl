@@ -235,6 +235,9 @@ module Blast
 
     nogaps(s) = replace(s, '-' => "")
 
+    "Subject coverage of a BLAST hit: aligned span on the subject ÷ subject length, in (0, 1]."
+    subject_coverage(sstart::Integer, send::Integer, slen::Integer) = (abs(send - sstart) + 1) / slen
+
     function check_affix_quality_warning(affix_length::Int, quality_threshold::Float64)
         if affix_length > 0 && affix_length <= 20 && quality_threshold > 0.5
             @warn "Quality threshold $(round(quality_threshold * 100, digits=1))% might be too strict for short affixes ($affix_length nt). Consider lowering --minquality."
@@ -513,7 +516,9 @@ module Blast
         filter!(x -> x.five_prime_edge >= min_edge && x.three_prime_edge >= min_edge, blast_df)
         stage_report("5'/3' edge ≥ $min_edge nt", nrow(blast_df), before)
 
-        transform!(blast_df, [:length, :slen] => ByRow((len, slen) -> len / slen) => :scov)
+        # Subject coverage from the sstart..send span (bounded ≤ 1), not BLAST's `length`
+        # column which counts gap columns and can exceed slen on insertions.
+        transform!(blast_df, [:sstart, :send, :slen] => ByRow(subject_coverage) => :scov)
         before = nrow(blast_df)
         scov_vals = copy(blast_df.scov)
         filter!(x -> x.scov > min_scov, blast_df)
