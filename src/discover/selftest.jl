@@ -53,16 +53,22 @@ module Selftest
                                truth::AbstractVector{<:Tuple{<:AbstractString,<:AbstractString}};
                                seq_col::Symbol=:aln_qseq, substring::Bool=true)
         cols = names(discovery)
-        reason = "reject_reason" in cols ? string.(discovery.reject_reason) : fill("", nrow(discovery))
-        stage  = "reject_stage"  in cols ? string.(discovery.reject_stage)  : fill("", nrow(discovery))
-        seqs = String.(discovery[!, seq_col])
+        String(seq_col) in cols ||
+            error("Discovery table has no '$seq_col' column — pass --seq-col, or use the full table (<output>.full.tsv.gz).")
+        # Empty fields round-trip through CSV as `missing`; coalesce so an accepted row's empty
+        # reject_reason isn't read as "missing" (which would look rejected), and drop empty cores.
+        getcol(name) = name in cols ? [ismissing(x) ? "" : String(x) for x in discovery[!, name]] :
+                                      fill("", nrow(discovery))
+        reason = getcol("reject_reason")
+        stage  = getcol("reject_stage")
+        seqs   = [ismissing(x) ? "" : String(x) for x in discovery[!, seq_col]]
 
         acc_mask = isempty.(reason)
-        accepted_list = unique(seqs[acc_mask])
+        accepted_list = filter(!isempty, unique(seqs[acc_mask]))
         accepted_set = Set(accepted_list)
         rejected = Dict{String,String}()
         for i in eachindex(seqs)
-            acc_mask[i] && continue
+            (acc_mask[i] || isempty(seqs[i])) && continue
             get!(rejected, seqs[i], stage[i])
         end
 

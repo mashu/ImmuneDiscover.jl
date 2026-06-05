@@ -765,6 +765,18 @@ test_outcomes = Dict(
         @test paa[paa.allele .== "V2", :status][1] == "rejected"
         @test paa[paa.allele .== "V2", :reject_stage][1] == "output filter"
         @test paa[paa.allele .== "V3", :status][1] == "missed"
+
+        # CSV round-trip turns empty fields into `missing`: an accepted row has missing
+        # reject_reason and must still count as recovered; empty cores must not match.
+        disc2 = DataFrame(
+            aln_qseq = ["NOVELAAA", missing, ""],
+            reject_reason = [missing, "min count", missing],
+            reject_stage = [missing, "output filter", missing],
+        )
+        res2 = Selftest.evaluate_recovery(disc2, Set(String[]), [("V1", "NOVELAAA")]; seq_col=:aln_qseq)
+        @test res2.summary.n_truth_novel == 1
+        @test res2.summary.recovered == 1
+        @test res2.summary.false_positive == 0
     end
 
     @testset "bwa.jl" begin
