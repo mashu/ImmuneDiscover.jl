@@ -10,7 +10,7 @@ module Blast
     using MD5
     using Base.Threads: nthreads
 
-    using ..Data: load_fasta as data_load_fasta, unique_name, barplot_if_available
+    using ..Data: load_fasta as data_load_fasta, unique_name, histogram_if_available
     using ..SeqStats: gc_content, max_homopolymer
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
                      add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes
@@ -239,18 +239,17 @@ module Blast
     "Subject coverage of a BLAST hit: aligned span on the subject ÷ subject length, in (0, 1]."
     subject_coverage(sstart::Integer, send::Integer, slen::Integer) = (abs(send - sstart) + 1) / slen
 
-    "Bar plot of how many distinct accepted candidate cores recur in 1, 2, 3, … donors."
+    "Summarize cross-donor recurrence of accepted candidates (single-donor cores ≈ likely artifacts)."
     function report_recurrence(kept)
         nrow(kept) == 0 && return nothing
         uniq = unique(select(kept, [:aln_qseq, :n_donors]))
-        tally = Dict{Int,Int}()
-        for r in eachrow(uniq)
-            tally[r.n_donors] = get(tally, r.n_donors, 0) + 1
-        end
-        isempty(tally) && return nothing
-        ks = sort(collect(keys(tally)))
-        println("  distinct accepted candidates by #donors (recurrence):")
-        barplot_if_available(string.(ks), [tally[k] for k in ks])
+        n = nrow(uniq)
+        single = count(==(1), uniq.n_donors)
+        println("  $n distinct accepted candidate sequences; ",
+                single, " seen in a single donor (", round(100 * single / n; digits=1),
+                "% — more likely artifacts), ", n - single, " in two or more donors.")
+        println("  donors per candidate (x = number of donors, bar height = candidates):")
+        histogram_if_available(uniq.n_donors; nbins=20)
         return nothing
     end
 

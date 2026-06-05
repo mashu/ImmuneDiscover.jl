@@ -1,147 +1,64 @@
-# Design: Discovery transparency, discriminative metrics, and self-test
+# Discovery transparency, metrics, and self-test
 
-Status: proposed (implement as a separate PR series, Phase 1 first).
+`discover blast` is built to explain *why* every candidate is kept or rejected, to expose
+metrics that separate genuine novel alleles from artifacts, and to let you measure recovery of
+known-vs-novel alleles. This page describes how those pieces fit together.
 
-Goal: make `discover blast` explain *why* every candidate is kept or rejected, emit a full
-annotated table next to the filtered one, print fancy staged diagnostics, add metrics that
-better separate true novel alleles from artifacts, and provide a `selftest` command to
-measure (and tune) recovery of known-vs-novel alleles.
+## Transparency: reject reasons and two output tables
 
-The design generalizes to `search exact` and `discover hsmm`, but Phase 1 targets
-`discover blast`.
+Filtering annotates rather than drops. Each candidate carries `reject_reason` (the label of the
+first filter it failed, empty if accepted) and `reject_stage` (the stage that rejected it). The
+run therefore produces two tables:
 
----
+- `<output>` — the filtered discoveries (candidates with an empty `reject_reason`).
+- `<output>.full.tsv.gz` (or `--full-output PATH`) — every candidate plus `reject_reason` /
+  `reject_stage`, so you can inspect each assignment and the reason it was dropped.
 
-## Phase 1 — Transparency: reject reasons, dual output, staged reports
+Each stage prints a colored summary line (kept/before, removed), and the per-criterion output
+filters are reported separately, so it is clear how many candidates each filter removes.
+`subject coverage`, `BLAST mismatch`, and `core coverage` also draw a unicode histogram of their
+metric.
 
-### 1.1 Filters: an annotate path beside the drop path
+The annotate path lives in `Filters` (`annotate_rejections!`, `mark_rejected!`,
+`init_rejection_columns!`, `accepted`) and is shared with the rest of the pipeline; the colored
+diagnostics live in `Report`.
 
-In `src/utils/filters.jl`, add (keeping `GermlineFilter` for the existing drop path):
+## Discriminative metrics (true novel vs artifact)
 
-```julia
-"""
-    annotate_rejections!(df, criteria; reason_col=:reject_reason, stage_col=:reject_stage)
+Every candidate gets quality columns (in both output tables). A genuine novel allele tends to
+recur across donors with solid read support and benign composition; an artifact is usually seen
+in one donor, has few reads, sits a single base from a much more abundant allele, or is
+composition-extreme.
 
-For each row, record the label of the FIRST criterion it fails (and a short stage tag),
-or "" if it passes all of them. Rows are NOT removed. Returns df.
-"""
-function annotate_rejections!(df, criteria::Vector{<:FilterCriterion};
-                              reason_col=:reject_reason, stage_col=:reject_stage)
-```
-
-- Reuses the existing `passes(row, criterion)` dispatch.
-- Unit test (mirror the `filters.jl` testset): first-failing label is recorded; passing rows
-  get `""`.
-
-### 1.2 `blast_discover` / `handle_blast`: annotate, then partition
-
-In `src/discover/blast.jl`, change the staged `filter!`s
-(edge → scov → pseudo → mismatch → core-cov → `full_count`/`full_ratio`/`length`/`aln_mismatch`)
-so each stage **annotates** `reject_reason`/`reject_stage` on rows not already rejected,
-instead of dropping. Carry all candidates to the end.
-
-- A small helper `mark!(df, mask, reason, stage)` keeps the non-GermlineFilter stages uniform
-  (it only marks rows that are still un-rejected).
-- The final `GermlineFilter` block becomes `annotate_rejections!` with the same criteria.
-
-### 1.3 Two outputs
-
-- `<output>` (existing `always_gz` path) = rows with `reject_reason == ""`; identical schema
-  to today.
-- `<output>` with a `.full` infix (e.g. `KI_IMD_IGHV.full.tsv.gz`) or an explicit
-  `--full-output PATH` = **all** candidates plus `reject_reason` and `reject_stage`, so the
-  user can inspect every assignment and the reason it was rejected.
-- Add `--full-output` (default: derive from `<output>`) to the blast arg table in
-  `src/cmd/discover.jl`.
-
-### 1.4 Staged reporting (fancy)
-
-New `src/utils/report.jl` (`Report` module) reusing the colored style in
-`Filters.report_filter_step`:
-
-- `stage_report(name, kept, before; values=nothing)` — colored `▸ <stage>  kept K/B (−D)`;
-  when the UnicodePlots extension is active (`Data.barplot_fn[]` set), also draw a histogram of
-  `values` (mismatch, scov, corecov, full_count) via `Data.barplot_if_available`.
-- Degrades to plain text when UnicodePlots is absent.
-- **Binary note:** UnicodePlots is a `[weakdeps]` extension (kept out of the default load for
-  speed). To get plots in the compiled binary, add `UnicodePlots` to `build/Project.toml` so
-  `create_app` bundles it; the library stays optional.
-
-### 1.5 Tests
-
-- `annotate_rejections!` unit test.
-- BLAST itself needs `blastn`; instead test the annotate/partition logic on a synthetic
-  `clusters`-shaped DataFrame so the reason/stage columns and the full-vs-filtered split are
-  verified without BLAST.
-
-### Touchpoints
-
-`src/utils/filters.jl`, `src/discover/blast.jl`, `src/cmd/discover.jl`,
-`src/utils/report.jl` (new), `test/runtests.jl`, optionally `build/Project.toml`.
-
----
-
-## Phase 2 — Discriminative metrics (true novel vs artifact)
-
-**Status: in progress.** Implemented so far (added as columns to both the filtered and full
-blast tables, and surfaced in the summary):
-- `gc_content`, `max_homopolymer` of the trimmed core (composition / artifact-proneness);
-- `n_donors` — distinct donors (cases) sharing the exact trimmed core (cross-donor recurrence,
-  the strongest single signal: real alleles recur, errors don't);
-- `n_reads_total` — read support for the core across the run;
+- `n_donors` — distinct donors sharing the exact trimmed core (cross-donor recurrence; the
+  strongest single signal).
+- `n_reads_total` — reads backing the core across the run.
+- `gc_content`, `max_homopolymer` — composition of the trimmed core.
 - `nn_dist` / `parent_ratio` — between-cluster separation: edit distance to the nearest
-  *more-abundant* core of the same gene and the parent's read ratio. Small `nn_dist` + large
-  `parent_ratio` = an error satellite of a dominant allele (the within-vs-between idea);
-- `SeqStats.shannon_entropy` / `consensus_fraction` reusable helpers (used by the accepted-
-  candidate heatmap and available to the self-test);
-- summary shows a recurrence bar plot (candidates per #donors) and the accepted-candidate
-  base-composition heatmap with mean positional entropy.
+  *more-abundant* core of the same gene and the parent's read ratio. A small `nn_dist` with a
+  large `parent_ratio` marks an error satellite of a dominant allele.
 
-Remaining ideas below (nearest-known distance, read-level within-allele entropy, optional
-filter criteria on these columns) are deferred until the self-test shows which thresholds help.
+`SeqStats` provides the reusable building blocks (`gc_content`, `max_homopolymer`, `n_content`,
+`shannon_entropy`, `consensus_fraction`); the run summary shows a donor-recurrence histogram and
+a base-composition heatmap (with mean positional entropy) of the accepted candidates.
 
+Two of these are also available as optional filters (off by default): `--min-recurrence` requires
+`n_donors ≥ N`, and `--max-homopolymer` drops cores with a longer homopolymer run. When set, they
+annotate `reject_reason` like any other filter.
 
+## Self-test (`discover selftest`)
 
-Per-candidate cluster metrics, computed from the reads assigned to each candidate:
+`discover selftest <discovery.full.tsv.gz> <base.fasta> <truth.fasta> <report.tsv>` scores how
+well discovery recovers known-novel alleles. Run `discover blast` against the BASE reference
+(known alleles only) to produce the full annotated table, then:
 
-- `n_reads` (support),
-- `consensus_support` — mean fraction of reads matching the cluster consensus,
-- `mean_pairwise_hamming` within the cluster,
-- **positional Shannon entropy** — averaged over aligned columns,
-- `nearest_known_dist` — edit distance to the closest database allele,
-- composition flags — GC content, homopolymer runs, N content.
+- truth-novel = sequences in TRUTH not in BASE — the alleles that must be discovered;
+- each truth-novel allele is classified **recovered** (an accepted candidate matches it),
+  **rejected** (a candidate matched it but was filtered — annotated with the `reject_stage` that
+  dropped it), or **missed** (never seen as a candidate);
+- it reports **recall** (recovered / truth-novel), **precision** (true / accepted-novel cores),
+  an outcome bar plot, and a rejected-by-stage bar plot showing which filter to relax.
 
-Rationale: a *true* novel allele yields a tight cluster (high consensus support, low entropy)
-at a meaningful edit distance from known alleles; artifacts are diffuse / low-support, or
-trivially close to a known allele. Expose these as columns **and** optional `FilterCriterion`s,
-so their effect is visible in `reject_reason` from Phase 1.
-
----
-
-## Phase 3 — `discover selftest`
-
-**Status: implemented as an evaluator** (decoupled from running BLAST). Usage:
-`discover selftest <discovery.full.tsv.gz> <base.fasta> <truth.fasta> <report.tsv>`. It reads
-the full annotated discovery table, computes truth-novel = TRUTH − BASE, and classifies each
-truth-novel allele as recovered / rejected (with the `reject_stage` that dropped it) / missed,
-reporting recall, precision (over accepted novel cores), an outcome bar plot, and a
-"rejected-by-stage" bar plot (which filter to relax). Original (run-BLAST-internally) sketch
-below.
-
-
-
-`discover selftest <reads.tsv> <base.fasta> <truth.fasta> [blast opts]`:
-
-- Run discovery against **base** (so the novel alleles must be *discovered*).
-- Define truth-novel = sequences in `truth` not in `base`.
-- Match candidates to truth-novel (exact / small edit distance).
-- Report **recall** (recovered novel / total novel) and **precision** (true novel / discovered
-  novel), a per-allele table, and the FP / FN lists annotated with the Phase-2 metrics and the
-  Phase-1 `reject_stage` — so you can see *which* filter killed a true allele and tune it.
-- Optional UnicodePlots summary (recovered vs missed by edit-distance bin).
-- Implemented as one more `Command` singleton in the registry
-  (`struct DiscoverSelftest <: Command end`, `cli_path`, `run_command`, arg table in
-  `src/cmd/discover.jl`).
-
-This rides on Phases 1–2: the rejection reasons and metrics are exactly what make the
-self-test actionable for tuning the blast thresholds.
+Because it consumes the full table, the self-test ties the reject reasons and quality metrics
+together: it shows exactly which filter killed a true allele, which is what makes the blast
+thresholds tunable.

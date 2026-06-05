@@ -134,7 +134,7 @@ full table.
 | `full_count` | Reads in the (well, case, sseqid, qseq) cluster |
 | `full_ratio` | Allelic ratio within well/case/gene (full_count / max in gene) |
 
-### Transparency Columns (Phase 1)
+### Transparency Columns
 
 | Column | Description |
 |--------|-------------|
@@ -145,7 +145,7 @@ The filtered table = rows with empty `reject_reason`. The full table keeps all r
 see *why* each candidate was dropped — and the self-test uses `reject_stage` to tell you which
 filter to relax.
 
-### Quality / discriminative metrics (Phase 2)
+### Quality / discriminative metrics
 
 These help separate genuine novel alleles from artifacts (errors). Rationale: a real allele tends
 to **recur across donors** with solid read support and benign composition; an artifact is usually
