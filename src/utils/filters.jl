@@ -4,6 +4,7 @@ using DataFrames
 
 export FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter
 export GermlineFilter, passes, apply_filters!, add_group_ratio!
+export init_rejection_columns!, mark_rejected!, annotate_rejections!, accepted
 
 abstract type FilterCriterion end
 
@@ -132,5 +133,69 @@ function add_group_ratio!(df::DataFrame, value_col::Symbol, group_cols, ratio_co
     transform!(groupby(df, group_cols), value_col => (x -> x ./ maximum(x)) => ratio_col)
     return df
 end
+
+# --- Annotate path: record WHY a row would be dropped instead of dropping it ---------------
+# Used by the discovery pipelines to emit a full table (every candidate + the reason it was
+# rejected) alongside the filtered table (rows with an empty reason). The first rejection a
+# row hits wins, so reasons accumulate across stages without overwriting an earlier one.
+
+"""
+    init_rejection_columns!(df; reason_col=:reject_reason, stage_col=:reject_stage)
+
+Ensure the string `reason_col`/`stage_col` columns exist (default ""). Returns `df`.
+"""
+function init_rejection_columns!(df::DataFrame; reason_col::Symbol=:reject_reason, stage_col::Symbol=:reject_stage)
+    reason_col in propertynames(df) || (df[!, reason_col] = fill("", nrow(df)))
+    stage_col in propertynames(df) || (df[!, stage_col] = fill("", nrow(df)))
+    return df
+end
+
+"""
+    mark_rejected!(df, fail_mask, reason, stage; reason_col=:reject_reason, stage_col=:reject_stage)
+
+Mark rows where `fail_mask` is true AND not already rejected with `reason`/`stage`. Returns `df`.
+"""
+function mark_rejected!(df::DataFrame, fail_mask::AbstractVector{Bool}, reason::AbstractString, stage::AbstractString;
+                        reason_col::Symbol=:reject_reason, stage_col::Symbol=:reject_stage)
+    init_rejection_columns!(df; reason_col=reason_col, stage_col=stage_col)
+    reasons = df[!, reason_col]; stages = df[!, stage_col]
+    @inbounds for i in eachindex(fail_mask)
+        if fail_mask[i] && isempty(reasons[i])
+            reasons[i] = reason
+            stages[i] = stage
+        end
+    end
+    return df
+end
+
+"""
+    annotate_rejections!(df, criteria; stage="filter", reason_col=:reject_reason, stage_col=:reject_stage)
+
+Mark each not-yet-rejected row with the label of the FIRST `criteria` it fails (or leave it
+"" if it passes all). Like `GermlineFilter` but it annotates rather than removes. Returns `df`.
+"""
+function annotate_rejections!(df::DataFrame, criteria::Vector{<:FilterCriterion};
+                              stage::AbstractString="filter",
+                              reason_col::Symbol=:reject_reason, stage_col::Symbol=:reject_stage)
+    init_rejection_columns!(df; reason_col=reason_col, stage_col=stage_col)
+    reasons = df[!, reason_col]; stages = df[!, stage_col]
+    for (i, row) in enumerate(eachrow(df))
+        isempty(reasons[i]) || continue
+        for criterion in criteria
+            if !passes(row, criterion)
+                reasons[i] = criterion.label
+                stages[i] = stage
+                break
+            end
+        end
+    end
+    return df
+end
+
+"""
+    accepted(df; reason_col=:reject_reason) -> view of rows that passed every stage.
+"""
+accepted(df::DataFrame; reason_col::Symbol=:reject_reason) =
+    filter(row -> isempty(getproperty(row, reason_col)), df)
 
 end

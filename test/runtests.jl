@@ -18,6 +18,7 @@ using immunediscover.Merge
 using immunediscover.Haplotype
 using immunediscover.Bwa
 using immunediscover.Filters
+using immunediscover.Report
 using immunediscover.Table
 using immunediscover.Cooccurrence
 using immunediscover.HSMM
@@ -168,6 +169,34 @@ test_outcomes = Dict(
         gf = GermlineFilter([MinThreshold(:count, 5.0, "Min count")])
         @test sprint(show, gf) == "GermlineFilter(1 criterion)"
         @test occursin("Min count", sprint(show, MIME("text/plain"), gf))
+
+        # annotate path: record the first failing criterion instead of dropping
+        adf = DataFrame(count=[10, 2, 8], qseq=["AAAAAAAA", "AA", "AAAAAAAA"])
+        Filters.annotate_rejections!(adf, FilterCriterion[
+            MinThreshold(:count, 5.0, "Min count"),
+            MinStringLength(:qseq, 4, "Min len"),
+        ])
+        @test "reject_reason" in names(adf)
+        @test "reject_stage" in names(adf)
+        @test adf.reject_reason == ["", "Min count", ""]   # row 2 fails count first
+        @test nrow(Filters.accepted(adf)) == 2
+
+        # mark_rejected! only marks not-yet-rejected rows (first reason wins)
+        mdf = DataFrame(x=[1, 2, 3])
+        Filters.mark_rejected!(mdf, [true, false, true], "first", "s1")
+        Filters.mark_rejected!(mdf, [true, true, false], "second", "s2")
+        @test mdf.reject_reason == ["first", "second", "first"]
+        @test mdf.reject_stage == ["s1", "s2", "s1"]
+    end
+
+    @testset "report" begin
+        @test occursin("kept 8/10", Report.stage_summary("edge", 8, 10))
+        @test occursin("80.0%", Report.stage_summary("edge", 8, 10))
+        @test occursin("min=", Report.distribution_summary([0.1, 0.5, 0.9]))
+        @test occursin("max=", Report.distribution_summary([0.1, 0.5, 0.9]))
+        @test Report.distribution_summary(Float64[]) == ""
+        @test Report.stage_report("edge", 8, 10) === nothing
+        @test Report.stage_report("scov", 5, 5; values=[0.2, 0.5, 0.8]) === nothing
     end
 
     @testset "simulate.jl" begin

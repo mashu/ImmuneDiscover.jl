@@ -5,6 +5,7 @@ module immunediscover
     # --- Utils (no inter-module deps) ---
     include("utils/data.jl")
     include("utils/filters.jl")
+    include("utils/report.jl")
     include("utils/keyedsets.jl")
     include("discover/profile.jl")
 
@@ -29,6 +30,7 @@ module immunediscover
     using .Cli
     using .Data
     using .Filters
+    using .Report
     using .Demultiplex
     using .Simulate
     using .Profile
