@@ -120,6 +120,16 @@ so their effect is visible in `reject_reason` from Phase 1.
 
 ## Phase 3 — `discover selftest`
 
+**Status: implemented as an evaluator** (decoupled from running BLAST). Usage:
+`discover selftest <discovery.full.tsv.gz> <base.fasta> <truth.fasta> <report.tsv>`. It reads
+the full annotated discovery table, computes truth-novel = TRUTH − BASE, and classifies each
+truth-novel allele as recovered / rejected (with the `reject_stage` that dropped it) / missed,
+reporting recall, precision (over accepted novel cores), an outcome bar plot, and a
+"rejected-by-stage" bar plot (which filter to relax). Original (run-BLAST-internally) sketch
+below.
+
+
+
 `discover selftest <reads.tsv> <base.fasta> <truth.fasta> [blast opts]`:
 
 - Run discovery against **base** (so the novel alleles must be *discovered*).

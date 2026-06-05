@@ -261,6 +261,7 @@ module Cli
     struct PreprocessDemultiplex <: Command end
     struct DiscoverBlast        <: Command end
     struct DiscoverHsmm         <: Command end
+    struct DiscoverSelftest     <: Command end
     struct SearchExact          <: Command end
     struct SearchHeptamer       <: Command end
     struct SearchBwa            <: Command end
@@ -285,6 +286,7 @@ module Cli
     cli_path(::PreprocessDemultiplex) = ("preprocess", "demultiplex")
     cli_path(::DiscoverBlast)        = ("discover", "blast")
     cli_path(::DiscoverHsmm)         = ("discover", "hsmm")
+    cli_path(::DiscoverSelftest)     = ("discover", "selftest")
     cli_path(::SearchExact)          = ("search", "exact")
     cli_path(::SearchHeptamer)       = ("search", "heptamer")
     cli_path(::SearchBwa)            = ("search", "bwa")
@@ -307,7 +309,7 @@ module Cli
 
     const COMMANDS = (
         PreprocessDemultiplex(),
-        DiscoverBlast(), DiscoverHsmm(),
+        DiscoverBlast(), DiscoverHsmm(), DiscoverSelftest(),
         SearchExact(), SearchHeptamer(), SearchBwa(),
         AnalyzeCooccurrence(), AnalyzeHaplotype(),
         TableOuterjoin(), TableLeftjoin(), TableTransform(), TableAggregate(),

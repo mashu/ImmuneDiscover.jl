@@ -18,6 +18,7 @@ module immunediscover
     include("discover/hsmm.jl")
     include("search/bwa.jl")
     include("discover/blast.jl")
+    include("discover/selftest.jl")
 
     # --- Analyze (may depend on search) ---
     include("analyze/cooccurrence.jl")
@@ -41,6 +42,7 @@ module immunediscover
     using .HSMM
     using .Bwa
     using .Blast
+    using .Selftest
     using .KeyedSets
     using .Cooccurrence
     using .Haplotype
@@ -64,6 +66,7 @@ module immunediscover
     Cli.run_command(::Cli.PreprocessDemultiplex, pa) = Demultiplex.handle_demultiplex(pa, Cli.always_gz)
     Cli.run_command(::Cli.DiscoverBlast, pa)        = Blast.handle_blast(pa, immunediscover, Cli.always_gz)
     Cli.run_command(::Cli.DiscoverHsmm, pa)         = HSMM.handle_hsmm(pa)
+    Cli.run_command(::Cli.DiscoverSelftest, pa)     = Selftest.handle_selftest(pa)
     Cli.run_command(::Cli.SearchExact, pa)          = Exact.handle_exact(pa, immunediscover, Cli.always_gz)
     Cli.run_command(::Cli.SearchHeptamer, pa)       = Heptamer.handle_heptamer(pa, immunediscover, Cli.always_gz)
     Cli.run_command(::Cli.SearchBwa, pa)            = Bwa.handle_bwa(pa, immunediscover, Cli.always_gz)

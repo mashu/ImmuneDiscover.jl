@@ -13,6 +13,7 @@ using immunediscover.Exact
 using immunediscover.Heptamer
 using immunediscover.KeyedSets
 using immunediscover.Blast
+using immunediscover.Selftest
 using immunediscover.Fasta
 using immunediscover.Merge
 using immunediscover.Haplotype
@@ -707,6 +708,52 @@ test_outcomes = Dict(
         @test pr[3] == 2.0           # 100 / 50
         @test Blast.core_distance("ACGT", "ACGA") == 1
         @test Blast.core_distance("AC", "ACGT") > 0    # different length → Levenshtein
+    end
+
+    @testset "selftest recovery" begin
+        # CLI
+        empty!(ARGS)
+        append!(ARGS, ["discover", "selftest", "disc.tsv.gz", "base.fasta", "truth.fasta", "report.tsv"])
+        pa = Cli.parse_commandline(ARGS)
+        @test pa["discover"]["%COMMAND%"] == "selftest"
+        @test pa["discover"]["selftest"]["discovery"] == "disc.tsv.gz"
+        @test pa["discover"]["selftest"]["base"] == "base.fasta"
+        @test pa["discover"]["selftest"]["truth"] == "truth.fasta"
+        @test pa["discover"]["selftest"]["output"] == "report.tsv"
+        @test pa["discover"]["selftest"]["seq-col"] == "aln_qseq"
+
+        # classify_allele
+        acc_list = ["ACGTACGT"]
+        acc_set = Set(acc_list)
+        rej = Dict("TTTTTTTT" => "output filter")
+        @test Selftest.classify_allele("ACGTACGT", acc_set, acc_list, rej) == ("recovered", "")
+        @test Selftest.classify_allele("ACGT", acc_set, acc_list, rej) == ("recovered", "")  # substring
+        @test Selftest.classify_allele("TTTTTTTT", acc_set, acc_list, rej) == ("rejected", "output filter")
+        @test Selftest.classify_allele("GGGGGGGG", acc_set, acc_list, rej) == ("missed", "")
+        @test Selftest.is_novel("X", Set(["Y"]))
+        @test !Selftest.is_novel("Y", Set(["Y"]))
+
+        # evaluate_recovery
+        disc = DataFrame(
+            aln_qseq = ["NOVELAAA", "NOVELBBB", "ARTIFXXX", "KNOWNAAA"],
+            reject_reason = ["", "min count", "", ""],
+            reject_stage = ["", "output filter", "", ""],
+        )
+        base = Set(["KNOWNAAA"])
+        truth = [("V1", "NOVELAAA"), ("V2", "NOVELBBB"), ("V3", "NOVELCCC"), ("K", "KNOWNAAA")]
+        res = Selftest.evaluate_recovery(disc, base, truth; seq_col=:aln_qseq)
+        @test res.summary.n_truth_novel == 3
+        @test res.summary.recovered == 1
+        @test res.summary.recall ≈ 1 / 3
+        @test res.summary.true_positive == 1
+        @test res.summary.false_positive == 1
+        @test res.summary.precision == 0.5
+        @test res.summary.n_novel_accepted == 2
+        paa = res.per_allele
+        @test paa[paa.allele .== "V1", :status][1] == "recovered"
+        @test paa[paa.allele .== "V2", :status][1] == "rejected"
+        @test paa[paa.allele .== "V2", :reject_stage][1] == "output filter"
+        @test paa[paa.allele .== "V3", :status][1] == "missed"
     end
 
     @testset "bwa.jl" begin

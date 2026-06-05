@@ -6,6 +6,9 @@ function add_discover_args!(s)
             "hsmm"
                 help = "Detect D genes using an HSMM trained on RSS flanks (V/J masked)"
                 action = :command
+            "selftest"
+                help = "Score recovery of known-novel alleles from a discovery full table (base vs truth FASTA)"
+                action = :command
         end
 
         @add_arg_table! s["discover"]["blast"] begin
@@ -170,6 +173,27 @@ function add_discover_args!(s)
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
-        # Table → fasta export
+        @add_arg_table! s["discover"]["selftest"] begin
+        "discovery"
+            help = "Discovery FULL table (TSV/TSV.GZ) with reject_reason/reject_stage, e.g. <output>.full.tsv.gz"
+            required = true
+        "base"
+            help = "BASE reference FASTA used for discovery (known alleles only)"
+            required = true
+        "truth"
+            help = "TRUTH FASTA (known + novel); truth-novel = sequences not in BASE"
+            required = true
+        "output"
+            help = "TSV path for the per-allele recovery table"
+            required = true
+        "--seq-col"
+            help = "Discovery column holding the candidate core sequence"
+            default = "aln_qseq"
+            arg_type = String
+        "--no-substring"
+            help = "Require exact sequence match (disable substring matching)"
+            action = :store_true
+        end
+
     return s
 end
