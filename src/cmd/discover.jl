@@ -11,7 +11,9 @@ function add_discover_args!(s)
                 action = :command
         end
 
-        @add_arg_table! s["discover"]["blast"] begin
+        bl = s["discover"]["blast"]
+
+        @add_arg_table! bl begin
         "input"
             help = "TSV file with demultiplex data"
             required = true
@@ -21,46 +23,25 @@ function add_discover_args!(s)
         "output"
             help = "TSV file to save discovery results"
             required = true
+        end
+
+        add_arg_group!(bl, "Inputs and outputs", "blast_io")
+        @add_arg_table! bl begin
         "-p", "--pseudo"
             help = "FASTA file with pseudo-genes"
             arg_type = String
             default = ""
-        "-c", "--minfullcount"
-            help = "Minimum full cluster size"
-            default = 5
-            arg_type = Int
-        "-f", "--minfullratio"
-            help = "Minimum allelic ratio within each gene group (count / max in gene)"
-            default = 0.1
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-s", "--subjectcov"
-            help = "Minimum subject (database) coverage"
-            default = 0.1
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-d", "--maxdist"
-            help = "Maximum distance allowed for alleles"
-            default = 20
-            arg_type = Int
-            range_tester = (x->x >= 0)
-        "-l", "--length"
-            help = "Minimum length of the trimmed read"
-            default = 290
-            arg_type = Int
-            range_tester = (x->x >= 1)
-        "-e", "--edge"
-            help = "Minimum number of nucleotides required between target gene and end of the read"
-            default = 0
-            arg_type = Int
-            range_tester = (x->x >= 0)
-        "-a", "--args"
-            help = "Additional arguments to pass to blastn"
+        "--full-output"
+            help = "Path for the full annotated candidate table (every candidate + reject_reason/reject_stage). Default: <output>.full.tsv.gz"
             arg_type = String
-            default = "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
-        "-o",  "--overwrite"
-            help = "Overwrite existing files (i.e BLAST cache)"
-            action = :store_true
+        "--work-dir"
+            help = "Directory for BLAST cache, temporary query FASTA, combined/extended DB, and affix files (relative paths use pwd()). Nothing is written beside the input TSV."
+            default = ".immunediscover"
+            arg_type = String
+        end
+
+        add_arg_group!(bl, "Gene preset", "blast_preset")
+        @add_arg_table! bl begin
         "-g", "--gene"
             help = "Use gene preset parameters for V, D, or J analysis (can be overridden by explicit parameters)"
             arg_type = String
@@ -68,6 +49,10 @@ function add_discover_args!(s)
         "-G", "--show-presets"
             help = "Show preset parameters for V, D, and J analysis"
             action = :store_true
+        end
+
+        add_arg_group!(bl, "Extension and trimming", "blast_trim")
+        @add_arg_table! bl begin
         "--forward"
             help = "Forward extension length"
             default = 20
@@ -83,32 +68,67 @@ function add_discover_args!(s)
             default = 0.75
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-corecov"
+            help = "Minimum ratio length(aln_qseq)/length(db_seq) after trimming"
+            default = 0.6
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        end
+
+        add_arg_group!(bl, "BLAST search", "blast_search")
+        @add_arg_table! bl begin
+        "-a", "--args"
+            help = "Additional arguments to pass to blastn"
+            arg_type = String
+            default = "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
+        "-d", "--maxdist"
+            help = "Maximum distance allowed for alleles"
+            default = 20
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "-e", "--edge"
+            help = "Minimum number of nucleotides required between target gene and end of the read"
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "-s", "--subjectcov"
+            help = "Minimum subject (database) coverage"
+            default = 0.1
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-read-length"
+            help = "Drop reads shorter than this (nt) BEFORE BLAST (0 = off). Speeds BLAST and removes short-read noise; folded into the BLAST cache key."
+            default = 0
+            arg_type = Int
+            range_tester = (x -> x >= 0)
+        end
+
+        add_arg_group!(bl, "Cluster and output filters", "blast_filters")
+        @add_arg_table! bl begin
+        "-c", "--minfullcount"
+            help = "Minimum full cluster size"
+            default = 5
+            arg_type = Int
+        "-f", "--minfullratio"
+            help = "Minimum allelic ratio within each gene group (count / max in gene)"
+            default = 0.1
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-l", "--length"
+            help = "Minimum length of the trimmed read"
+            default = 290
+            arg_type = Int
+            range_tester = (x->x >= 1)
         "-i", "--isin"
             help = "On by default: a non-exact candidate whose trimmed sequence is an exact substring of a known allele is labelled with that allele. Pass -i/--isin to disable, always emitting a novel hashed name instead."
             action = :store_false
         "--keep-failed"
             help = "Keep rows where trimming failed (aln_qseq empty). By default such rows are dropped."
             action = :store_true
-        "--min-corecov"
-            help = "Minimum ratio length(aln_qseq)/length(db_seq) after trimming"
-            default = 0.6
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-v", "--verbose"
-            help = "Print verbose output and save intermediate files"
-            action = :store_true
-        "--work-dir"
-            help = "Directory for BLAST cache, temporary query FASTA, combined/extended DB, and affix files (relative paths use pwd()). Nothing is written beside the input TSV."
-            default = ".immunediscover"
-            arg_type = String
-        "--full-output"
-            help = "Path for the full annotated candidate table (every candidate + reject_reason/reject_stage). Default: <output>.full.tsv.gz"
-            arg_type = String
-        "--min-read-length"
-            help = "Drop reads shorter than this (nt) BEFORE BLAST (0 = off). Speeds BLAST and removes short-read noise; folded into the BLAST cache key."
-            default = 0
-            arg_type = Int
-            range_tester = (x -> x >= 0)
+        end
+
+        add_arg_group!(bl, "Quality-metric filters", "blast_qmetrics")
+        @add_arg_table! bl begin
         "--min-recurrence"
             help = "Quality filter: require a candidate to appear in at least this many donors (n_donors). 0 = off."
             default = 0
@@ -119,6 +139,16 @@ function add_discover_args!(s)
             default = 0
             arg_type = Int
             range_tester = (x -> x >= 0)
+        end
+
+        add_arg_group!(bl, "Run control", "blast_run")
+        @add_arg_table! bl begin
+        "-o", "--overwrite"
+            help = "Overwrite existing files (i.e BLAST cache)"
+            action = :store_true
+        "-v", "--verbose"
+            help = "Print verbose output and save intermediate files"
+            action = :store_true
         end
 
         @add_arg_table! s["discover"]["hsmm"] begin
