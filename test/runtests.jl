@@ -695,6 +695,20 @@ test_outcomes = Dict(
         @test nrow(clusters) == 4                       # full table keeps every candidate
     end
 
+    @testset "blast neighbor stats (satellite detection)" begin
+        cores = ["AAAA", "AAAT", "GGGG"]
+        reads = [100, 2, 50]
+        nd, pr = Blast.neighbor_stats(cores, reads)
+        @test nd[1] == -1            # AAAA is most abundant → no parent
+        @test pr[1] == 1.0
+        @test nd[2] == 1             # AAAT is 1 bp from AAAA (much bigger)
+        @test pr[2] == 50.0          # 100 / 2
+        @test nd[3] == 4             # GGGG nearest more-abundant is AAAA at distance 4
+        @test pr[3] == 2.0           # 100 / 50
+        @test Blast.core_distance("ACGT", "ACGA") == 1
+        @test Blast.core_distance("AC", "ACGT") > 0    # different length → Levenshtein
+    end
+
     @testset "bwa.jl" begin
         # CLI - bwa is now under analyze group
         empty!(ARGS)

@@ -89,6 +89,9 @@ blast tables, and surfaced in the summary):
 - `n_donors` — distinct donors (cases) sharing the exact trimmed core (cross-donor recurrence,
   the strongest single signal: real alleles recur, errors don't);
 - `n_reads_total` — read support for the core across the run;
+- `nn_dist` / `parent_ratio` — between-cluster separation: edit distance to the nearest
+  *more-abundant* core of the same gene and the parent's read ratio. Small `nn_dist` + large
+  `parent_ratio` = an error satellite of a dominant allele (the within-vs-between idea);
 - `SeqStats.shannon_entropy` / `consensus_fraction` reusable helpers (used by the accepted-
   candidate heatmap and available to the self-test);
 - summary shows a recurrence bar plot (candidates per #donors) and the accepted-candidate

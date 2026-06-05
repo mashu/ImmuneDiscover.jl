@@ -254,6 +254,84 @@ module Blast
         return nothing
     end
 
+    "Distance between two cores: Hamming when equal length, else Levenshtein."
+    core_distance(a::AbstractString, b::AbstractString) =
+        length(a) == length(b) ? sum(ca != cb for (ca, cb) in zip(a, b); init=0) :
+                                 compute_edit_distance(String(a), String(b))
+
+    """
+        neighbor_stats(cores, reads; max_parents) -> (nn_dist, parent_ratio)
+
+    For each distinct core, find its nearest *more-abundant* core (its likely "parent"): a
+    small `nn_dist` with a large `parent_ratio` (= parent reads ÷ this core's reads) marks an
+    error satellite of a dominant allele. Cores with no more-abundant neighbour get
+    `nn_dist=-1`, `parent_ratio=1.0`. Only the `max_parents` most-abundant candidates are
+    examined as potential parents (bounds cost; parents are abundant by definition).
+    """
+    function neighbor_stats(cores::AbstractVector{<:AbstractString}, reads::AbstractVector{<:Integer};
+                            max_parents::Int=128)
+        n = length(cores)
+        nn = fill(-1, n)
+        pr = ones(Float64, n)
+        order = sortperm(reads, rev=true)            # most abundant first
+        for ii in 1:n
+            i = order[ii]
+            best_d = typemax(Int)
+            best_reads = 0
+            considered = 0
+            for jj in 1:(ii - 1)                      # candidates with ≥ reads
+                j = order[jj]
+                reads[j] > reads[i] || continue       # parent must be strictly more abundant
+                considered += 1
+                considered > max_parents && break
+                d = core_distance(cores[i], cores[j])
+                if d < best_d || (d == best_d && reads[j] > best_reads)
+                    best_d, best_reads = d, reads[j]
+                end
+            end
+            if best_reads > 0
+                nn[i] = best_d
+                pr[i] = best_reads / reads[i]
+            end
+        end
+        return nn, pr
+    end
+
+    """
+        add_neighbor_stats!(df; max_parents)
+
+    Add `nn_dist` / `parent_ratio` columns (computed per gene over the distinct accepted cores;
+    rejected rows keep the sentinels -1 / 1.0).
+    """
+    function add_neighbor_stats!(df::DataFrame; max_parents::Int=128)
+        df[!, :nn_dist] = fill(-1, nrow(df))
+        df[!, :parent_ratio] = ones(Float64, nrow(df))
+        acc = df[df.reject_reason .== "", :]
+        nrow(acc) == 0 && return df
+        stats = Dict{String,Tuple{Int,Float64}}()       # core -> (nn_dist, parent_ratio)
+        for gdf in groupby(acc, :gene)
+            cores = String[]
+            reads = Int[]
+            seen = Set{String}()
+            for r in eachrow(gdf)
+                c = String(r.aln_qseq)
+                c in seen && continue
+                push!(seen, c); push!(cores, c); push!(reads, r.n_reads_total)
+            end
+            nd, prr = neighbor_stats(cores, reads; max_parents=max_parents)
+            for k in eachindex(cores)
+                stats[cores[k]] = (nd[k], prr[k])
+            end
+        end
+        @inbounds for i in 1:nrow(df)
+            df.reject_reason[i] == "" || continue
+            s = get(stats, String(df.aln_qseq[i]), nothing)
+            s === nothing && continue
+            df.nn_dist[i], df.parent_ratio[i] = s
+        end
+        return df
+    end
+
     function check_affix_quality_warning(affix_length::Int, quality_threshold::Float64)
         if affix_length > 0 && affix_length <= 20 && quality_threshold > 0.5
             @warn "Quality threshold $(round(quality_threshold * 100, digits=1))% might be too strict for short affixes ($affix_length nt). Consider lowering --minquality."
@@ -788,6 +866,9 @@ module Blast
         blast_clusters[:, :max_homopolymer] = max_homopolymer.(blast_clusters.aln_qseq)
         transform!(groupby(blast_clusters, :aln_qseq), :case => (x -> length(unique(x))) => :n_donors)
         transform!(groupby(blast_clusters, :aln_qseq), :full_count => sum => :n_reads_total)
+        # Between-cluster separation: nearest more-abundant core ("parent"). A small nn_dist
+        # with a large parent_ratio flags an error satellite of a dominant allele.
+        add_neighbor_stats!(blast_clusters)
 
         # Two outputs: the filtered table (candidates that passed every stage) and a full table
         # holding every candidate plus reject_reason / reject_stage, for inspection and tuning.
@@ -802,6 +883,8 @@ module Blast
         kept = accepted(blast_clusters)
         stage_report("accepted (passed all filters)", nrow(kept), nrow(blast_clusters))
         report_recurrence(kept)
+        nsat = count(==(1), kept.nn_dist)
+        nsat > 0 && @info "$nsat accepted candidate(s) sit 1 bp from a more-abundant core (likely error satellites — check nn_dist / parent_ratio in the output)"
         # Quick look at how consistent the accepted candidates are (base composition over the
         # dominant length); no-op unless ≥2 accepted candidates share a length.
         nrow(kept) >= 2 && cluster_profile_heatmap(String.(kept.aln_qseq); title="accepted candidates")
