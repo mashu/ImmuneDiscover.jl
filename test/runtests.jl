@@ -197,6 +197,18 @@ test_outcomes = Dict(
         @test Report.distribution_summary(Float64[]) == ""
         @test Report.stage_report("edge", 8, 10) === nothing
         @test Report.stage_report("scov", 5, 5; values=[0.2, 0.5, 0.8]) === nothing
+        @test Report.stage_report("scov", 5, 8; values=[0.2, 0.5, 0.8], histogram=true) === nothing
+
+        # plotting helpers (UnicodePlots is a direct dependency) run without error
+        @test Data.histogram_if_available([1.0, 2.0, 2.0, 3.0]) === nothing
+        @test Data.histogram_if_available(Float64[]) === nothing
+        @test Data.barplot_if_available(["a", "b"], [3, 1]) === nothing
+        @test Data.heatmap_if_available(rand(4, 6)) === nothing
+
+        # cluster profile heatmap: dominant length + no-op below 2 sequences
+        @test Report.dominant_length(["AAA", "CCC", "GG"]) == 3
+        @test Report.cluster_profile_heatmap(["ACGT", "ACGA"]) === nothing
+        @test Report.cluster_profile_heatmap(["ACGT"]) === nothing      # <2 of a length → no-op
     end
 
     @testset "simulate.jl" begin

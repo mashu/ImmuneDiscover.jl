@@ -1,8 +1,9 @@
 module Report
     using Statistics
     using Printf
+    using ..Data: histogram_if_available, heatmap_if_available
 
-    export stage_report, stage_summary, distribution_summary, section
+    export stage_report, stage_summary, distribution_summary, section, cluster_profile_heatmap
 
     """
         section(title)
@@ -42,10 +43,12 @@ module Report
     """
         stage_report(name, kept, before; values=nothing)
 
-    Print a colored per-stage line (respects terminal color); when `values` is given, also
-    print a dimmed distribution summary underneath. Returns nothing.
+    Print a colored per-stage line (respects terminal color). When `values` is given, also
+    print a dimmed distribution summary; when `histogram=true`, draw a unicode histogram of
+    `values` underneath. Returns nothing.
     """
-    function stage_report(name::AbstractString, kept::Integer, before::Integer; values=nothing)
+    function stage_report(name::AbstractString, kept::Integer, before::Integer;
+                          values=nothing, histogram::Bool=false)
         removed = before - kept
         printstyled("  ▸ "; color=:magenta, bold=true)
         print(rpad(name, 28), " ")
@@ -56,7 +59,45 @@ module Report
         println()
         if values !== nothing && !isempty(values)
             printstyled("      ", distribution_summary(values), "\n"; color=:light_black)
+            histogram && histogram_if_available(values; nbins=20, title=name)
         end
+        return nothing
+    end
+
+    const BASES = ('A', 'C', 'G', 'T')
+
+    "Most common length among the sequences (ties broken arbitrarily)."
+    function dominant_length(seqs)
+        tally = Dict{Int,Int}()
+        for s in seqs
+            tally[length(s)] = get(tally, length(s), 0) + 1
+        end
+        best_len, best_n = 0, -1
+        for (len, n) in tally
+            n > best_n && (best_len, best_n = len, n)
+        end
+        return best_len
+    end
+
+    """
+        cluster_profile_heatmap(seqs; title)
+
+    Draw a 4×L base-composition heatmap (rows A/C/G/T) over the sequences sharing the dominant
+    length — a quick view of how consistent / variable a set of candidate sequences is. No-op
+    when fewer than two sequences share that length.
+    """
+    function cluster_profile_heatmap(seqs; title::AbstractString="base composition")
+        isempty(seqs) && return nothing
+        L = dominant_length(seqs)
+        sel = [s for s in seqs if length(s) == L]
+        length(sel) < 2 && return nothing
+        M = zeros(Float64, 4, L)
+        for s in sel, (j, ch) in enumerate(s)
+            i = findfirst(==(ch), BASES)
+            i === nothing || (M[i, j] += 1.0)
+        end
+        M ./= length(sel)
+        heatmap_if_available(M; title="$title (rows A/C/G/T, n=$(length(sel)), L=$L)")
         return nothing
     end
 end

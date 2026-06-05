@@ -101,6 +101,11 @@ function add_discover_args!(s)
         "--full-output"
             help = "Path for the full annotated candidate table (every candidate + reject_reason/reject_stage). Default: <output>.full.tsv.gz"
             arg_type = String
+        "--min-read-length"
+            help = "Drop reads shorter than this (nt) BEFORE BLAST (0 = off). Speeds BLAST and removes short-read noise; folded into the BLAST cache key."
+            default = 0
+            arg_type = Int
+            range_tester = (x -> x >= 0)
         end
 
         @add_arg_table! s["discover"]["hsmm"] begin

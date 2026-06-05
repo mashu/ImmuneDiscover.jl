@@ -6,13 +6,11 @@ module Data
     using Statistics
     using CSV
     using MD5
-
-    # Set by the UnicodePlots package extension (ext/UnicodePlotsExt.jl) when UnicodePlots
-    # is loaded; otherwise barplot_if_available falls back to a plain text table.
-    const barplot_fn = Ref{Union{Nothing, Function}}(nothing)
+    using UnicodePlots
 
     export load_fasta, plotgenes, unique_name, sequence_hash, load_demultiplex
     export concatenate_columns, validate_types, get_ratio_threshold
+    export barplot_if_available, histogram_if_available, heatmap_if_available
 
     function sequence_hash(seq; digits=4)
         "S" * lpad(string(parse(Int, bytes2hex(MD5.md5(seq))[(end-(digits-1)):end], base=16) % 10^digits), digits, '0')
@@ -103,27 +101,24 @@ module Data
         endswith(path, ".gz") && close(stream)
     end
 
-    """Print label/count as a simple text table when UnicodePlots is not available."""
-    function print_counts_table(labels, counts)
-        n = length(labels)
-        n == 0 && return
-        max_label = max(12, maximum(length(string(l)) for l in labels))
-        max_count = maximum(length(string(c)) for c in counts)
-        buf = IOBuffer()
-        for i in 1:n
-            println(buf, "  ", rpad(string(labels[i]), max_label), "  ", lpad(string(counts[i]), max_count))
-        end
-        println(String(take!(buf)))
+    """Unicode bar plot of labels → counts (no-op for empty input)."""
+    function barplot_if_available(labels, counts)
+        isempty(labels) && return nothing
+        println(UnicodePlots.barplot(labels, counts))
+        return nothing
     end
 
-    """Barplot when UnicodePlots is available; otherwise print counts as a text table."""
-    function barplot_if_available(x, y)
-        f = barplot_fn[]
-        if f !== nothing
-            println(f(x, y))
-        else
-            print_counts_table(x, y)
-        end
+    """Unicode histogram of a numeric collection (no-op for empty input)."""
+    function histogram_if_available(values; kwargs...)
+        isempty(values) && return nothing
+        println(UnicodePlots.histogram(collect(values); kwargs...))
+        return nothing
+    end
+
+    """Unicode heatmap of a matrix (e.g. a 4×L base-composition profile)."""
+    function heatmap_if_available(matrix; kwargs...)
+        println(UnicodePlots.heatmap(matrix; kwargs...))
+        return nothing
     end
 
     function plotgenes(df)

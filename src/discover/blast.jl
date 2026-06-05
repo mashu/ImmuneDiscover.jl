@@ -13,7 +13,7 @@ module Blast
     using ..Data: load_fasta as data_load_fasta, unique_name
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
                      add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes
-    using ..Report: stage_report, section
+    using ..Report: stage_report, section, cluster_profile_heatmap
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
     export resolve_work_dir, blast_hits_gz_path
@@ -161,9 +161,10 @@ module Blast
         return isabspath(ex) ? abspath(ex) : abspath(joinpath(pwd(), ex))
     end
 
-    """Stable subdirectory under `work_dir` for one demux input; used for BLAST cache and query FASTA."""
-    function blast_run_subdir(work_dir::AbstractString, input_tsv::AbstractString)::String
-        tag = bytes2hex(md5(codeunits(abspath(input_tsv))))[1:16]
+    """Stable subdirectory under `work_dir` for one demux input; used for BLAST cache and query
+    FASTA. `salt` distinguishes runs whose query differs (e.g. a read-length filter)."""
+    function blast_run_subdir(work_dir::AbstractString, input_tsv::AbstractString; salt::AbstractString="")::String
+        tag = bytes2hex(md5(codeunits(abspath(input_tsv) * salt)))[1:16]
         return joinpath(work_dir, "blast", tag)
     end
 
@@ -438,7 +439,7 @@ module Blast
 
     Perform assignments and discovery of alleles based on BLAST results.
     """
-    function blast_discover(tsv_path, combined_db_fasta; work_dir::AbstractString, max_dist=10, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false)
+    function blast_discover(tsv_path, combined_db_fasta; work_dir::AbstractString, max_dist=10, min_edge=10, min_scov=0.1, args="", verbose=false, overwrite=false, min_read_length::Int=0)
         min_ver = v"2.15.0"
         max_ver = v"2.17.0"
         is_valid, message = verify_blastn_version(min_ver, max_ver)
@@ -447,7 +448,9 @@ module Blast
             error("Please install BLAST version $min_ver - $max_ver")
         end
 
-        run_dir = blast_run_subdir(work_dir, tsv_path)
+        # Fold the read-length threshold into the cache key so changing it doesn't reuse a
+        # BLAST run built from a differently-filtered query.
+        run_dir = blast_run_subdir(work_dir, tsv_path; salt = min_read_length > 0 ? "minlen=$min_read_length" : "")
         isdir(run_dir) || mkpath(run_dir)
         query_fasta = joinpath(run_dir, "query.fasta")
         blast_file = joinpath(run_dir, "hits.blast.gz")
@@ -461,6 +464,13 @@ module Blast
             @error "Duplicated names found in input. Using unique ones but this is likely user error!"
         end
         df = unique_df
+
+        # Drop short reads before BLAST (faster, less noise). Annotated into the cache key above.
+        if min_read_length > 0
+            before = nrow(df)
+            filter!(r -> length(r.genomic_sequence) >= min_read_length, df)
+            stage_report("read length ≥ $min_read_length nt (pre-BLAST)", nrow(df), before)
+        end
 
         query_sequences = collect.(eachrow(select_columns(df, [:well, :case, :name, :genomic_sequence])))
         save_to_fasta(query_sequences, query_fasta)
@@ -507,7 +517,7 @@ module Blast
         before = nrow(blast_df)
         scov_vals = copy(blast_df.scov)
         filter!(x -> x.scov > min_scov, blast_df)
-        stage_report("subject coverage > $min_scov", nrow(blast_df), before; values=scov_vals)
+        stage_report("subject coverage > $min_scov", nrow(blast_df), before; values=scov_vals, histogram=true)
 
         transform!(blast_df, :qseq => ByRow(x -> replace(x, "-" => "")) => :qseq)
         before = nrow(blast_df)
@@ -527,7 +537,7 @@ module Blast
         before = nrow(clusters)
         mismatch_vals = Float64.(clusters.mismatch)
         filter!(x -> x.mismatch <= max_dist, clusters)
-        stage_report("BLAST mismatch ≤ $max_dist", nrow(clusters), before; values=mismatch_vals)
+        stage_report("BLAST mismatch ≤ $max_dist", nrow(clusters), before; values=mismatch_vals, histogram=true)
         verbose && CSV.write(joinpath(run_dir, "clusters-mismatch.tsv"), clusters)
 
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
@@ -633,6 +643,7 @@ module Blast
             args=parsed_args["discover"]["blast"]["args"],
             verbose=verbose,
             overwrite=overwrite,
+            min_read_length=get(parsed_args["discover"]["blast"], "min-read-length", 0),
         )
 
         # Trim extensions if applicable
@@ -688,7 +699,7 @@ module Blast
                                "core coverage < $min_corecov (core÷DB len)", "core coverage")
                 kept_corecov = count(isempty, blast_clusters.reject_reason)
                 stage_report("core coverage ≥ $min_corecov (core÷DB len)", kept_corecov, before_corecov;
-                             values=blast_clusters.corecov)
+                             values=blast_clusters.corecov, histogram=true)
 
                 @info "Alignment stats: $(stats.total_attempts) attempts, $(stats.prefix_failures) prefix, $(stats.suffix_failures) suffix failures"
                 if verbose
@@ -758,6 +769,9 @@ module Blast
         section("BLAST discovery — summary")
         kept = accepted(blast_clusters)
         stage_report("accepted (passed all filters)", nrow(kept), nrow(blast_clusters))
+        # Quick look at how consistent the accepted candidates are (base composition over the
+        # dominant length); no-op unless ≥2 accepted candidates share a length.
+        nrow(kept) >= 2 && cluster_profile_heatmap(String.(kept.aln_qseq); title="accepted candidates")
         CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')
         printstyled("  ✓ "; color=:green, bold=true); println("filtered  → $output  ($(nrow(kept)) rows)")
         CSV.write(full_output, blast_clusters, compress=true, delim='\t')
