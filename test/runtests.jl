@@ -228,6 +228,39 @@ test_outcomes = Dict(
         @test df2.reject_reason == ["", "min donor recurrence (--min-recurrence 2)"]
     end
 
+    @testset "hsmm collapse + posterior annotation" begin
+        # Collapse represents each sequence by its best detection; count = detections clearing
+        # min_posterior; the posterior threshold is annotated (not a silent pre-collapse drop).
+        res = DataFrame(
+            well=[1,1,1,1], case=["D1","D1","D1","D1"], sequence=["AAA","AAA","AAA","CCC"],
+            posterior_prob=[0.9, 0.4, 0.8, 0.3],
+            pre_nonamer=["pn9","pn4","pn8","x"], pre_spacer=["","","",""], pre_heptamer=["","","",""],
+            post_heptamer=["","","",""], post_spacer=["","","",""], post_nonamer=["","","",""],
+            heptamer_logp_pre=fill(log(0.4),4), heptamer_logp_post=fill(log(0.4),4),
+            log_path_prob=[-1.0,-2.0,-1.5,-3.0], log_total_prob=fill(-0.5,4),
+            isin_db=fill(false,4), db_name=["IGHD1*01","IGHD1*01","IGHD1*01","IGHD2*01"],
+            nearest_db=["IGHD1*01","IGHD1*01","IGHD1*01","IGHD2*01"], nearest_db_dist=[1,2,1,5],
+        )
+        c = HSMM.collapse_detections(res, 0.7)
+        @test nrow(c) == 2
+        aaa = c[c.sequence .== "AAA", :]
+        @test aaa[1, :count] == 2                 # 0.9 and 0.8 clear 0.7; 0.4 does not
+        @test aaa[1, :posterior_prob] == 0.9      # best detection represents the cluster
+        @test aaa[1, :pre_nonamer] == "pn9"       # ...including its flanks
+        @test aaa[1, :nearest_db_dist] == 1       # minimum over the cluster
+        ccc = c[c.sequence .== "CCC", :]
+        @test ccc[1, :count] == 0                 # best 0.3 < 0.7
+
+        Filters.init_rejection_columns!(c)
+        crit = FilterCriterion[MinThreshold(:posterior_prob, 0.7, "min posterior")]
+        for cr in crit
+            fail = Bool[!passes(r, cr) for r in eachrow(c)]
+            Filters.mark_rejected!(c, fail, cr.label, "detection filter")
+        end
+        @test c[c.sequence .== "AAA", :reject_reason][1] == ""
+        @test c[c.sequence .== "CCC", :reject_reason][1] == "min posterior"
+    end
+
     @testset "report" begin
         @test occursin("kept 8/10", Report.stage_summary("edge", 8, 10))
         @test occursin("80.0%", Report.stage_summary("edge", 8, 10))

@@ -300,13 +300,19 @@ immunediscover discover hsmm <tsv> <fasta> <output> [options]
 - `--max-gene-len` (default: 70): Max D length for duration model (0=auto)
 
 **Detection Filters:**
-- `--min-posterior` (default: 0.7): Min posterior probability
+- `--min-posterior` (default: 0.7): Min posterior probability of a sequence's best detection
 - `--min-heptamer-prob-pre` (default: 0.05): Min 5' heptamer PWM probability (0=disable)
 - `--min-heptamer-prob-post` (default: 0.05): Min 3' heptamer PWM probability (0=disable)
 
 **Output Filters:**
 - `--out-mincount` (default: 10): Min count for output
 - `--out-minratio` (default: 0.2): Min allelic ratio for output
+
+All of these annotate rather than drop. Detections are collapsed per `(well, case, sequence)` —
+each cluster represented by its best (max-posterior) detection, with `count` = detections clearing
+`--min-posterior` — then `--min-posterior` is applied as a "detection filter" stage and the count /
+ratio / heptamer thresholds as an "output filter" stage. Every cluster (including low-posterior
+ones) reaches the full table (`<output>.full.tsv.gz`) with `reject_reason` / `reject_stage`.
 
 **Other:**
 - `-l, --limit` (default: 0): Limit reads (0=unlimited)

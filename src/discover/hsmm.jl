@@ -173,6 +173,28 @@ end
        discretize_truncated_normal, fit_dgene_rss_hsmm, extract_dgene,
        encode_dna, handle_hsmm
 
+"""
+    collapse_detections(res_df, min_posterior) -> DataFrame
+
+Collapse per-detection HSMM rows to one row per (well, case, sequence). Each cluster is
+represented by its BEST (max-posterior) detection, and `count` is the number of detections that
+clear `min_posterior` — so the posterior threshold can be annotated downstream instead of
+silently dropping detections, while `count` keeps meaning "confident detections".
+"""
+function collapse_detections(res_df::DataFrame, min_posterior::Real)
+    combine(groupby(res_df, [:well, :case, :sequence])) do g
+        bi = argmax(g.posterior_prob)
+        (count = Base.count(>=(min_posterior), g.posterior_prob),
+         pre_nonamer = g.pre_nonamer[bi], pre_spacer = g.pre_spacer[bi], pre_heptamer = g.pre_heptamer[bi],
+         post_heptamer = g.post_heptamer[bi], post_spacer = g.post_spacer[bi], post_nonamer = g.post_nonamer[bi],
+         heptamer_logp_pre = g.heptamer_logp_pre[bi], heptamer_logp_post = g.heptamer_logp_post[bi],
+         log_path_prob = g.log_path_prob[bi], log_total_prob = g.log_total_prob[bi],
+         posterior_prob = g.posterior_prob[bi],
+         isin_db = any(g.isin_db), db_name = g.db_name[bi],
+         nearest_db = g.nearest_db[bi], nearest_db_dist = minimum(g.nearest_db_dist))
+    end
+end
+
 function run_hsmm(tsv::String, fasta_path::String, output::String;
     ratio::Float64=0.2, mincount::Int=5, min_gene_len::Int=0, max_gene_len::Int=0,
     limit::Int=0, min_posterior::Float64=0.7, out_mincount::Int=10, out_minratio::Float64=0.2,
@@ -232,14 +254,14 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
         for r in chunk_results; r!==nothing && push!(buffer, r); end; next!(prog)
     end; finish!(prog)
     isempty(buffer) && (@warn "No D segments detected"; return DataFrame())
-    res_df = DataFrame(buffer); before=nrow(res_df)
-    filter!(x->x.posterior_prob>=min_posterior, res_df); @info "Posterior filter: $(nrow(res_df))/$before"
-    grouped = groupby(res_df, [:well,:case,:sequence])
-    collapsed = combine(grouped, nrow=>:count, :pre_nonamer=>first=>:pre_nonamer, :pre_spacer=>first=>:pre_spacer,
-        :pre_heptamer=>first=>:pre_heptamer, :post_heptamer=>first=>:post_heptamer, :post_spacer=>first=>:post_spacer,
-        :post_nonamer=>first=>:post_nonamer, :heptamer_logp_pre=>first=>:heptamer_logp_pre, :heptamer_logp_post=>first=>:heptamer_logp_post,
-        :log_path_prob=>first=>:log_path_prob, :log_total_prob=>first=>:log_total_prob, :posterior_prob=>first=>:posterior_prob,
-        :isin_db=>any=>:isin_db, :db_name=>first=>:db_name, :nearest_db=>first=>:nearest_db, :nearest_db_dist=>minimum=>:nearest_db_dist)
+    res_df = DataFrame(buffer)
+    @info "HSMM detections: $(nrow(res_df)) before collapse"
+    # Collapse detections per (well, case, sequence). The posterior threshold is NOT applied here
+    # as a hard drop; instead each cluster is represented by its BEST (max-posterior) detection and
+    # carries count = number of detections clearing --min-posterior. The posterior is then annotated
+    # downstream as a detection-stage filter, so every cluster — including low-posterior ones —
+    # reaches the full table with a reason. count keeps its old meaning (confident detections).
+    collapsed = collapse_detections(res_df, min_posterior)
     collapsed[!,:allele_name] = map(eachrow(collapsed)) do row
         is_known = (row.nearest_db_dist==0)||row.isin_db; bn = row.nearest_db!="" ? String(row.nearest_db) : String(row.db_name)
         is_known ? bn : unique_name(bn, String(row.sequence))
@@ -248,23 +270,33 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     collapsed[!,:heptamer_prob_post] = map(x->isfinite(x) ? exp(x) : 0.0, collapsed.heptamer_logp_post)
     collapsed[!,:gene] = map(r->(n=String(r.nearest_db); n=="" ? "" : first(split(n,'*'))), eachrow(collapsed))
     init_rejection_columns!(collapsed)
-    criteria = FilterCriterion[]
+
+    # Annotate (not drop) so the full table records why each detection was rejected. First reason
+    # wins, so the HSMM-specific posterior filter is applied before the generic output filters.
+    function annotate!(crits, stage)
+        for criterion in crits
+            before = count(isempty, collapsed.reject_reason)
+            fail = Bool[!passes(row, criterion) for row in eachrow(collapsed)]
+            mark_rejected!(collapsed, fail, criterion.label, stage)
+            stage_report(criterion.label, count(isempty, collapsed.reject_reason), before)
+        end
+    end
+
+    section("HSMM D detection — filters")
+    # Detection-quality filter, specialized to the HSMM: the posterior probability of each
+    # sequence's best detection must clear --min-posterior.
+    annotate!(FilterCriterion[MinThreshold(:posterior_prob, min_posterior,
+                              "min posterior (--min-posterior $min_posterior)")], "detection filter")
+
+    out_criteria = FilterCriterion[]
     if any(x->x!="", collapsed.gene)
         add_group_ratio!(collapsed, :count, [:well,:case,:gene], :ratio)
-        push!(criteria, MinThreshold(:count, Float64(out_mincount), "min output count (--out-mincount $out_mincount)"))
-        push!(criteria, MinThreshold(:ratio, out_minratio, "min output ratio (--out-minratio $out_minratio)"))
+        push!(out_criteria, MinThreshold(:count, Float64(out_mincount), "min output count (--out-mincount $out_mincount)"))
+        push!(out_criteria, MinThreshold(:ratio, out_minratio, "min output ratio (--out-minratio $out_minratio)"))
     end
-    min_heptamer_prob_pre > 0 && push!(criteria, MinThreshold(:heptamer_prob_pre, min_heptamer_prob_pre, "min pre-heptamer prob (--min-heptamer-prob-pre $min_heptamer_prob_pre)"))
-    min_heptamer_prob_post > 0 && push!(criteria, MinThreshold(:heptamer_prob_post, min_heptamer_prob_post, "min post-heptamer prob (--min-heptamer-prob-post $min_heptamer_prob_post)"))
-
-    # Annotate (not drop) so a full table records why each detection was rejected.
-    section("HSMM D detection — output filters")
-    for criterion in criteria
-        before = count(isempty, collapsed.reject_reason)
-        fail = Bool[!passes(row, criterion) for row in eachrow(collapsed)]
-        mark_rejected!(collapsed, fail, criterion.label, "output filter")
-        stage_report(criterion.label, count(isempty, collapsed.reject_reason), before)
-    end
+    min_heptamer_prob_pre > 0 && push!(out_criteria, MinThreshold(:heptamer_prob_pre, min_heptamer_prob_pre, "min pre-heptamer prob (--min-heptamer-prob-pre $min_heptamer_prob_pre)"))
+    min_heptamer_prob_post > 0 && push!(out_criteria, MinThreshold(:heptamer_prob_post, min_heptamer_prob_post, "min post-heptamer prob (--min-heptamer-prob-post $min_heptamer_prob_post)"))
+    annotate!(out_criteria, "output filter")
 
     reason_cols = [:reject_reason, :reject_stage]
     kept = accepted(collapsed)
