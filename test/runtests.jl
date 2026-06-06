@@ -21,6 +21,7 @@ using immunediscover.Bwa
 using immunediscover.Filters
 using immunediscover.Report
 using immunediscover.SeqStats
+using immunediscover.Mosaic
 using immunediscover.Table
 using immunediscover.Cooccurrence
 using immunediscover.HSMM
@@ -220,22 +221,48 @@ test_outcomes = Dict(
         @test !Report.is_novel_name("IGHV1-2*01")
         row = Report.mismatch_row("ACGA", "ACGT", 1.0)
         @test row == [0.0, 0.0, 0.0, 1.0]
-        @test Report.row_confidence(1000, 1.0) > Report.row_confidence(10, 25)
-        panels = Report.gene_novel_diff_panels(
+        @test Report.matched_germline("IGHV1-2*01", Report.db_dict([("IGHV1-2*01", "ACGT")])) == "ACGT"
+        db = [("IGHV1-2*01", "ACGT")]
+        panels, suspicious = Report.gene_novel_diff_panels(
             ["IGHV1-2", "IGHV1-2", "IGHV1-2"],
             ["ACGT", "ACGA", "ACGT"],
-            ["IGHV1-2*01", "IGHV1-2_S1234", "IGHV1-2*01"];
-            reads=[500, 50, 500], parent_ratios=[1.0, 10.0, 1.0])
+            ["IGHV1-2*01", "IGHV1-2*01_S1234", "IGHV1-2*01"],
+            ["IGHV1-2*01", "IGHV1-2*01", "IGHV1-2*01"];
+            reads=[500, 50, 500], aln_mismatches=[0, 1, 0], db_seqs=db)
+        @test suspicious == 0
         @test length(panels) == 1
         @test first(first(panels)) == "IGHV1-2"
-        @test sum(first(panels)[2]) ≈ Report.row_confidence(50, 10.0)  # one SNP at pos 4
-        # heatmap renderer: needs novel names; no-op when none
-        @test Report.cluster_profile_heatmap(["IGHV1-2"], ["ACGT"];
-                                             names=["IGHV1-2*01"], reads=[100],
-                                             parent_ratio=[1.0]) === nothing
-        @test Report.cluster_profile_heatmap(["IGHV1-2"], ["ACGA"];
-                                             names=["IGHV1-2_S1234"], reads=[50],
-                                             parent_ratio=[10.0]) === nothing
+        @test sum(first(panels)[2]) ≈ 1.0
+        db2 = [("IGHV1-2*01", "ACGT"), ("IGHV3-7*01", "ACGA")]
+        panels2, _ = Report.gene_novel_diff_panels(
+            ["IGHV3-7", "IGHV1-2"], ["ACGC", "ACGA"],
+            ["IGHV3-7*01_S1", "IGHV1-2*01_S1"],
+            ["IGHV3-7*01", "IGHV1-2*01"];
+            reads=[100, 50], aln_mismatches=[1, 1], db_seqs=db2)
+        @test length(panels2) == 2
+        @test [first(p) for p in panels2] == ["IGHV1-2", "IGHV3-7"]
+        panels3, _ = Report.gene_novel_diff_panels(
+            ["IGHV1-2", "IGHV1-2"], ["ACGA", "ACGC"],
+            ["IGHV1-2*01_S1", "IGHV1-2*01_S2"],
+            ["IGHV1-2*01", "IGHV1-2*01"];
+            reads=[500, 100], aln_mismatches=[1, 1], db_seqs=db)
+        M3 = first(panels3)[2]
+        @test maximum(@view(M3[1, :])) ≈ 1.0
+        @test maximum(@view(M3[2, :])) ≈ 0.2
+        @test Report.snp_support_row("ACGA", "ACGT", 50, 100) == [0.0, 0.0, 0.0, 0.5]
+        @test Report.cluster_profile_heatmap(["IGHV1-2"], ["ACGT"],
+                                             ["IGHV1-2*01"], ["IGHV1-2*01"];
+                                             reads=[100], aln_mismatch=[0],
+                                             db_seqs=db) === nothing
+        @test Report.cluster_profile_heatmap(["IGHV1-2"], ["ACGA"],
+                                             ["IGHV1-2*01_S1234"], ["IGHV1-2*01"];
+                                             reads=[50], aln_mismatch=[1],
+                                             db_seqs=db) === nothing
+        db_known = [("IGHV4-39*01_S1660", "ACGTACGT"), ("IGHV4-39*01", "ACGTACGT")]
+        _, susp_known = Report.gene_novel_diff_panels(
+            ["IGHV4-39"], ["ACGTACGT"], ["IGHV4-39*01_S1660"], ["IGHV4-39*01_S1660"];
+            reads=[100], aln_mismatches=[0], db_seqs=db_known)
+        @test susp_known == 0
         # grouped parameter display: runs, groups known keys, "other" catches the rest
         @test Report.params_report(Dict("input" => "a.tsv", "gene" => "V", "extra" => 1),
                                    ["IO" => ["input"], "Gene" => ["gene"]]) === nothing
@@ -779,6 +806,35 @@ test_outcomes = Dict(
         @test pr[3] == 2.0           # 100 / 50
         @test Blast.core_distance("ACGT", "ACGA") == 1
         @test Blast.core_distance("AC", "ACGT") > 0    # different length → Levenshtein
+        @test Blast.satellite_score(1, 50.0) ≈ 0.5
+        @test Blast.satellite_score(1, 20.0) ≈ 0.5
+        @test Blast.likely_satellite(1, 50.0)
+        @test !Blast.likely_satellite(4, 2.0)
+        @test !Blast.likely_satellite(-1, 1.0)
+        df_sat = DataFrame(
+            gene = ["G", "G", "G"],
+            aln_qseq = ["AAAA", "AAAT", "GGGG"],
+            reject_reason = ["", "", ""],
+            n_reads_total = [100, 2, 50],
+        )
+        Blast.add_neighbor_stats!(df_sat)
+        @test df_sat.nn_dist == [-1, 1, 4]
+        @test df_sat.parent_ratio == [1.0, 50.0, 2.0]
+        @test df_sat.satellite_score ≈ [0.0, 0.5, 0.0]
+        @test df_sat.likely_satellite == [false, true, false]
+    end
+
+    @testset "mosaic chimera_score" begin
+        refs = [("IGHV1-2*01", "AAAAAAAAAA"), ("IGHV1-2*02", "BBBBBBBBBB")]
+        @test Mosaic.chimera_score("AAAAAAAAAA", refs) == 0.0
+        @test Mosaic.chimera_score("AAAAABBBBBB", refs) ≈ 1.0
+        @test Mosaic.chimera_score("ACGT", refs) == 0.0
+        db_by = Mosaic.refs_by_gene(refs)
+        @test length(db_by["IGHV1-2"]) == 2
+        df = DataFrame(gene=["IGHV1-2", "IGHV1-2"], sequence=["AAAAABBBBBB", "AAAAAAAAAA"])
+        Mosaic.add_chimera_scores!(df, db_by; seq_col=:sequence, gene_col=:gene)
+        @test df.chimera_score[1] ≈ 1.0
+        @test df.chimera_score[2] == 0.0
     end
 
     @testset "blast name_candidate (known never named novel)" begin

@@ -11,6 +11,8 @@ module Blast
     using ProgressMeter: Progress, next!
     using Base.Threads: nthreads
 
+    using ..Align
+    using ..Mosaic: refs_by_gene, add_chimera_scores!
     using ..Data: load_fasta as data_load_fasta, unique_name, histogram_if_available
     using ..SeqStats: gc_content, max_homopolymer
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
@@ -423,14 +425,36 @@ module Blast
     end
 
     """
+        satellite_score(nn_dist, parent_ratio) -> Float64
+
+    Heuristic satellite score in [0, 1] from proximity to a more-abundant neighbour and read
+    imbalance. Rises with `parent_ratio` (≥ 20 ≈ full support weight) and nearness (0–1 bp).
+    """
+    function satellite_score(nn_dist::Integer, parent_ratio::Real)
+        nn_dist < 0 && return 0.0
+        nn_dist > 1 && return 0.0
+        pr = Float64(parent_ratio)
+        pr < 1.0 && return 0.0
+        proximity = 1.0 / (Float64(nn_dist) + 1.0)
+        support = clamp(log(pr) / log(20.0), 0.0, 1.0)
+        return proximity * support
+    end
+
+    "Derived flag: `satellite_score ≥ 0.5`."
+    likely_satellite(nn_dist::Integer, parent_ratio::Real) =
+        satellite_score(nn_dist, parent_ratio) >= 0.5
+
+    """
         add_neighbor_stats!(df; max_parents)
 
-    Add `nn_dist` / `parent_ratio` columns (computed per gene over the distinct accepted cores;
-    rejected rows keep the sentinels -1 / 1.0).
+    Add `nn_dist`, `parent_ratio`, `satellite_score`, and `likely_satellite` columns (computed
+    per gene over the distinct accepted cores; rejected rows keep sentinels -1 / 1.0 / 0 / false).
     """
     function add_neighbor_stats!(df::DataFrame; max_parents::Int=128)
         df[!, :nn_dist] = fill(-1, nrow(df))
         df[!, :parent_ratio] = ones(Float64, nrow(df))
+        df[!, :satellite_score] = zeros(Float64, nrow(df))
+        df[!, :likely_satellite] = falses(nrow(df))
         acc = df[df.reject_reason .== "", :]
         nrow(acc) == 0 && return df
         stats = Dict{String,Tuple{Int,Float64}}()       # core -> (nn_dist, parent_ratio)
@@ -453,6 +477,8 @@ module Blast
             s = get(stats, String(df.aln_qseq[i]), nothing)
             s === nothing && continue
             df.nn_dist[i], df.parent_ratio[i] = s
+            df.satellite_score[i] = satellite_score(s[1], s[2])
+            df.likely_satellite[i] = likely_satellite(s[1], s[2])
         end
         return df
     end
@@ -608,8 +634,7 @@ module Blast
     end
 
     function compute_edit_distance(query::String, reference::String)
-        aln = pairalign(LevenshteinDistance(), reference, query)
-        return score(aln)
+        Align.core_edit_distance(query, reference)
     end
 
     function trim_and_align_sequence(query::String, prefix::String, suffix::String, reference::String, stats; min_quality=0.75, sseqid="")
@@ -1022,6 +1047,7 @@ module Blast
         # always a known call, never a hashed novel name. The match is judged on the trimmed
         # core (aln_qseq) against the un-extended base sequences (db_seqs).
         db_seqs = [(strip(String(n)), String(s)) for (n, s) in DB]
+        add_chimera_scores!(blast_clusters, refs_by_gene(db_seqs); seq_col=:aln_qseq, gene_col=:gene)
         blast_clusters[:, :allele_name] = map(r -> name_candidate(String(r.aln_qseq), r.sseqid,
                                                                   r.aln_mismatch, db_seqs, isin),
                                               eachrow(blast_clusters))
@@ -1046,21 +1072,23 @@ module Blast
         # Distance alone is not suspicious — most genuine novel alleles are 1 bp from a known
         # parent. What flags a likely error is being a small fraction of a much more abundant
         # neighbour, i.e. a large parent_ratio. Report both, but weight by parent_ratio.
-        close_shadow = (kept.nn_dist .>= 0) .& (kept.nn_dist .<= 1) .& (kept.parent_ratio .>= 20)
         n_close = count((kept.nn_dist .>= 0) .& (kept.nn_dist .<= 1))
-        n_shadow = count(close_shadow)
-        n_close > 0 && @info "$n_close accepted candidate(s) are within 1 bp of a more-abundant core; $n_shadow of those carry < 5% of that neighbour's reads (parent_ratio ≥ 20) and are the more likely error satellites. nn_dist / parent_ratio are columns for your own threshold — not a default filter."
-        # Novel-vs-parent SNP heatmaps: one panel per gene with hashed novel names.
-        if nrow(kept) >= 1
-            uc = combine(groupby(kept, :aln_qseq),
+        n_shadow = count(kept.likely_satellite)
+        n_close > 0 && @info "$n_close accepted candidate(s) are within 1 bp of a more-abundant core; $n_shadow flagged likely_satellite (satellite_score ≥ 0.5). See nn_dist / parent_ratio / satellite_score / chimera_score — not a default filter."
+        # Novel-vs-parent SNP heatmaps (non-satellites only): one panel per gene.
+        hm_kept = filter(r -> !r.likely_satellite, kept)
+        if nrow(hm_kept) >= 1
+            uc = combine(groupby(hm_kept, :aln_qseq),
                          :gene => first => :gene,
                          :allele_name => first => :allele_name,
-                         :n_reads_total => first => :n_reads_total,
-                         :parent_ratio => first => :parent_ratio)
-            cluster_profile_heatmap(String.(uc.gene), String.(uc.aln_qseq);
-                                    names=String.(uc.allele_name),
+                         :sseqid => first => :sseqid,
+                         :aln_mismatch => first => :aln_mismatch,
+                         :n_reads_total => first => :n_reads_total)
+            cluster_profile_heatmap(String.(uc.gene), String.(uc.aln_qseq),
+                                    String.(uc.allele_name), String.(uc.sseqid);
                                     reads=uc.n_reads_total,
-                                    parent_ratio=uc.parent_ratio,
+                                    aln_mismatch=uc.aln_mismatch,
+                                    db_seqs=db_seqs,
                                     title="novel alleles")
         end
         CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')

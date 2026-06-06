@@ -7,6 +7,7 @@ module Exact
     using Statistics
     using ..Filters: FilterCriterion, MinThreshold, CustomFilter, add_group_ratio!,
                      init_rejection_columns!, mark_rejected!, accepted, passes
+    using ..Mosaic: refs_by_gene, add_chimera_scores!
     using ..Report: section, stage_report
 
     # ========================== GeneType dispatch hierarchy ==========================
@@ -518,6 +519,8 @@ module Exact
             expect_dict=expect_dict, affix=affix, rss=rss, extension=extension, N=top,
             raw=raw, sequence_lookup=sequence_lookup, border=border,
             adjust_per_gene_extension=adjust_per_gene_extension, adjust_percent=adjust_percent)
+        nrow(counts_df) > 0 && add_chimera_scores!(counts_df, refs_by_gene(db);
+                                                    seq_col=:sequence, gene_col=:gene)
         sort!(counts_df, [:case, :db_name])
 
         if !parsed_args["search"]["exact"]["noplot"]

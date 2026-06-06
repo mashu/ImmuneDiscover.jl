@@ -19,7 +19,8 @@ module Selftest
     # Metric columns worth scanning for separation (intersected with what the table actually has).
     const DEFAULT_METRICS = ["max_full_ratio", "n_donors", "n_reads_total", "scov", "corecov",
                              "aln_mismatch", "mismatch", "gc_content", "max_homopolymer",
-                             "nn_dist", "parent_ratio", "full_count"]
+                             "nn_dist", "parent_ratio", "satellite_score", "chimera_score",
+                             "full_count"]
 
     "True if `seq` is absent from the base (reference) set."
     is_novel(seq::AbstractString, base::AbstractSet) = !(seq in base)

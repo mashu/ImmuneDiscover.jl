@@ -6,6 +6,8 @@ module immunediscover
     include("utils/data.jl")
     include("utils/filters.jl")
     include("utils/seqstats.jl")
+    include("utils/align.jl")
+    include("utils/mosaic.jl")
     include("utils/report.jl")
     include("utils/keyedsets.jl")
     include("discover/profile.jl")
@@ -33,6 +35,7 @@ module immunediscover
     using .Data
     using .Filters
     using .SeqStats
+    using .Mosaic
     using .Report
     using .Demultiplex
     using .Simulate

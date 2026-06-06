@@ -1,6 +1,7 @@
 module Report
     using Statistics
     using Printf
+    using ..Align: core_mismatch_row
     using ..Data: histogram_if_available, heatmap_if_available
 
     export stage_report, stage_summary, distribution_summary, section, cluster_profile_heatmap,
@@ -141,166 +142,147 @@ module Report
 
     const NOVEL_SUFFIX = r"_S\d+$"
 
-    "True when `name` is a hashed novel call (`IGHV1-2_S1234`), not a known allele label."
+    "True when `name` carries a hashed suffix (`IGHV1-2_S1234`)."
     is_novel_name(name) = occursin(NOVEL_SUFFIX, String(name))
 
-    "Hamming distance for equal-length cores; Levenshtein otherwise."
-    function core_distance(a::AbstractString, b::AbstractString)
-        la, lb = length(a), length(b)
-        if la == lb
-            return sum(ca != cb for (ca, cb) in zip(a, b); init=0)
+    "Hashed discovery name, not an allele already present in the reference DB."
+    is_discovered_novel(name, db::AbstractDict{String,String}) =
+        is_novel_name(name) && !haskey(db, strip(String(name)))
+
+    "Build a name → sequence lookup from `(name, seq)` DB pairs."
+    function db_dict(db_seqs)
+        d = Dict{String,String}()
+        for (n, s) in db_seqs
+            d[strip(String(n))] = String(s)
         end
-        prev = collect(0:lb)
-        cur = similar(prev)
-        for i in 1:la
-            cur[1] = i
-            for j in 1:lb
-                cost = a[i] == b[j] ? 0 : 1
-                cur[j + 1] = min(prev[j + 1] + 1, cur[j] + 1, prev[j] + cost)
-            end
-            prev, cur = cur, prev
-        end
-        return prev[lb + 1]
+        return d
+    end
+
+    "Full germline sequence for the BLAST best-hit `sseqid` (strips hashed suffix)."
+    function matched_germline(sseqid::AbstractString, db::AbstractDict{String,String})
+        s = strip(String(sseqid))
+        haskey(db, s) && return db[s]
+        m = match(r"^(.+)_S\d+$", s)
+        m !== nothing && return get(db, String(m.captures[1]), nothing)
+        return get(db, s, nothing)
+    end
+
+    "SNP weights along `core` vs matched germline (same alignment as `aln_mismatch`)."
+    mismatch_row(core, ref, weight) = core_mismatch_row(core, ref, weight)
+
+    """
+        snp_support_row(core, ref, nreads, max_reads) -> Vector{Float64}
+
+    Per-position SNP support: 0 at matches, `nreads/max_reads` at mismatches (within-gene
+    normalization).
+    """
+    function snp_support_row(core, ref, nreads::Integer, max_reads::Integer)
+        mask = core_mismatch_row(core, ref, 1.0)
+        max_reads <= 0 && return zeros(length(mask))
+        support = Float64(nreads) / Float64(max_reads)
+        return mask .* support
     end
 
     """
-        neighbor_parents(cores, reads; max_parents) -> Vector{Union{Nothing,String}}
+        gene_novel_diff_panels(genes, seqs, names, sseqids; reads, aln_mismatches, db_seqs) ->
+            (panels, n_suspicious)
 
-    For each core, the nearest strictly more-abundant core in the same gene (its likely parent).
-    Mirrors the BLAST `neighbor_stats` logic; `nothing` when no parent exists.
+    One matrix per gene with plottable novels. Each row = trimmed core vs its BLAST-matched
+    germline allele (`sseqid` in DB). `n_suspicious` counts discovered novels with
+    `aln_mismatch == 0` but zero SNP diff on the core (a naming bug).
     """
-    function neighbor_parents(cores::AbstractVector{<:AbstractString},
-                              reads::AbstractVector{<:Integer};
-                              max_parents::Int=128)
-        n = length(cores)
-        parents = Vector{Union{Nothing,String}}(nothing, n)
-        order = sortperm(reads, rev=true)
-        for ii in 1:n
-            i = order[ii]
-            best_d = typemax(Int)
-            best_j = 0
-            considered = 0
-            for jj in 1:(ii - 1)
-                j = order[jj]
-                reads[j] > reads[i] || continue
-                considered += 1
-                considered > max_parents && break
-                d = core_distance(cores[i], cores[j])
-                if d < best_d || (d == best_d && reads[j] > reads[best_j])
-                    best_d, best_j = d, j
-                end
-            end
-            best_j > 0 && (parents[i] = String(cores[best_j]))
-        end
-        return parents
-    end
-
-    "Row brightness from read support; dimmer when the core is a likely error satellite."
-    function row_confidence(reads::Real, parent_ratio::Real)
-        read_w = clamp(log10(reads + 1) / 4.0, 0.1, 1.0)
-        sat_w = parent_ratio >= 20 ? 0.2 : parent_ratio >= 5 ? 0.5 : 1.0
-        return read_w * sat_w
-    end
-
-    "Per-position mismatch weight vs equal-length `ref` (0 = match, `weight` = SNP)."
-    function mismatch_row(seq::AbstractString, ref::AbstractString, weight::Real)
-        length(seq) == length(ref) || return zeros(Float64, 0)
-        row = zeros(Float64, length(seq))
-        w = Float64(weight)
-        for j in eachindex(row)
-            seq[j] != ref[j] && (row[j] = w)
-        end
-        return row
-    end
-
-    "Reference core for diffing: same-length parent, else same-length known, else same-length abundant core."
-    function reference_core(core, cores, names_g, reads_by_core, parent_of)
-        same_len(c) = length(c) == length(core)
-        parent = get(parent_of, core, nothing)
-        parent !== nothing && same_len(parent) && return parent
-        known = [c for c in cores if c != core && same_len(c) && !is_novel_name(names_g[c])]
-        !isempty(known) && return known[argmax(reads_by_core[c] for c in known)]
-        others = [c for c in cores if c != core && same_len(c)]
-        isempty(others) && return nothing
-        return others[argmax(reads_by_core[c] for c in others)]
-    end
-
-    """
-        gene_novel_diff_panels(genes, seqs, names; reads, parent_ratios) ->
-            Vector{Tuple{String,Matrix{Float64}}}
-
-    One `n×L` matrix per gene with ≥1 plottable novel: row = novel vs same-length parent,
-    cell = SNP weight (0 = match, brighter = mismatch; dimmer rows = low reads / satellites).
-    """
-    function gene_novel_diff_panels(genes, seqs, names; reads, parent_ratios)
-        bygene = Dict{String,Dict{String,Tuple{String,Int,Float64}}}()
-        for (g, s, nm, r, pr) in zip(genes, seqs, names, reads, parent_ratios)
+    function gene_novel_diff_panels(genes, seqs, names, sseqids; reads, aln_mismatches, db_seqs)
+        db = db_dict(db_seqs)
+        bygene = Dict{String,Dict{String,Tuple{String,Int,String,Int}}}()
+        for (g, s, nm, sid, r, mm) in zip(genes, seqs, names, sseqids, reads, aln_mismatches)
             core = String(s)
             isempty(core) && continue
             gene = String(g)
-            slot = get!(bygene, gene, Dict{String,Tuple{String,Int,Float64}}())
+            slot = get!(bygene, gene, Dict{String,Tuple{String,Int,String,Int}}())
             prev = get(slot, core, nothing)
             if prev === nothing || r > prev[2]
-                slot[core] = (String(nm), Int(r), Float64(pr))
+                slot[core] = (String(nm), Int(r), String(sid), Int(mm))
             end
         end
         panels = Tuple{String,Matrix{Float64}}[]
+        n_suspicious = 0
         for (gene, slot) in bygene
-            cores = collect(keys(slot))
-            reads_g = [slot[c][2] for c in cores]
-            names_g = Dict(c => slot[c][1] for c in cores)
-            pr_g = Dict(c => slot[c][3] for c in cores)
-            parents = neighbor_parents(cores, reads_g)
-            parent_of = Dict(cores[i] => parents[i] for i in eachindex(cores))
-            novel_cores = [c for c in cores if is_novel_name(names_g[c])]
-            isempty(novel_cores) && continue
-            reads_by_core = Dict(c => slot[c][2] for c in cores)
-            rows = Tuple{Vector{Float64},Bool,Int}[]
-            for core in novel_cores
-                ref = reference_core(core, cores, names_g, reads_by_core, parent_of)
+            pending = Tuple{String,String,Int,Int}[]
+            for (core, (nm, nreads, sid, mm)) in slot
+                is_discovered_novel(nm, db) || continue
+                ref = matched_germline(sid, db)
                 ref === nothing && continue
-                length(core) == length(ref) || continue
-                row = mismatch_row(core, ref, row_confidence(reads_by_core[core], pr_g[core]))
-                isempty(row) && continue
-                push!(rows, (row, pr_g[core] >= 20, reads_by_core[core]))
+                if !any(>(0), mismatch_row(core, ref, 1.0))
+                    mm == 0 && (n_suspicious += 1)
+                    continue
+                end
+                push!(pending, (core, ref, nreads, mm))
             end
-            isempty(rows) && continue
-            sort!(rows; by = r -> (r[2], -r[3]))   # satellites last, then by reads
-            L = maximum(length(r[1]) for r in rows)
+            isempty(pending) && continue
+            max_reads = maximum(p[3] for p in pending)
+            row_support(p) = -sum(snp_support_row(p[1], p[2], p[3], max_reads))
+            pending = pending[sortperm(pending; by=row_support)]
+            rows = [snp_support_row(core, ref, nreads, max_reads) for (core, ref, nreads, _) in pending]
+            L = maximum(length(r) for r in rows)
             M = zeros(Float64, length(rows), L)
-            for (i, (row, _, _)) in enumerate(rows)
+            for (i, row) in enumerate(rows)
                 M[i, 1:length(row)] = row
             end
             push!(panels, (gene, M))
         end
-        sort!(panels; by = p -> -sum(p[2]))
-        return panels
+        sort!(panels; by = p -> p[1])
+        return panels, n_suspicious
+    end
+
+    "Column indices covering every SNP (± `flank` nt), capped for terminal width."
+    function snp_window(M::AbstractMatrix{<:Real}; flank::Int=1, max_cols::Int=72)
+        cols = Int[]
+        for j in axes(M, 2)
+            any(>(0), @view(M[:, j])) && append!(cols, max(1, j - flank):min(size(M, 2), j + flank))
+        end
+        sort!(unique!(cols))
+        length(cols) > max_cols && return cols[1:max_cols]
+        return cols
     end
 
     """
-        cluster_profile_heatmap(genes, seqs; names, reads, parent_ratio, title, max_genes)
+        cluster_profile_heatmap(genes, seqs, names, sseqids; reads, parent_ratio, db_seqs, ...)
 
-    Quick diagnostic: one heatmap per gene with novel candidates. Each row is a novel vs its
-    parent core; dark = conserved, bright = SNP; dim rows = satellites / low support. No text
-    listing of positions — the plot is the summary.
+    Diagnostic heatmap: one panel per gene (sorted alphabetically). Each row is one discovered
+    novel trimmed core vs its BLAST-matched germline allele. Color is read-supported SNP signal:
+    0 at matches, `n_reads / gene_max_reads` at mismatches (per-position counts are not
+    available — support is cluster-level). Likely error satellites are omitted here; see
+    `satellite_score`, `likely_satellite`, `nn_dist`, `parent_ratio`, and `chimera_score` in the
+    output table. A blank panel means
+    every novel in that gene matched germline exactly — investigate naming. Requires `db_seqs`
+    and per-row `sseqids`.
     """
-    function cluster_profile_heatmap(genes, seqs; names, reads, parent_ratio,
+    function cluster_profile_heatmap(genes, seqs, names, sseqids; reads, aln_mismatch, db_seqs,
                                      title::AbstractString="novel alleles",
-                                     max_genes::Int=15, max_rows::Int=12)
-        panels = gene_novel_diff_panels(genes, seqs, names; reads=reads, parent_ratios=parent_ratio)
+                                     max_rows::Int=12)
+        panels, n_suspicious = gene_novel_diff_panels(genes, seqs, names, sseqids;
+                                                      reads=reads, aln_mismatches=aln_mismatch,
+                                                      db_seqs=db_seqs)
+        n_suspicious > 0 && printstyled("      ⚠ ", n_suspicious,
+                                        " novel(s) with aln_mismatch=0 but identical to germline — naming bug\n";
+                                        color=:yellow)
         isempty(panels) && return nothing
-        shown = first(panels, min(length(panels), max_genes))
         printstyled("      ", title,
-                    " — row = novel vs parent; dark = match, bright = SNP (dim = satellite)\n";
+                    " — row = one novel core; color = read-supported SNP ",
+                    "(0 = match; brightness ∝ n_reads within gene)\n";
                     color=:light_black)
-        for (g, M) in shown
+        for (g, M) in panels
             Mplot = size(M, 1) > max_rows ? M[1:max_rows, :] : M
-            heatmap_if_available(Mplot;
-                                 title="$g  ($(size(M, 1)) novel, L=$(size(M, 2)) nt)",
-                                 xlabel="position", ylabel="")
+            L = size(M, 2)
+            cols = snp_window(Mplot)
+            isempty(cols) && continue
+            xlabel = length(cols) < L ? "nt $(first(cols))–$(last(cols)) of $L" : "position"
+            nrows = size(M, 1)
+            rownote = nrows > max_rows ? ", showing $max_rows/$nrows" : ""
+            heatmap_if_available(Mplot[:, cols];
+                                 title="$g  ($nrows novel$rownote)",
+                                 xlabel=xlabel, ylabel="SNP support", zlim=(0, 1))
         end
-        extra = length(panels) - length(shown)
-        extra > 0 && printstyled("      … ", extra, " more gene(s) not shown\n"; color=:light_black)
         return nothing
     end
 end
