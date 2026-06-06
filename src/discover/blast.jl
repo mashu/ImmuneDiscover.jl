@@ -8,6 +8,7 @@ module Blast
     using BioSequences
     using Folds
     using MD5
+    using ProgressMeter: Progress, next!
     using Base.Threads: nthreads
 
     using ..Data: load_fasta as data_load_fasta, unique_name, histogram_if_available
@@ -18,6 +19,7 @@ module Blast
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
     export resolve_work_dir, blast_hits_gz_path
+    export consensus_prefix, consensus_suffix
 
     const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "qlen", "slen", "evalue", "bitscore", "sstrand", "qseq"]
 
@@ -111,9 +113,7 @@ module Blast
         return s
     end
 
-    function blastn(query_file::String, database::String, output_gz::String; args::String="")
-        endswith(output_gz, ".gz") || error("BLAST cache path must end with .gz, got $(repr(output_gz))")
-        outfmt = "6 " * join(columns, " ")
+    function build_blastn_cmd(query_file::String, database::String, outfmt::String, args::String)
         blast_num_threads = blastn_num_threads()
         cmd = `blastn -num_threads $blast_num_threads -query $query_file -db $database -out - -outfmt $outfmt`
         if !isempty(strip(args))
@@ -121,6 +121,14 @@ module Blast
             extra = map(blastn_cli_token, split(args))
             cmd = `$cmd $extra`
         end
+        return cmd
+    end
+
+    function blastn(query_file::String, database::String, output_gz::String; args::String="")
+        endswith(output_gz, ".gz") || error("BLAST cache path must end with .gz, got $(repr(output_gz))")
+        outfmt = "6 " * join(columns, " ")
+        blast_num_threads = blastn_num_threads()
+        cmd = build_blastn_cmd(query_file, database, outfmt, args)
         start_time = time()
         open(GzipCompressorStream, output_gz, "w") do gzio
             run(pipeline(cmd, stdout=gzio))
@@ -175,50 +183,168 @@ module Blast
         return joinpath(d, "hits.blast.gz")
     end
 
-    function longest_common_suffix_str(a::String, b::String)
-        i = 0
-        while i < min(length(a), length(b)) && a[end-i] == b[end-i]
-            i += 1
-        end
-        return a[end-i+1:end]
+
+    """Majority base at one flank column; ties broken lexicographically for stability."""
+    function majority_base(counts::Dict{Char, Int})
+        best_c = first(sort(collect(keys(counts)); by=c -> (-counts[c], c)))
+        best_c => counts[best_c]
     end
 
-    function longest_common_prefix_str(a::String, b::String)
-        i = 0
-        while i < min(length(a), length(b)) && a[i+1] == b[i+1]
-            i += 1
+    abstract type AffixSide end
+    struct PrefixAffix <: AffixSide end
+    struct SuffixAffix <: AffixSide end
+
+    affix_column(a::AbstractString, col::Int, ::PrefixAffix) = a[length(a) - col + 1]
+    affix_column(a::AbstractString, col::Int, ::SuffixAffix) = a[col]
+
+    push_consensus_char!(out::Vector{Char}, c::Char, ::PrefixAffix) = pushfirst!(out, c)
+    push_consensus_char!(out::Vector{Char}, c::Char, ::SuffixAffix) = push!(out, c)
+
+    """
+        consensus_affix(affixes, side; min_fraction) -> String
+
+    Shared majority-vote extension from the gene boundary outward.
+    `PrefixAffix`: 5' flanks, right-aligned, grow leftward.
+    `SuffixAffix`: 3' flanks, left-aligned, grow rightward.
+    """
+    function consensus_affix(affixes::AbstractVector{<:AbstractString}, side::AffixSide;
+                             min_fraction::Real=0.5)
+        isempty(affixes) && return ""
+        max_len = maximum(length, affixes)
+        out = Char[]
+        for col in 1:max_len
+            counts = Dict{Char, Int}()
+            n = 0
+            for a in affixes
+                length(a) >= col || continue
+                c = affix_column(a, col, side)
+                counts[c] = get(counts, c, 0) + 1
+                n += 1
+            end
+            n == 0 && break
+            best_c, best_n = majority_base(counts)
+            best_n / n > min_fraction || break
+            push_consensus_char!(out, best_c, side)
         end
-        return a[1:i]
+        return String(out)
     end
 
-    function accumulate_affixes(db, demux_df; forward_extension=20, reverse_extension=20)
-        singleton = Vector{Tuple{String, String, String, String}}()
-        for (name, reference_seq) in db
-            matches = filter(x -> occursin(reference_seq, x.genomic_sequence), eachrow(demux_df))
-            if length(matches) == 0
-                push!(singleton, (name, reference_seq, "", ""))
-                continue
+    """
+        consensus_prefix(prefixes; min_fraction) -> String
+
+    Right-align upstream flanks (boundary-adjacent column first) and extend leftward
+    while a strict majority of reads agree at each position.
+    """
+    consensus_prefix(prefixes::AbstractVector{<:AbstractString}; min_fraction::Real=0.5) =
+        consensus_affix(prefixes, PrefixAffix(); min_fraction=min_fraction)
+
+    """
+        consensus_suffix(suffixes; min_fraction) -> String
+
+    Left-align downstream flanks (boundary-adjacent column first) and extend rightward
+    while a strict majority of reads agree at each position.
+    """
+    consensus_suffix(suffixes::AbstractVector{<:AbstractString}; min_fraction::Real=0.5) =
+        consensus_affix(suffixes, SuffixAffix(); min_fraction=min_fraction)
+
+    const AFFIX_ANCHOR_K = 12
+
+    """Up to three k-mers per reference (5', middle, 3') for candidate filtering."""
+    function gene_anchors(ref::AbstractString, k::Int)
+        lr = length(ref)
+        lr == 0 && return SubString{String}[]
+        if lr <= k
+            return [SubString(ref, 1, lr)]
+        end
+        mid = (lr - k) ÷ 2 + 1
+        return unique([SubString(ref, 1, k), SubString(ref, mid, mid + k - 1), SubString(ref, lr - k + 1, lr)])
+    end
+
+    function build_affix_anchor_index(refs::AbstractVector{<:AbstractString}, k::Int)
+        index = Dict{SubString{String}, Vector{Int}}()
+        for (gi, ref) in enumerate(refs)
+            for anchor in gene_anchors(ref, k)
+                push!(get!(index, anchor, Int[]), gi)
             end
-            common_prefix = ""
-            common_suffix = ""
-            for row in matches
-                gs = row.genomic_sequence
-                m = findfirst(reference_seq, gs)
-                m === nothing && continue
-                start_pos = minimum(m)
-                end_pos = maximum(m)
-                prefix = gs[max(1, start_pos - forward_extension):start_pos - 1]
-                suffix = gs[end_pos + 1:min(end_pos + reverse_extension, length(gs))]
-                if common_prefix == ""
-                    common_prefix = prefix
-                    common_suffix = suffix
-                else
-                    common_prefix = longest_common_suffix_str(common_prefix, prefix)
-                    common_suffix = longest_common_prefix_str(common_suffix, suffix)
-                end
+        end
+        return index
+    end
+
+    function affix_match_positions(ref::AbstractString, gs::AbstractString)
+        m = findfirst(ref, gs)
+        m === nothing && return nothing
+        return (minimum(m), maximum(m))
+    end
+
+    function affix_candidate_genes(gs::AbstractString, anchor_index::Dict{SubString{String}, Vector{Int}}, k::Int)
+        gl = length(gs)
+        gl == 0 && return Set{Int}()
+        candidates = Set{Int}()
+        if gl <= k
+            for gi in get(anchor_index, SubString(gs, 1, gl), ())
+                push!(candidates, gi)
             end
-            extended_sequence = common_prefix * reference_seq * common_suffix
-            push!(singleton, (name, extended_sequence, common_prefix, common_suffix))
+            return candidates
+        end
+        @inbounds for pos in 1:(gl - k + 1)
+            anchor = SubString(gs, pos, pos + k - 1)
+            for gi in get(anchor_index, anchor, ())
+                push!(candidates, gi)
+            end
+        end
+        return candidates
+    end
+
+    function affix_hits_for_read(gs::AbstractString, refs::AbstractVector{String},
+                                 anchor_index::Dict{SubString{String}, Vector{Int}},
+                                 forward_extension::Int, reverse_extension::Int)
+        hits = Tuple{Int, String, String}[]
+        gl = length(gs)
+        for gi in affix_candidate_genes(gs, anchor_index, AFFIX_ANCHOR_K)
+            pos = affix_match_positions(refs[gi], gs)
+            pos === nothing && continue
+            start_pos, end_pos = pos
+            pre = start_pos > 1 ?
+                  String(gs[max(1, start_pos - forward_extension):start_pos - 1]) : ""
+            suf = end_pos < gl ?
+                  String(gs[end_pos + 1:min(end_pos + reverse_extension, gl)]) : ""
+            push!(hits, (gi, pre, suf))
+        end
+        return hits
+    end
+
+    function accumulate_affixes(db, demux_df; forward_extension=20, reverse_extension=20,
+                                min_affix_fraction::Real=0.5)
+        names = String[first(p) for p in db]
+        refs = String[last(p) for p in db]
+        n = length(refs)
+        anchor_index = build_affix_anchor_index(refs, AFFIX_ANCHOR_K)
+        prefixes = [String[] for _ in 1:n]
+        suffixes = [String[] for _ in 1:n]
+
+        prog = Progress(nrow(demux_df); desc="Collecting affixes")
+        row_hits = Folds.map(eachrow(demux_df)) do row
+            next!(prog)
+            affix_hits_for_read(row.genomic_sequence, refs, anchor_index,
+                                forward_extension, reverse_extension)
+        end
+        for hits in row_hits
+            for (gi, pre, suf) in hits
+                isempty(pre) || push!(prefixes[gi], pre)
+                isempty(suf) || push!(suffixes[gi], suf)
+            end
+        end
+
+        singleton = Vector{Tuple{String, String, String, String}}(undef, n)
+        for gi in 1:n
+            if isempty(prefixes[gi]) && isempty(suffixes[gi])
+                singleton[gi] = (names[gi], refs[gi], "", "")
+            else
+                common_prefix = consensus_prefix(prefixes[gi]; min_fraction=min_affix_fraction)
+                common_suffix = consensus_suffix(suffixes[gi]; min_fraction=min_affix_fraction)
+                singleton[gi] = (names[gi], common_prefix * refs[gi] * common_suffix,
+                                 common_prefix, common_suffix)
+            end
         end
         return singleton
     end
@@ -707,8 +833,8 @@ module Blast
         else
             ext_fasta_path = joinpath(work_dir, file_stem * "-combined-extended.fasta")
             if !isfile(ext_fasta_path) || overwrite
-                @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides"
                 demux = load_csv(parsed_args["discover"]["blast"]["input"])
+                @info "Extending gene sequences by $forward_extension forward and $reverse_extension reverse nucleotides" reads=nrow(demux) references=length(db_p) julia_threads=nthreads()
                 # Extend the COMBINED db (real + pseudo) so the BLAST database matches the
                 # no-extension branch. Pseudo decoys absent in reads become unextended
                 # singletons but remain in the DB; using DB (real only) here silently dropped

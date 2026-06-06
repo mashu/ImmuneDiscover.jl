@@ -669,6 +669,21 @@ test_outcomes = Dict(
         @test ppre == ""                       # absent in reads → unextended
         @test psuf == ""
         @test pseq == "GGGGGGGGGGGG"
+
+        # Heterogeneous upstream context: eroding LCP/LCS would collapse to "" or 1–2 nt;
+        # consensus keeps boundary-adjacent agreement.
+        mixed = DataFrame(
+            well = [1, 1, 1], case = ["D1", "D1", "D1"], name = ["r1", "r2", "r3"],
+            genomic_sequence = [
+                "AAAAT" * gene * "TCCCC",
+                "CCCGT" * gene * "TAAAA",
+                "GGGGT" * gene * "TTTTT",
+            ],
+        )
+        mixed_ext = Blast.accumulate_affixes([("G2*01", gene)], mixed; forward_extension=5, reverse_extension=5)
+        _, _, mpre, msuf = only(mixed_ext)
+        @test mpre == "GT"
+        @test msuf == "T"
     end
 
     @testset "blast annotate + partition (full vs filtered)" begin
@@ -1390,14 +1405,18 @@ test_outcomes = Dict(
             @test Blast.sseqid_to_db_key("TRGV2*01_S2223", Set(["TRGV2*01"])) == "TRGV2*01"
             @test Blast.sseqid_to_db_key("X*01", Set(["X*01"])) == "X*01"
             @test Blast.sseqid_to_db_key("Q*01_S9", Set(["Z"])) == "Q*01_S9"
-            @test Blast.longest_common_suffix_str("ABCDEF", "XYZDEF") == "DEF"
-            @test Blast.longest_common_suffix_str("ABC", "XYZ") == ""
-            @test Blast.longest_common_prefix_str("ABCDEF", "ABCXYZ") == "ABC"
-            @test Blast.longest_common_prefix_str("ABC", "XYZ") == ""
+            @test Blast.consensus_prefix(["AAAAA", "AAAAA"]) == "AAAAA"
+            @test Blast.consensus_suffix(["TTTTT", "TTTTT"]) == "TTTTT"
+            @test Blast.consensus_prefix(["AAAAT", "CCCGT", "GGGGT"]) == "GT"
+            @test Blast.consensus_suffix(["TCCCC", "TAAAA", "TTTTT"]) == "T"
+            @test Blast.consensus_prefix(["XYZ", "ABC"]) == ""
             @test Blast.edge("CCC", "AAACCCGGG") == (3, 3)   # 3 nt before, 3 after
             @test Blast.blastn_cli_token("--task") == "-task"
             @test Blast.blastn_cli_token("-num_threads") == "-num_threads"
             @test Blast.blastn_cli_token("megablast") == "megablast"
+            cmd = Blast.build_blastn_cmd("/q.fa", "/db", "6 qseqid", "-task megablast")
+            @test cmd.exec[1:3] == ["blastn", "-num_threads", string(Sys.CPU_THREADS)]
+            @test "-task" in cmd.exec && "megablast" in cmd.exec
             @test Blast.nogaps("AC-G-T") == "ACGT"
             @test isabspath(Blast.resolve_work_dir(""))
             @test endswith(Blast.resolve_work_dir(""), ".immunediscover")
