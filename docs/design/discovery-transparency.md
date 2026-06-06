@@ -64,6 +64,17 @@ well discovery recovers known-novel alleles. Run `discover blast` against the BA
 - it reports **recall** (recovered / truth-novel), **precision** (true / accepted-novel cores),
   an outcome bar plot, and a rejected-by-stage bar plot showing which filter to relax.
 
+### Metric separation (threshold tuning)
+
+The self-test also labels every *novel* candidate row (core absent from BASE) as **true** (its
+core matches a truth-novel allele) or **false**, then, for each metric column in the full table
+(`n_donors`, `n_reads_total`, `scov`, `corecov`, mismatch, `gc_content`, `max_homopolymer`,
+`nn_dist`, `parent_ratio`, …), finds the single threshold — and keep-direction (`≥` or `≤`) —
+that best separates true from false by Youden's J (TP-rate − FP-rate). The metrics are printed
+sorted by separation, so the top row is the most discriminative filter and its suggested cut. This
+turns the self-test from "did we recover allele X" into "which blast threshold to set, and to
+what value", and is saved with `--metrics-output`.
+
 Because it consumes the full table, the self-test ties the reject reasons and quality metrics
-together: it shows exactly which filter killed a true allele, which is what makes the blast
-thresholds tunable.
+together: it shows exactly which filter killed a true allele, and which metric best separates true
+from false candidates — which is what makes the blast thresholds tunable.

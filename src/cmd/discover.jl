@@ -247,6 +247,9 @@ function add_discover_args!(s)
         "--no-substring"
             help = "Require exact sequence match (disable substring matching)"
             action = :store_true
+        "--metrics-output"
+            help = "Optional TSV path to save the metric-separation table (which threshold best splits true from false novel candidates)"
+            arg_type = String
         end
 
     return s

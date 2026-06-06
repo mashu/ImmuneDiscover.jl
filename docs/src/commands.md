@@ -359,6 +359,70 @@ immunediscover discover hsmm demux.tsv.gz IGHD.fasta hsmm_D.tsv.gz --limit 10000
 
 ---
 
+## discover selftest
+
+**Purpose:** Score how well discovery recovers known-novel alleles, and find which metric
+threshold best separates true from false novel candidates.
+
+### Synopsis
+```bash
+immunediscover discover selftest <discovery> <base> <truth> <output> [options]
+```
+
+### Arguments
+
+**Required:**
+- `discovery`: Discovery FULL table (`<output>.full.tsv.gz`) with `reject_reason` / `reject_stage`
+- `base`: BASE reference FASTA used for discovery (known alleles only)
+- `truth`: TRUTH FASTA (known + novel); truth-novel = sequences not in BASE
+- `output`: TSV path for the per-allele recovery table
+
+**Options:**
+- `--seq-col` (default: `aln_qseq`): Discovery column holding the candidate core sequence
+- `--no-substring`: Require exact sequence match (disable substring matching)
+- `--metrics-output`: Optional TSV path to save the metric-separation table
+
+### Inputs/Outputs
+
+**Input:** A discovery full table produced by running `discover blast` against the BASE reference,
+plus the BASE and TRUTH FASTAs.
+
+**Output: {output}** — per truth-novel allele: `allele`, `length`, `status`
+(`recovered` / `rejected` / `missed`), and `reject_stage` (the filter that dropped it, if rejected).
+
+**Output (optional): {metrics-output}** — per metric: `metric`, `n_tp`, `n_fp`, `tp_median`,
+`fp_median`, `direction` (`keep ≥` / `keep ≤`), `threshold`, `youden`, `tp_kept`, `fp_removed`.
+
+### Algorithm
+
+1. truth-novel = sequences in TRUTH not in BASE — the alleles discovery should find.
+2. Classify each truth-novel allele as **recovered** (an accepted candidate matches), **rejected**
+   (a candidate matched but was filtered — annotated with the stage), or **missed**.
+3. Report **recall** (recovered / truth-novel) and **precision** (true / accepted-novel cores),
+   plus outcome and rejected-by-stage bar plots.
+4. Label every novel candidate row true/false and, per metric column, find the single threshold
+   and keep-direction that best separates them by Youden's J (TP-rate − FP-rate). The most
+   discriminative metric is reported first — that is the blast threshold to tune and to what value.
+
+### Examples
+
+```bash
+# Run blast against the BASE reference to produce the full table, then score recovery
+immunediscover discover blast demux.tsv.gz base.fasta disc.tsv.gz -g V
+immunediscover discover selftest disc.tsv.gz.full.tsv.gz base.fasta truth.fasta recovery.tsv
+
+# Save the metric-separation table for threshold tuning
+immunediscover discover selftest disc.tsv.gz.full.tsv.gz base.fasta truth.fasta recovery.tsv \
+  --metrics-output metrics.tsv
+```
+
+### Notes
+
+- Consumes the FULL table, so it can show exactly which filter killed each true allele.
+- Substring matching is on by default so a short truth allele matches a longer recovered core.
+
+---
+
 ## search heptamer
 
 **Purpose:** Identify heptamer RSS positions and extend V gene reads.

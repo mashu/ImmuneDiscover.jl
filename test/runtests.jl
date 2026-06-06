@@ -732,6 +732,7 @@ test_outcomes = Dict(
         @test pa["discover"]["selftest"]["truth"] == "truth.fasta"
         @test pa["discover"]["selftest"]["output"] == "report.tsv"
         @test pa["discover"]["selftest"]["seq-col"] == "aln_qseq"
+        @test pa["discover"]["selftest"]["metrics-output"] === nothing
 
         # classify_allele
         acc_list = ["ACGTACGT"]
@@ -777,6 +778,33 @@ test_outcomes = Dict(
         @test res2.summary.n_truth_novel == 1
         @test res2.summary.recovered == 1
         @test res2.summary.false_positive == 0
+
+        # metric_separation: label novel candidates true/false and find the best splitting threshold.
+        discm = DataFrame(
+            aln_qseq      = ["NOVELAAA", "NOVELAAA", "ARTIFXXX", "ARTIFYYY", "KNOWNAAA"],
+            reject_reason = ["", "", "", "min count", ""],
+            reject_stage  = ["", "", "", "output filter", ""],
+            n_donors      = [3, 3, 1, 1, 9],
+            parent_ratio  = [1.0, 1.0, 50.0, 40.0, 1.0],
+        )
+        basem = Set(["KNOWNAAA"])
+        truthm = [("V1", "NOVELAAA"), ("K", "KNOWNAAA")]
+        sep = Selftest.metric_separation(discm, basem, truthm; seq_col=:aln_qseq)
+        @test nrow(sep) == 2                       # KNOWNAAA excluded (in base), both metrics scanned
+        @test sep[1, :youden] ≈ 1.0                # sorted by youden desc
+        nd = sep[sep.metric .== "n_donors", :]
+        @test nd[1, :direction] == "keep ≥"        # true cores have more donors
+        @test nd[1, :n_tp] == 2 && nd[1, :n_fp] == 2
+        @test nd[1, :tp_kept] == 2 && nd[1, :fp_removed] == 2
+        @test nd[1, :youden] ≈ 1.0
+        pr = sep[sep.metric .== "parent_ratio", :]
+        @test pr[1, :direction] == "keep ≤"        # true cores sit far from a dominant parent
+        @test pr[1, :youden] ≈ 1.0
+
+        # No false novel candidates ⇒ nothing to separate, empty table (not an error).
+        discz = DataFrame(aln_qseq=["NOVELAAA"], reject_reason=[""], reject_stage=[""], n_donors=[3])
+        sepz = Selftest.metric_separation(discz, Set(String[]), [("V1", "NOVELAAA")]; seq_col=:aln_qseq)
+        @test nrow(sepz) == 0
     end
 
     @testset "bwa.jl" begin
