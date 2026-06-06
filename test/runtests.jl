@@ -207,10 +207,35 @@ test_outcomes = Dict(
         @test Data.barplot_if_available(["a", "b"], [3, 1]) === nothing
         @test Data.heatmap_if_available(rand(4, 6)) === nothing
 
-        # cluster profile heatmap: dominant length + no-op below 2 sequences
-        @test Report.dominant_length(["AAA", "CCC", "GG"]) == 3
-        @test Report.cluster_profile_heatmap(["ACGT", "ACGA"]) === nothing
-        @test Report.cluster_profile_heatmap(["ACGT"]) === nothing      # <2 of a length → no-op
+        # dominant length: most common length among cores
+        @test Report.dominant_length(["ACGT","ACGA","TTT"]) == 4
+        @test Report.dominant_length(String[]) == 0
+        # composition matrix: 4×L, columns sum to 1, splits at variable positions
+        M = Report.composition_matrix(["ACGT","ACGA"])
+        @test size(M) == (4, 4)
+        @test all(isapprox.(sum(M; dims=1), 1.0))   # each column is a frequency distribution
+        @test M[1, 1] == 1.0                        # position 1 conserved (all A)
+        @test M[4, 4] == 0.5 && M[1, 4] == 0.5      # position 4 splits T/A
+        @test Report.is_novel_name("IGHV1-2_S1234")
+        @test !Report.is_novel_name("IGHV1-2*01")
+        row = Report.mismatch_row("ACGA", "ACGT", 1.0)
+        @test row == [0.0, 0.0, 0.0, 1.0]
+        @test Report.row_confidence(1000, 1.0) > Report.row_confidence(10, 25)
+        panels = Report.gene_novel_diff_panels(
+            ["IGHV1-2", "IGHV1-2", "IGHV1-2"],
+            ["ACGT", "ACGA", "ACGT"],
+            ["IGHV1-2*01", "IGHV1-2_S1234", "IGHV1-2*01"];
+            reads=[500, 50, 500], parent_ratios=[1.0, 10.0, 1.0])
+        @test length(panels) == 1
+        @test first(first(panels)) == "IGHV1-2"
+        @test sum(first(panels)[2]) ≈ Report.row_confidence(50, 10.0)  # one SNP at pos 4
+        # heatmap renderer: needs novel names; no-op when none
+        @test Report.cluster_profile_heatmap(["IGHV1-2"], ["ACGT"];
+                                             names=["IGHV1-2*01"], reads=[100],
+                                             parent_ratio=[1.0]) === nothing
+        @test Report.cluster_profile_heatmap(["IGHV1-2"], ["ACGA"];
+                                             names=["IGHV1-2_S1234"], reads=[50],
+                                             parent_ratio=[10.0]) === nothing
         # grouped parameter display: runs, groups known keys, "other" catches the rest
         @test Report.params_report(Dict("input" => "a.tsv", "gene" => "V", "extra" => 1),
                                    ["IO" => ["input"], "Gene" => ["gene"]]) === nothing
@@ -229,6 +254,11 @@ test_outcomes = Dict(
         @test SeqStats.shannon_entropy(["AAA", "AAA"]) == 0.0
         @test SeqStats.shannon_entropy(["AA", "AT"]) == 0.5      # 0 bits + 1 bit, averaged
         @test SeqStats.shannon_entropy(String[]) == 0.0
+        # positional_entropy: per-position bits, left-aligned, variable length tolerated
+        @test SeqStats.positional_entropy(["AA", "AT"]) == [0.0, 1.0]
+        @test SeqStats.positional_entropy(["AAA", "AAA"]) == [0.0, 0.0, 0.0]
+        @test SeqStats.positional_entropy(["ACG", "AC"]) == [0.0, 0.0, 0.0]  # pos 3 has 1 seq → 0
+        @test SeqStats.positional_entropy(String[]) == Float64[]
         @test SeqStats.consensus_fraction(["AAA", "AAA"]) == 1.0
         @test SeqStats.consensus_fraction(["AA", "AT"]) == 0.75
         @test_throws ArgumentError SeqStats.shannon_entropy(["AA", "AAA"])
@@ -588,13 +618,28 @@ test_outcomes = Dict(
         empty!(ARGS)
         append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V"])
         pa_preset = Cli.apply_blast_presets!(Cli.parse_commandline(ARGS))
-        @test pa_preset["discover"]["blast"]["minfullratio"] ≈ 0.035   # V preset
+        @test pa_preset["discover"]["blast"]["minfullratio"] ≈ 0.08    # V preset (recall-safe FP cut)
         @test pa_preset["discover"]["blast"]["min-corecov"] == 0.50     # V preset (was default 0.6)
 
         empty!(ARGS)
         append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V", "--min-corecov", "0.9"])
         pa_override = Cli.apply_blast_presets!(Cli.parse_commandline(ARGS))
         @test pa_override["discover"]["blast"]["min-corecov"] == 0.9    # explicit override respected
+
+        # Single source of truth: every BLAST_DEFAULTS entry must equal the parsed ArgParse
+        # default (guards against the arg table and the preset/defaults table drifting apart).
+        empty!(ARGS)
+        append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv"])
+        bdef = Cli.parse_commandline(ARGS)["discover"]["blast"]
+        for (k, v) in Cli.BLAST_DEFAULTS
+            @test haskey(bdef, k)
+            @test bdef[k] == v
+        end
+        @test bdef["min-reads-total"] == 0    # new abundance filter, off by default
+
+        empty!(ARGS)
+        append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "--min-reads-total", "40"])
+        @test Cli.parse_commandline(ARGS)["discover"]["blast"]["min-reads-total"] == 40
 
         # Module - test utility functions that don't require BLAST
         # Test Data.load_fasta (same path as blast pipeline FASTA reads)
@@ -736,6 +781,21 @@ test_outcomes = Dict(
         @test Blast.core_distance("AC", "ACGT") > 0    # different length → Levenshtein
     end
 
+    @testset "blast name_candidate (known never named novel)" begin
+        db = [("IGHD1-7*01", "GGTATAACTGGAACTAC"), ("IGHD1-7*02", "GGTATAACTGGAACAAC")]
+        # exact match to the best-hit reference → that reference
+        @test Blast.name_candidate("GGTATAACTGGAACTAC", "IGHD1-7*01", 0, db, true) == "IGHD1-7*01"
+        # core EXACTLY equals a different known allele than the best-hit (aln_mismatch>0 vs best
+        # hit): must resolve to that known allele regardless of --isin — never a novel _S name.
+        @test Blast.name_candidate("GGTATAACTGGAACAAC", "IGHD1-7*01", 1, db, true)  == "IGHD1-7*02"
+        @test Blast.name_candidate("GGTATAACTGGAACAAC", "IGHD1-7*01", 1, db, false) == "IGHD1-7*02"
+        # genuine internal variation vs every known allele → novel hashed name
+        @test occursin(r"_S\d+$", Blast.name_candidate("GGTATAACTGGAACGGC", "IGHD1-7*01", 2, db, true))
+        # --isin governs only partial coverage (core ⊂ known): on → known, off → novel
+        @test Blast.name_candidate("TATAACTGG", "IGHD1-7*01", 3, db, true)  == "IGHD1-7*01"
+        @test occursin(r"_S\d+$", Blast.name_candidate("TATAACTGG", "IGHD1-7*01", 3, db, false))
+    end
+
     @testset "selftest recovery" begin
         # CLI
         empty!(ARGS)
@@ -820,6 +880,31 @@ test_outcomes = Dict(
         discz = DataFrame(aln_qseq=["NOVELAAA"], reject_reason=[""], reject_stage=[""], n_donors=[3])
         sepz = Selftest.metric_separation(discz, Set(String[]), [("V1", "NOVELAAA")]; seq_col=:aln_qseq)
         @test nrow(sepz) == 0
+
+        # recall_safe_filters: most aggressive cut over ACCEPTED cores that keeps recall 1.0.
+        discs = DataFrame(
+            aln_qseq      = ["GOODAAAA", "BADXXXXX", "BADYYYYY", "REJECTZZ"],
+            reject_reason = ["", "", "", "min count"],   # REJECTZZ not accepted → ignored
+            reject_stage  = ["", "", "", "output filter"],
+            n_reads_total = [100, 5, 8, 999],
+            max_full_ratio= [0.5, 0.02, 0.03, 0.9],
+        )
+        bases = Set(String[])
+        truths = [("V1", "GOODAAAA")]
+        safe = Selftest.recall_safe_filters(discs, bases, truths; seq_col=:aln_qseq)
+        @test "max_full_ratio" in safe.metric
+        # n_reads_total: recovered allele's core has 100; both FP (5,8) drop below it → 2/2.
+        nr = safe[safe.metric .== "n_reads_total", :]
+        @test nr[1, :direction] == "keep ≥"
+        @test nr[1, :threshold] ≈ 100.0
+        @test nr[1, :fp_removed] == 2 && nr[1, :acc_fp] == 2
+        # peak allelic ratio separates the same way (0.5 keeps the true allele, drops both FP).
+        mr = safe[safe.metric .== "max_full_ratio", :]
+        @test mr[1, :fp_removed] == 2
+
+        # No accepted false novel cores ⇒ empty (nothing to cut).
+        safez = Selftest.recall_safe_filters(discz, Set(String[]), [("V1", "NOVELAAA")]; seq_col=:aln_qseq)
+        @test nrow(safez) == 0
     end
 
     @testset "bwa.jl" begin

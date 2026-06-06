@@ -19,7 +19,7 @@ module Blast
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
     export resolve_work_dir, blast_hits_gz_path
-    export consensus_prefix, consensus_suffix
+    export consensus_prefix, consensus_suffix, name_candidate
 
     const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "qlen", "slen", "evalue", "bitscore", "sstrand", "qseq"]
 
@@ -771,6 +771,36 @@ module Blast
     end
 
     """
+        name_candidate(core, sseqid, aln_mismatch, db_seqs, isin) -> String
+
+    Name a discovery candidate from its trimmed `core`. "Novel" means genuine sequence variation
+    in the (non-extended) gene relative to EVERY known allele, so the resolution order is:
+
+      1. `aln_mismatch == 0`  → the best-hit reference `sseqid` (core equals that reference).
+      2. core identical to ANY known sequence → that allele — independent of which allele won the
+         BLAST best-hit and of `isin`. A core equal to a reference *is* that allele, never novel.
+      3. `isin` only: core is a substring of a known allele → that allele (the read covers only
+         part of the gene, with no internal variation — still known, not novel).
+      4. otherwise → a hashed novel name (`unique_name`).
+
+    A core that strictly *contains* a known allele plus extra bases is deliberately left novel:
+    the extra bases are variation in the gene region (e.g. a junction insertion), not coverage.
+    `db_seqs` is the un-extended base reference as `(name, sequence)` pairs.
+    """
+    function name_candidate(core::AbstractString, sseqid, aln_mismatch, db_seqs, isin::Bool)
+        aln_mismatch == 0 && return String(sseqid)
+        for (name, seq) in db_seqs
+            core == seq && return name
+        end
+        if isin
+            for (name, seq) in db_seqs
+                occursin(core, seq) && return name
+            end
+        end
+        return unique_name(sseqid, core)
+    end
+
+    """
         handle_blast(parsed_args, immunediscover_module, always_gz)
 
     Handle the blast search pipeline. Extracted from real_main for modularity.
@@ -987,21 +1017,14 @@ module Blast
             mark_rejected!(blast_clusters, fail, criterion.label, "output filter")
             stage_report(criterion.label, count(isempty, blast_clusters.reject_reason), before)
         end
-        # allele_name: exact match (aln_mismatch==0) -> sseqid; else if isin, substring of known allele -> that allele; else Novel
+        # Name a candidate. "Novel" means genuine sequence variation in the (non-extended) gene
+        # region relative to EVERY known allele — so an exact match to any known reference is
+        # always a known call, never a hashed novel name. The match is judged on the trimmed
+        # core (aln_qseq) against the un-extended base sequences (db_seqs).
         db_seqs = [(strip(String(n)), String(s)) for (n, s) in DB]
-        function allele_name_row(row)
-            if row.aln_mismatch == 0
-                return row.sseqid
-            end
-            if isin
-                aln = String(row.aln_qseq)
-                for (name, seq) in db_seqs
-                    occursin(aln, seq) && return name
-                end
-            end
-            return unique_name(row.sseqid, row.aln_qseq)
-        end
-        blast_clusters[:, :allele_name] = map(allele_name_row, eachrow(blast_clusters))
+        blast_clusters[:, :allele_name] = map(r -> name_candidate(String(r.aln_qseq), r.sseqid,
+                                                                  r.aln_mismatch, db_seqs, isin),
+                                              eachrow(blast_clusters))
 
         # Between-cluster separation (diagnostic): for each accepted core, the nearest
         # more-abundant core ("parent"). Small nn_dist + large parent_ratio = error satellite.
@@ -1027,9 +1050,19 @@ module Blast
         n_close = count((kept.nn_dist .>= 0) .& (kept.nn_dist .<= 1))
         n_shadow = count(close_shadow)
         n_close > 0 && @info "$n_close accepted candidate(s) are within 1 bp of a more-abundant core; $n_shadow of those carry < 5% of that neighbour's reads (parent_ratio ≥ 20) and are the more likely error satellites. nn_dist / parent_ratio are columns for your own threshold — not a default filter."
-        # Quick look at how consistent the accepted candidates are (base composition over the
-        # dominant length); no-op unless ≥2 accepted candidates share a length.
-        nrow(kept) >= 2 && cluster_profile_heatmap(String.(kept.aln_qseq); title="accepted candidates")
+        # Novel-vs-parent SNP heatmaps: one panel per gene with hashed novel names.
+        if nrow(kept) >= 1
+            uc = combine(groupby(kept, :aln_qseq),
+                         :gene => first => :gene,
+                         :allele_name => first => :allele_name,
+                         :n_reads_total => first => :n_reads_total,
+                         :parent_ratio => first => :parent_ratio)
+            cluster_profile_heatmap(String.(uc.gene), String.(uc.aln_qseq);
+                                    names=String.(uc.allele_name),
+                                    reads=uc.n_reads_total,
+                                    parent_ratio=uc.parent_ratio,
+                                    title="novel alleles")
+        end
         CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')
         printstyled("  ✓ "; color=:green, bold=true); println("filtered  → $output  ($(nrow(kept)) rows)")
         CSV.write(full_output, blast_clusters, compress=true, delim='\t')

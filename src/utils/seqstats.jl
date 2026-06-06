@@ -2,7 +2,8 @@ module SeqStats
     # Pure sequence-quality / variability statistics used to separate genuine novel alleles
     # from artifacts (composition, cross-read agreement, diversity). No external deps.
 
-    export gc_content, max_homopolymer, n_content, shannon_entropy, consensus_fraction
+    export gc_content, max_homopolymer, n_content, shannon_entropy, consensus_fraction,
+           positional_entropy
 
     "Fraction of G/C bases (0 for empty)."
     function gc_content(seq::AbstractString)
@@ -40,6 +41,38 @@ module SeqStats
             throw(ArgumentError("sequences must be equal length"))
 
     """
+        positional_entropy(seqs) -> Vector{Float64}
+
+    Per-position Shannon entropy (bits), left-aligned. Position `j` counts only the sequences
+    with at least `j` characters, so variable-length inputs are handled without injecting a
+    padding base. 0 at a position means all sequences agree there; the peaks localize where the
+    candidate alleles diverge. Empty input → empty vector.
+    """
+    function positional_entropy(seqs)
+        isempty(seqs) && return Float64[]
+        L = maximum(length, seqs)
+        out = Vector{Float64}(undef, L)
+        counts = Dict{Char,Int}()
+        for j in 1:L
+            empty!(counts)
+            n = 0
+            for s in seqs
+                length(s) >= j || continue
+                c = s[j]
+                counts[c] = get(counts, c, 0) + 1
+                n += 1
+            end
+            h = 0.0
+            for cnt in values(counts)
+                p = cnt / n
+                h -= p * log2(p)
+            end
+            out[j] = h
+        end
+        return out
+    end
+
+    """
         shannon_entropy(seqs) -> Float64
 
     Mean per-position Shannon entropy (bits) over a set of equal-length sequences. 0 when all
@@ -50,23 +83,7 @@ module SeqStats
         _require_equal_length(seqs)
         L = length(first(seqs))
         L == 0 && return 0.0
-        n = length(seqs)
-        total = 0.0
-        counts = Dict{Char,Int}()
-        for j in 1:L
-            empty!(counts)
-            for s in seqs
-                c = s[j]
-                counts[c] = get(counts, c, 0) + 1
-            end
-            h = 0.0
-            for cnt in values(counts)
-                p = cnt / n
-                h -= p * log2(p)
-            end
-            total += h
-        end
-        return total / L
+        return sum(positional_entropy(seqs)) / L
     end
 
     """
