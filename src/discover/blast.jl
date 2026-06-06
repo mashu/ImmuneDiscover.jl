@@ -777,6 +777,10 @@ module Blast
     """
     function handle_blast(parsed_args, immunediscover_module, always_gz)
         using_cli = immunediscover_module.Cli
+        if get(parsed_args["discover"]["blast"], "show-presets", false)
+            using_cli.show_blast_presets()
+            return
+        end
         parsed_args = using_cli.apply_blast_presets!(parsed_args)
         gene = parsed_args["discover"]["blast"]["gene"]
         haskey(using_cli.BLAST_PRESETS, gene) && @info "Applied $gene gene preset (overrides logged above)"
@@ -942,6 +946,10 @@ module Blast
         blast_clusters[:, :max_homopolymer] = max_homopolymer.(blast_clusters.aln_qseq)
         transform!(groupby(blast_clusters, :aln_qseq), :case => (x -> length(unique(x))) => :n_donors)
         transform!(groupby(blast_clusters, :aln_qseq), :full_count => sum => :n_reads_total)
+        # Peak per-donor allelic ratio for the core: the highest fraction of its gene's reads
+        # it reaches in any single donor. A germline allele is a major allele in ≥1 carrier;
+        # artifacts stay minor everywhere — the most discriminative recall-safe separator.
+        transform!(groupby(blast_clusters, :aln_qseq), :full_ratio => maximum => :max_full_ratio)
 
         # Apply output filters
         min_fullcount = parsed_args["discover"]["blast"]["minfullcount"]
@@ -949,6 +957,7 @@ module Blast
         min_length = parsed_args["discover"]["blast"]["length"]
         min_recurrence = get(parsed_args["discover"]["blast"], "min-recurrence", 0)
         max_homop = get(parsed_args["discover"]["blast"], "max-homopolymer", 0)
+        min_reads_total = get(parsed_args["discover"]["blast"], "min-reads-total", 0)
 
         criteria = FilterCriterion[
             MinThreshold(:full_count, min_fullcount, "min cluster reads (--minfullcount $min_fullcount)"),
@@ -961,6 +970,8 @@ module Blast
         push!(criteria, MaxThreshold(:aln_mismatch, Float64(parsed_args["discover"]["blast"]["maxdist"]),
                                      "max edit distance (--maxdist $(parsed_args["discover"]["blast"]["maxdist"]))"))
         # Optional quality-metric filters (off by default — 0 disables).
+        min_reads_total > 0 && push!(criteria,
+            MinThreshold(:n_reads_total, Float64(min_reads_total), "min total reads (--min-reads-total $min_reads_total)"))
         min_recurrence > 0 && push!(criteria,
             MinThreshold(:n_donors, Float64(min_recurrence), "min donor recurrence (--min-recurrence $min_recurrence)"))
         max_homop > 0 && push!(criteria,

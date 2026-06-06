@@ -13,10 +13,11 @@ module Selftest
     using ..Data: load_fasta, barplot_if_available
     using ..Report: section, stage_report
 
-    export handle_selftest, evaluate_recovery, classify_allele, is_novel, metric_separation
+    export handle_selftest, evaluate_recovery, classify_allele, is_novel, metric_separation,
+           recall_safe_filters
 
     # Metric columns worth scanning for separation (intersected with what the table actually has).
-    const DEFAULT_METRICS = ["n_donors", "n_reads_total", "scov", "corecov",
+    const DEFAULT_METRICS = ["max_full_ratio", "n_donors", "n_reads_total", "scov", "corecov",
                              "aln_mismatch", "mismatch", "gc_content", "max_homopolymer",
                              "nn_dist", "parent_ratio", "full_count"]
 
@@ -195,6 +196,100 @@ module Selftest
         return df
     end
 
+    """
+        recall_safe_filters(discovery, base, truth; seq_col, substring, metrics) -> DataFrame
+
+    The directly actionable companion to `metric_separation`. For each numeric metric, find the
+    most aggressive single-sided threshold that can be applied to the ACCEPTED candidates while
+    still recovering every truth-novel allele (recall stays 1.0), and report how many accepted
+    false-positive novel cores that cut removes. "Apply this blast threshold to delete false
+    positives at zero recall cost." Sorted by false positives removed, descending.
+    """
+    function recall_safe_filters(discovery::DataFrame, base::AbstractSet{String},
+                                 truth::AbstractVector{<:Tuple{<:AbstractString,<:AbstractString}};
+                                 seq_col::Symbol=:aln_qseq, substring::Bool=true,
+                                 metrics::AbstractVector{<:AbstractString}=DEFAULT_METRICS)
+        cols = names(discovery)
+        String(seq_col) in cols ||
+            error("Discovery table has no '$seq_col' column — pass --seq-col, or use the full table (<output>.full.tsv.gz).")
+        getcol(name) = name in cols ? [ismissing(x) ? "" : String(x) for x in discovery[!, name]] :
+                                      fill("", nrow(discovery))
+        reason = getcol("reject_reason")
+        seqs   = [ismissing(x) ? "" : String(x) for x in discovery[!, seq_col]]
+        acc = isempty.(reason)
+
+        truth_novel = [(String(n), String(s)) for (n, s) in truth if is_novel(s, base)]
+
+        # Accepted rows grouped by novel core; label each core true/false vs truth-novel.
+        core_rows = Dict{String,Vector{Int}}()
+        for i in eachindex(seqs)
+            (acc[i] && !isempty(seqs[i]) && is_novel(seqs[i], base)) || continue
+            push!(get!(core_rows, seqs[i], Int[]), i)
+        end
+        isempty(core_rows) && return _empty_safe_df()
+        cores = collect(keys(core_rows))
+        is_tp = Dict(c => any(t -> seq_match(c, t[2]; substring=substring), truth_novel) for c in cores)
+        # truth allele -> accepted cores that recover it (only recovered alleles constrain the cut)
+        allele_cores = Dict{String,Vector{String}}()
+        for (name, s) in truth_novel
+            matched = [c for c in cores if seq_match(c, s; substring=substring)]
+            isempty(matched) || (allele_cores[name] = matched)
+        end
+        fp_cores = [c for c in cores if !is_tp[c]]
+
+        Row = NamedTuple{(:metric, :acc_fp, :direction, :threshold, :fp_removed),
+                         Tuple{String,Int,String,Float64,Int}}
+        rows = Row[]
+        for m in metrics
+            m in cols || continue
+            vals = numeric_col(discovery, m)
+            # per-core favourable values: max keeps a core under "keep ≥", min under "keep ≤".
+            cmax = Dict{String,Float64}(); cmin = Dict{String,Float64}()
+            for (c, idx) in core_rows
+                fv = filter(isfinite, vals[idx])
+                isempty(fv) && continue
+                cmax[c] = maximum(fv); cmin[c] = minimum(fv)
+            end
+            (isempty(allele_cores) || isempty(fp_cores)) && continue
+            # keep ≥ t: an allele survives if any of its cores has cmax ≥ t; safe t = min over
+            # alleles of the allele's best cmax. keep ≤ t: symmetric with cmin.
+            allele_ge = [maximum(cmax[c] for c in cs if haskey(cmax, c); init=-Inf) for cs in values(allele_cores)]
+            allele_le = [minimum(cmin[c] for c in cs if haskey(cmin, c); init=Inf)  for cs in values(allele_cores)]
+            safe_ge = minimum(allele_ge); safe_le = maximum(allele_le)
+            fp_ge = count(c -> haskey(cmax, c) && cmax[c] < safe_ge, fp_cores)
+            fp_le = count(c -> haskey(cmin, c) && cmin[c] > safe_le, fp_cores)
+            if fp_ge >= fp_le
+                push!(rows, (metric=m, acc_fp=length(fp_cores), direction="keep ≥", threshold=safe_ge, fp_removed=fp_ge))
+            else
+                push!(rows, (metric=m, acc_fp=length(fp_cores), direction="keep ≤", threshold=safe_le, fp_removed=fp_le))
+            end
+        end
+        isempty(rows) && return _empty_safe_df()
+        return sort!(DataFrame(rows), :fp_removed, rev=true)
+    end
+
+    _empty_safe_df() = DataFrame(metric=String[], acc_fp=Int[], direction=String[],
+                                 threshold=Float64[], fp_removed=Int[])
+
+    "Print the recall-safe filter table: cuts that drop false positives without losing alleles."
+    function report_recall_safe(safe::DataFrame)
+        section("Recall-safe filters — drop false positives without losing any truth-novel allele")
+        if nrow(safe) == 0
+            @info "No recall-safe cut found (need both recovered truth alleles and accepted false novel cores)."
+            return
+        end
+        printstyled(rpad("metric", 16), rpad("safe rule", 18), "FP removed (recall stays 1.0)\n";
+                    color=:cyan, bold=true)
+        for r in eachrow(safe)
+            rule = "$(r.direction) $(round(r.threshold; digits=4))"
+            col = r.fp_removed > 0 ? :green : :light_black
+            printstyled("  ", rpad(r.metric, 14); color=col, bold=true)
+            println(rpad(rule, 18), "$(r.fp_removed)/$(r.acc_fp)")
+        end
+        println("  Apply the top rule as a blast threshold to cut false positives at zero recall cost.")
+        return nothing
+    end
+
     "Print the metric-separation table with a colored header and per-metric rows."
     function report_separation(sep::DataFrame)
         section("Metric separation — threshold that best splits true from false novel candidates")
@@ -253,6 +348,9 @@ module Selftest
             end
         end
 
+        safe = recall_safe_filters(discovery, base, truth; seq_col=seq_col, substring=substring)
+        report_recall_safe(safe)
+
         sep = metric_separation(discovery, base, truth; seq_col=seq_col, substring=substring)
         report_separation(sep)
 
@@ -263,6 +361,6 @@ module Selftest
             CSV.write(metrics_out, sep, delim='\t')
             @info "Metric-separation table saved to $metrics_out ($(nrow(sep)) metrics)"
         end
-        return (recovery = res, separation = sep)
+        return (recovery = res, separation = sep, recall_safe = safe)
     end
 end

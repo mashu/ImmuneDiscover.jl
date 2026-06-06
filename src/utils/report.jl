@@ -108,7 +108,9 @@ module Report
         end
         best_len, best_n = 0, -1
         for (len, n) in tally
-            n > best_n && (best_len, best_n = len, n)
+            if n > best_n
+                best_len, best_n = len, n
+            end
         end
         return best_len
     end

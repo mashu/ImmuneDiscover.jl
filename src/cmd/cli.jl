@@ -1,7 +1,7 @@
 module Cli
     using ArgParse
-    export parse_commandline, apply_blast_presets!, show_blast_presets, show_blast_params
-    export BLAST_PRESETS, BLAST_CLI_DEFAULTS, BLAST_PARAM_GROUPS
+    export parse_commandline, apply_blast_presets!, show_blast_presets
+    export BLAST_PRESETS, BLAST_DEFAULTS, blast_default, BLAST_PARAM_GROUPS
 
     # Logical grouping for displaying `discover blast` parameters (order matters; any key not
     # listed falls under "other" so nothing is hidden).
@@ -10,7 +10,7 @@ module Cli
         "Gene preset"               => ["gene", "show-presets"],
         "Extension & trimming"      => ["forward", "reverse", "minquality", "min-corecov"],
         "BLAST search"              => ["args", "maxdist", "edge", "subjectcov", "min-read-length"],
-        "Cluster & output filters"  => ["minfullcount", "minfullratio", "length", "isin", "keep-failed"],
+        "Cluster & output filters"  => ["minfullcount", "minfullratio", "min-reads-total", "length", "isin", "keep-failed"],
         "Quality-metric filters"    => ["min-recurrence", "max-homopolymer"],
         "Run control"               => ["overwrite", "verbose"],
     ]
@@ -33,67 +33,127 @@ module Cli
     include("table.jl")
     include("fasta.jl")
 
-    # CLI defaults for blast command - single source of truth (based on v0.0.66)
-    const BLAST_CLI_DEFAULTS = Dict(
-        "forward" => 20,
-        "reverse" => 20,
-        "minfullratio" => 0.1,
-        "length" => 290,
-        "maxdist" => 20,
-        "minfullcount" => 5,
-        "edge" => 0,
-        "subjectcov" => 0.1,
-        "minquality" => 0.75,
-        "min-corecov" => 0.6,
-        "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50",
-        "work-dir" => ".immunediscover",
+    # ─── `discover blast` tunable parameters: ONE source of truth ────────────────────────
+    # `BLAST_DEFAULTS` holds every tunable's global default; `discover.jl` reads them via
+    # `blast_default(key)` for its ArgParse `default=`, so the arg table and this table can
+    # never drift. Each gene preset lists ONLY the keys it changes from the default — a value
+    # equal to the default is omitted (that is why the log no longer shows "20 → 20" no-ops).
+    const BLAST_DEFAULTS = Dict{String,Any}(
+        "forward"         => 20,
+        "reverse"         => 20,
+        "minquality"      => 0.75,
+        "min-corecov"     => 0.6,
+        "args"            => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50",
+        "maxdist"         => 20,
+        "edge"            => 0,
+        "subjectcov"      => 0.1,
+        "min-read-length" => 0,
+        "minfullcount"    => 5,
+        "minfullratio"    => 0.1,
+        "min-reads-total" => 0,
+        "length"          => 290,
+        "min-recurrence"  => 0,
+        "max-homopolymer" => 0,
+        "work-dir"        => ".immunediscover",
     )
 
-    # V preset tuned for genomic IGHV novel recovery (see docs + tuning/README): relaxed trim/core coverage
-    # and allelic ratio, longer affix extensions; BLAST capped at 5 alignments per query (see V_PRESET.md).
+    "Global default for a `discover blast` parameter (single source for the ArgParse table)."
+    blast_default(key::AbstractString) = BLAST_DEFAULTS[key]
+
+    # Gene presets tuned on KI IGH self-tests (recovery of known-novel alleles; see selftest).
+    #   V: `minfullratio 0.08` is the key false-positive cut — a germline allele is a major
+    #      allele (peak per-donor allelic ratio ≥ 0.085) in at least one carrier, while PCR /
+    #      sequencing artifacts never are. 0.08 keeps every truth-novel allele (recall 1.0)
+    #      while removing ~60% of false novel calls vs the old 0.035.
     const BLAST_PRESETS = Dict(
-        "V" => Dict(
-            "forward" => 20,
-            "reverse" => 20,
-            "minfullratio" => 0.035,
-            "length" => 283,
-            "maxdist" => 14,
-            "minfullcount" => 5,
-            "minquality" => 0.62,
-            "min-corecov" => 0.50,
-            "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
+        "V" => Dict{String,Any}(
+            "minfullratio" => 0.08,
+            "length"       => 283,
+            "maxdist"      => 14,
+            "minquality"   => 0.62,
+            "min-corecov"  => 0.50,
         ),
-        "D" => Dict(
-            "forward" => 40,
-            "reverse" => 40,
+        "D" => Dict{String,Any}(
+            "forward"      => 40,
+            "reverse"      => 40,
             "minfullratio" => 0.2,
-            "length" => 5,
-            "maxdist" => 20,
+            "length"       => 5,
             "minfullcount" => 10,
-            "edge" => 10,
-            "subjectcov" => 0.25,
-            "minquality" => 0.5,
-            "args" => "-task blastn -word_size 7 -xdrop_ungap 40 -xdrop_gap 40 -subject_besthit -num_alignments 10 -qcov_hsp_perc 5"
+            "edge"         => 10,
+            "subjectcov"   => 0.25,
+            "minquality"   => 0.5,
+            "args"         => "-task blastn -word_size 7 -xdrop_ungap 40 -xdrop_gap 40 -subject_besthit -num_alignments 10 -qcov_hsp_perc 5",
         ),
-        "J" => Dict(
-            "forward" => 12,
-            "reverse" => 12,
-            "minfullratio" => 0.1,
-            "length" => 10,
-            "maxdist" => 10,
+        "J" => Dict{String,Any}(
+            "forward"      => 12,
+            "reverse"      => 12,
+            "length"       => 10,
+            "maxdist"      => 10,
             "minfullcount" => 10,
-            "args" => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 10"
-        )
+            "args"         => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 10",
+        ),
     )
 
-    function show_blast_presets()
-        println("BLAST Presets:")
-        for (gene, settings) in BLAST_PRESETS
-            println("\n$gene gene settings:")
-            for (param, value) in settings
-                println("  --$param = $value")
+    "One parameter the gene preset wants to set; `applied` is false when a user override is kept."
+    struct PresetChange
+        key::String
+        current::Any
+        preset::Any
+        applied::Bool
+    end
+
+    """
+        preset_changes(block, gene) -> Vector{PresetChange}
+
+    Resolve what the `gene` preset would do to the parsed `block`. A preset value is applied
+    only when the current value still equals the global default (i.e. the user did not pass
+    it explicitly); otherwise the user override is kept. Sorted by key for stable logging.
+    """
+    function preset_changes(block::AbstractDict, gene::AbstractString)
+        preset = BLAST_PRESETS[gene]
+        changes = PresetChange[]
+        for key in sort!(collect(keys(preset)))
+            haskey(block, key) || continue
+            current = block[key]
+            applied = current == blast_default(key)
+            push!(changes, PresetChange(key, current, preset[key], applied))
+        end
+        return changes
+    end
+
+    "Single aligned block describing the preset outcome (replaces the per-key @info spam)."
+    function log_preset_changes(gene::AbstractString, changes::AbstractVector{PresetChange})
+        printstyled("━━ $gene gene preset ", "━"^40, "\n"; color=:cyan, bold=true)
+        applied = filter(c -> c.applied, changes)
+        kept    = filter(c -> !c.applied, changes)
+        kew = isempty(changes) ? 0 : maximum(length(c.key) for c in changes)
+        if !isempty(applied)
+            println("  applied (param was default → preset value)")
+            for c in applied
+                println("    ", rpad(c.key, kew), "  ", c.current, " → ", c.preset)
             end
         end
+        if !isempty(kept)
+            println("  kept (explicit user override; preset skipped)")
+            for c in kept
+                println("    ", rpad(c.key, kew), "  ", c.current, "  (preset ", c.preset, ")")
+            end
+        end
+        return nothing
+    end
+
+    "Print every gene preset as the delta from the defaults (wired to `--show-presets`)."
+    function show_blast_presets()
+        printstyled("BLAST gene presets (only keys that differ from the global default)\n";
+                    color=:cyan, bold=true)
+        for gene in sort!(collect(keys(BLAST_PRESETS)))
+            println("\n$gene gene:")
+            preset = BLAST_PRESETS[gene]
+            for key in sort!(collect(keys(preset)))
+                println("  --$key  $(blast_default(key)) → $(preset[key])")
+            end
+        end
+        return nothing
     end
 
     function get_blast_block(args)
@@ -103,48 +163,21 @@ module Cli
         return nothing
     end
 
-    function show_blast_params(args)
-        block = get_blast_block(args)
-        block === nothing && return
-        gene = block["gene"]
-        if haskey(BLAST_PRESETS, gene)
-            preset = BLAST_PRESETS[gene]
-            println("BLAST Preset for $gene gene:")
-            for (param, value) in preset
-                println("  --$param = $(block[param])")
-            end
-        end
-    end
+    """
+        apply_blast_presets!(parsed_args) -> parsed_args
 
+    Apply the selected gene preset in place: each preset key takes the preset value unless the
+    user passed it explicitly (detected as "current value ≠ default"). Logs one tidy block.
+    """
     function apply_blast_presets!(parsed_args)
         block = get_blast_block(parsed_args)
         block === nothing && return parsed_args
         gene = block["gene"]
-        if haskey(BLAST_PRESETS, gene)
-            preset = BLAST_PRESETS[gene]
-
-            # Only apply preset if the current value equals the CLI default
-            # This means the user didn't explicitly override it
-            for (key, preset_value) in preset
-                if haskey(block, key) && haskey(BLAST_CLI_DEFAULTS, key)
-                    current_value = block[key]
-                    default_value = BLAST_CLI_DEFAULTS[key]
-                    
-                    # Apply preset only if current value equals the default
-                    if current_value == default_value
-                        @info "Applying $gene preset $key: $current_value → $preset_value"
-                        block[key] = preset_value
-                    else
-                        @info "Keeping user override for $key: $current_value (not default $default_value)"
-                    end
-                else
-                    # Apply preset for keys not in CLI defaults
-                    if haskey(block, key)
-                        @info "Applying $gene preset $key: $(get(block, key, nothing)) → $preset_value"
-                        block[key] = preset_value
-                    end
-                end
-            end
+        haskey(BLAST_PRESETS, gene) || return parsed_args
+        changes = preset_changes(block, gene)
+        log_preset_changes(gene, changes)
+        for c in changes
+            c.applied && (block[c.key] = c.preset)
         end
         return parsed_args
     end

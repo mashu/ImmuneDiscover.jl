@@ -36,7 +36,7 @@ function add_discover_args!(s)
             arg_type = String
         "--work-dir"
             help = "Directory for BLAST cache, temporary query FASTA, combined/extended DB, and affix files (relative paths use pwd()). Nothing is written beside the input TSV."
-            default = ".immunediscover"
+            default = blast_default("work-dir")
             arg_type = String
         end
 
@@ -55,22 +55,22 @@ function add_discover_args!(s)
         @add_arg_table! bl begin
         "--forward"
             help = "Forward extension length"
-            default = 20
+            default = blast_default("forward")
             arg_type = Int
             range_tester = (x->x >= 0)
         "--reverse"
             help = "Reverse extension length"
-            default = 20
+            default = blast_default("reverse")
             arg_type = Int
             range_tester = (x->x >= 0)
         "-q", "--minquality"
             help = "Minimum fraction (0–1) of affix positions that match the read in the semi-global affix–read alignment used for 5'/3' trimming; prefix and suffix each must meet this or the candidate is dropped."
-            default = 0.75
+            default = blast_default("minquality")
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--min-corecov"
             help = "Minimum ratio length(aln_qseq)/length(db_seq) after trimming"
-            default = 0.6
+            default = blast_default("min-corecov")
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
@@ -80,25 +80,25 @@ function add_discover_args!(s)
         "-a", "--args"
             help = "Additional arguments to pass to blastn"
             arg_type = String
-            default = "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50"
+            default = blast_default("args")
         "-d", "--maxdist"
             help = "Maximum distance allowed for alleles"
-            default = 20
+            default = blast_default("maxdist")
             arg_type = Int
             range_tester = (x->x >= 0)
         "-e", "--edge"
             help = "Minimum number of nucleotides required between target gene and end of the read"
-            default = 0
+            default = blast_default("edge")
             arg_type = Int
             range_tester = (x->x >= 0)
         "-s", "--subjectcov"
             help = "Minimum subject (database) coverage"
-            default = 0.1
+            default = blast_default("subjectcov")
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--min-read-length"
             help = "Drop reads shorter than this (nt) BEFORE BLAST (0 = off). Speeds BLAST and removes short-read noise; folded into the BLAST cache key."
-            default = 0
+            default = blast_default("min-read-length")
             arg_type = Int
             range_tester = (x -> x >= 0)
         end
@@ -106,17 +106,22 @@ function add_discover_args!(s)
         add_arg_group!(bl, "Cluster and output filters", "blast_filters")
         @add_arg_table! bl begin
         "-c", "--minfullcount"
-            help = "Minimum full cluster size"
-            default = 5
+            help = "Minimum full cluster size (reads backing a candidate in one well+case)"
+            default = blast_default("minfullcount")
             arg_type = Int
         "-f", "--minfullratio"
-            help = "Minimum allelic ratio within each gene group (count / max in gene)"
-            default = 0.1
+            help = "Minimum peak allelic ratio (count / max-in-gene) a candidate must reach in at least one donor. A germline allele is a major allele in at least one carrier; artifacts are not. This is the strongest recall-safe false-positive filter (see selftest metric separation)."
+            default = blast_default("minfullratio")
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-reads-total"
+            help = "Minimum total reads backing a candidate core across the whole run (n_reads_total). 0 = off. Complements --minfullcount (per-donor) with a cross-run abundance floor."
+            default = blast_default("min-reads-total")
+            arg_type = Int
+            range_tester = (x->x >= 0)
         "-l", "--length"
             help = "Minimum length of the trimmed read"
-            default = 290
+            default = blast_default("length")
             arg_type = Int
             range_tester = (x->x >= 1)
         "-i", "--isin"
@@ -131,12 +136,12 @@ function add_discover_args!(s)
         @add_arg_table! bl begin
         "--min-recurrence"
             help = "Quality filter: require a candidate to appear in at least this many donors (n_donors). 0 = off."
-            default = 0
+            default = blast_default("min-recurrence")
             arg_type = Int
             range_tester = (x -> x >= 0)
         "--max-homopolymer"
             help = "Quality filter: drop candidates whose trimmed core has a homopolymer run longer than this. 0 = off."
-            default = 0
+            default = blast_default("max-homopolymer")
             arg_type = Int
             range_tester = (x -> x >= 0)
         end
