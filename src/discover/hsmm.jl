@@ -185,8 +185,12 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     db_seq_lookup = Dict{String,String}((seq=>name) for (name,seq) in db)
     db_names=first.(db); db_seqs=last.(db)
     @info "Searching known D alleles"
-    known_df = Exact.exact_search(tbl, db, "D"; mincount=mincount, minratio=0.0, N=1000)
+    # exact_search returns the unfiltered candidate table; keep D alleles with enough read
+    # support for training (equivalent to the former mincount selection; no ratio filter here).
+    known_df = Exact.exact_search(tbl, db, "D"; N=1000)
     nrow(known_df)==0 && (@warn "No exact D matches"; return DataFrame())
+    filter!(r -> r.full_count >= mincount, known_df)
+    nrow(known_df)==0 && (@warn "No D alleles passed mincount=$mincount"; return DataFrame())
     agg = combine(groupby(known_df, [:case,:gene,:sequence,:db_name]), :count=>sum=>:case_count)
     transform!(groupby(agg, [:case,:gene]), :case_count=>(x->x./maximum(x))=>:case_ratio)
     filter!(x->x.case_ratio>=ratio, agg)

@@ -85,6 +85,13 @@ immunediscover search exact <tsv> <fasta> <output> -g <gene> [options]
 - `-f, --minratio` (default: 0.1): Minimum allelic ratio within gene
 - `--min-allele-mratio` (default: 0.05): Min ratio to cross-case median (allele level)
 - `--min-gene-mratio` (default: 0.05): Min ratio to cross-case median (gene level)
+- `--min-recurrence` (default: 0, off): Require a candidate sequence in ≥ N donors (`n_donors`)
+- `--min-seqlen` (default: 0, off): Drop candidates whose matched sequence is shorter than N nt
+- `--min-peak-ratio` (default: 0.0, off): Require the peak per-donor allelic ratio (`max_full_ratio`)
+
+All of these annotate rather than drop: every candidate is kept with `reject_reason` / `reject_stage`,
+the run prints a per-filter kept/removed line at each stage, and two tables are written — the filtered
+result and a full annotated table (`<output>.full.tsv.gz`).
 
 **RSS Extraction:**
 - `--rss` (default: "heptamer"): Extract RSS elements (heptamer, spacer, nonamer)
@@ -113,6 +120,8 @@ immunediscover search exact <tsv> <fasta> <output> -g <gene> [options]
 - **Frequencies**: `allele_freq`, `allele_case_freq`, `gene_case_freq`
 - **Totals**: `gene_count`, `case_count`
 - **Cross-case**: `cross_case_median_count`, `cross_case_median_allele_count`, `cross_case_median_gene_count`, `allele_to_cross_case_median_ratio`, `gene_to_cross_case_median_ratio`
+- **Quality metrics**: `n_donors` (cross-donor recurrence), `n_reads_total` (read support), `max_full_ratio` (peak per-donor allelic ratio)
+- **Transparency**: `reject_reason`, `reject_stage` (full table only)
 - **Markers**: `isin_db` (if --ref-fasta)
 - **Ratios**: `count_{refgene}_ratio`, `gene_count_{refgene}_ratio` (if --refgene)
 

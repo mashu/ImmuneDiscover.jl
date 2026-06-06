@@ -192,6 +192,42 @@ test_outcomes = Dict(
         @test mdf.reject_stage == ["s1", "s2", "s1"]
     end
 
+    @testset "exact filter pipeline" begin
+        # exact_search filtering now lives in handle_exact via the shared annotate machinery.
+        df = DataFrame(
+            well = [1, 1, 1, 1], case = ["D1", "D2", "D1", "D1"],
+            gene = ["IGHV1-1", "IGHV1-1", "IGHV1-1", "CTRL1"],
+            db_name = ["IGHV1-1*01", "IGHV1-1*01", "IGHV1-1*02", "CTRL1*01"],
+            sequence = ["AAA", "AAA", "CCC", "GGG"],
+            full_count = [10, 8, 2, 10], count = [10, 8, 2, 10],
+            full_ratio = [1.0, 1.0, 0.2, 1.0], ratio = [1.0, 1.0, 0.2, 1.0],
+            n_donors = [2, 2, 1, 1], max_full_ratio = [1.0, 1.0, 0.2, 1.0],
+        )
+        Filters.init_rejection_columns!(df)
+        crit = Exact.exact_filter_criteria(; mincount=5, minratio=0.1, expect_dict=Dict{String,Float64}())
+        Exact.annotate_stage!(df, crit, "count and ratio filter")
+        # row 3 fails min count (full_count 2 < 5); the count term subsumes the redundant count check
+        @test df.reject_reason == ["", "", "min count (--mincount 5)", ""]
+
+        # locus aggregates exclude control genes AND already-rejected rows
+        Exact.add_frequency_columns!(df, "IGHV")
+        # (1,D1,IGHV1-1): only row1 accepted (row3 rejected) → gene_count 10; (1,D2): row2 → 8;
+        # CTRL1 is outside the locus → default 0.
+        @test df.gene_count == [10, 8, 10, 0]
+        @test df.allele_freq[1] == 1.0          # row1 is its gene's only accepted read in (1,D1)
+
+        # optional recurrence filter drops a single-donor candidate
+        df2 = DataFrame(db_name=["IGHV1-1*01", "IGHV1-1*02"], gene=["IGHV1-1", "IGHV1-1"],
+                        sequence=["AAA", "CCC"], full_count=[9, 9], count=[9, 9],
+                        full_ratio=[1.0, 1.0], ratio=[1.0, 1.0], n_donors=[3, 1],
+                        max_full_ratio=[1.0, 1.0])
+        Filters.init_rejection_columns!(df2)
+        Exact.annotate_stage!(df2,
+            Exact.exact_filter_criteria(; mincount=5, minratio=0.1, expect_dict=Dict{String,Float64}(),
+                                        min_recurrence=2), "count and ratio filter")
+        @test df2.reject_reason == ["", "min donor recurrence (--min-recurrence 2)"]
+    end
+
     @testset "report" begin
         @test occursin("kept 8/10", Report.stage_summary("edge", 8, 10))
         @test occursin("80.0%", Report.stage_summary("edge", 8, 10))
@@ -377,12 +413,14 @@ test_outcomes = Dict(
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
             db = Data.load_fasta("novel.fasta", validate=false)
-            mincount = 1
-            minratio = 0.01
             gene = "V"
-            counts_df = Exact.exact_search(table, db, gene, mincount=mincount, minratio=minratio)
+            counts_df = Exact.exact_search(table, db, gene)
             sort!(counts_df, [:case, :db_name])
             @test nrow(counts_df) > 0
+            # exact_search now returns unfiltered candidates plus quality metrics.
+            @test "n_donors" in names(counts_df)
+            @test "n_reads_total" in names(counts_df)
+            @test "max_full_ratio" in names(counts_df)
 
             # Test flanking extraction on simulated data
             read = first(table.genomic_sequence)
@@ -1353,7 +1391,7 @@ test_outcomes = Dict(
         table = DataFrame(well=fill(1, length(names_)), case=fill("D1", length(names_)),
                           name=names_, genomic_sequence=seqs)
 
-        counts = Exact.exact_search(table, db, "V"; mincount=1, minratio=0.0, N=10)
+        counts = Exact.exact_search(table, db, "V"; N=10)
         @test nrow(counts) > 0
         # Both the germline and the end-variant must be recovered as distinct alleles.
         @test "IGHV1-1*01" in counts.db_name

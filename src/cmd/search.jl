@@ -190,6 +190,21 @@ function add_search_args!(s)
             default = 0.05
             arg_type = Float64
             range_tester = (x-> (x >= 0.0))
+        "--min-recurrence"
+            help = "Quality filter: require a candidate sequence to appear in at least this many donors (n_donors). 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-seqlen"
+            help = "Quality filter: drop candidates whose matched sequence is shorter than this (nt). 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-peak-ratio"
+            help = "Quality filter: require the peak per-donor allelic ratio (max over donors of count/max-in-gene). 0 = off. Complements --minratio (per-group) with a cross-donor peak floor."
+            default = 0.0
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         end
 
         add_arg_group!(ex, "Reference frequency thresholds", "exact_ref")

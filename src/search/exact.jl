@@ -5,7 +5,7 @@ module Exact
     using Folds
     using FASTX
     using Statistics
-    using ..Filters: FilterCriterion, MinThreshold, CustomFilter, add_group_ratio!,
+    using ..Filters: FilterCriterion, MinThreshold, MinStringLength, CustomFilter, add_group_ratio!,
                      init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Mosaic: refs_by_gene, add_chimera_scores!
     using ..Report: section, stage_report
@@ -59,6 +59,37 @@ module Exact
     const LAST_BORDER_STATS = Ref(Vector{BORDER_ROW}())
     const LAST_BORDER_GENE_STATS = Ref(Vector{BORDER_GENE_ROW}())
 
+    # ========================== Unified, type-stable match row ==========================
+    # Both RSS and extension modes emit a single concrete schema so the per-read hot loop
+    # builds a `Vector{MatchRow}` (type-stable) rather than a `Vector{NamedTuple}` (abstract).
+    # Fields not produced by a given mode/gene are left "" — and because `full_count` groups by
+    # every column, those constant-"" columns do not change the count granularity, so the RSS
+    # field selection still controls grouping exactly as before.
+
+    const MATCH_FIELDS = (:well, :case, :db_name, :sequence, :prefix, :suffix,
+                          :heptamer, :spacer, :nonamer,
+                          :pre_heptamer, :pre_spacer, :pre_nonamer,
+                          :post_heptamer, :post_spacer, :post_nonamer,
+                          :prefix_len, :suffix_len)
+    const MatchRow = NamedTuple{MATCH_FIELDS,
+        Tuple{String, String, String, String, String, String,
+              String, String, String, String, String, String,
+              String, String, String, Int, Int}}
+
+    @inline fval(nt, k::Symbol) = hasproperty(nt, k) ? String(getproperty(nt, k)) : ""
+
+    "Project a mode-specific `flanks` NamedTuple onto the unified `MatchRow` (absent fields = \"\")."
+    function to_match_row(well::AbstractString, case::AbstractString, db_name::AbstractString, flanks)::MatchRow
+        prefix = fval(flanks, :prefix)
+        suffix = fval(flanks, :suffix)
+        return (well = String(well), case = String(case), db_name = String(db_name),
+                sequence = fval(flanks, :sequence), prefix = prefix, suffix = suffix,
+                heptamer = fval(flanks, :heptamer), spacer = fval(flanks, :spacer), nonamer = fval(flanks, :nonamer),
+                pre_heptamer = fval(flanks, :pre_heptamer), pre_spacer = fval(flanks, :pre_spacer), pre_nonamer = fval(flanks, :pre_nonamer),
+                post_heptamer = fval(flanks, :post_heptamer), post_spacer = fval(flanks, :post_spacer), post_nonamer = fval(flanks, :post_nonamer),
+                prefix_len = length(prefix), suffix_len = length(suffix))
+    end
+
     # ========================== RSS tuple filtering ==========================
 
     function filter_tuple_by_types(types_as_strings, mandatory_key; tuple_data)
@@ -85,13 +116,6 @@ module Exact
     filter_rss_flanks(rss, flanks, ::DGene) = flanks
 
     # ========================== Merge helpers ==========================
-
-    function merge_min!(dst::Dict{String,Int}, src::Dict{String,Int})
-        for (k, v) in src
-            dst[k] = haskey(dst, k) ? min(dst[k], v) : v
-        end
-        return dst
-    end
 
     function merge_counts!(dst::Dict{Tuple{String,String},Int}, src::Dict{Tuple{String,String},Int})
         for (k, v) in src
@@ -271,7 +295,7 @@ module Exact
         return (max(1, sp - get(pgp, gb, ext)) <= lbe) || (min(ep + get(pgs, gb, ext), rl) >= rbs)
     end
 
-    # ========================== Utility ==========================
+    # ========================== Ratio utilities ==========================
 
     function get_ratio(expect_dict, row, ratio)
         row.db_name in keys(expect_dict) && (@info "Skipping allelic ratio filters for $(row.db_name) in case $(row.case)"; return 0.0)
@@ -283,150 +307,315 @@ module Exact
     # yield Inf so they pass the downstream min-ratio filters by design, never NaN.
     safe_ratio(num, den) = den == 0 ? Inf : num / den
 
-    # ========================== exact_search ==========================
+    # ========================== Extension calibration (stage) ==========================
 
-    function exact_search(table, query, gene; mincount=10, minratio=0.01, affix=13, rss=["heptamer", "spacer", "nonamer"], extension=nothing, N=10, raw=nothing, expect_dict=Dict{String,Float64}(), sequence_lookup=nothing, border::Int=0, adjust_per_gene_extension::Bool=false, adjust_percent::Float64=1.0)
-        gt = parse_gene_type(gene)
-        @info "Using mincount: $mincount, minratio: $minratio for genes: $gene"
-        @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
+    """
+        calibrate_extension(table, query, gt, extension, border, adjust_percent) -> (prefix, suffix)
 
+    Per-gene safe prefix/suffix extension lengths so that ≥ `adjust_percent` of reads avoid the
+    read border. Only used in extension mode with `border > 0` and per-gene adjustment enabled.
+    """
+    function calibrate_extension(table, query, gt::GeneType, extension::Int, border::Int, adjust_percent::Float64)
         per_gene_prefix = Dict{String,Int}()
         per_gene_suffix = Dict{String,Int}()
-        if extension !== nothing && border > 0 && adjust_per_gene_extension
-            @info "Calibrating per-gene extension targeting ≥ $(Int(round(adjust_percent*100)))% safe reads"
-            p_cal = Progress(nrow(table))
-            tmp = Folds.map(eachrow(table)) do row
-                next!(p_cal)
-                local pre = Dict{String,Vector{Int}}()
-                local suf = Dict{String,Vector{Int}}()
-                rl = length(row.genomic_sequence)
-                @inbounds for (name, seq) in query
-                    m = findfirst(seq, row.genomic_sequence)
-                    if m !== nothing
-                        gb = first(split(string(name), '*'))
-                        collect_allowed_lengths!(pre, suf, gt, gb, extension, minimum(m), maximum(m), rl, border)
-                    end
-                end
-                (pre=pre, suf=suf)
-            end
-            pre_vals = Dict{String,Vector{Int}}()
-            suf_vals = Dict{String,Vector{Int}}()
-            for r in tmp
-                for (g, v) in r.pre; haskey(pre_vals, g) ? append!(pre_vals[g], v) : (pre_vals[g] = copy(v)); end
-                for (g, v) in r.suf; haskey(suf_vals, g) ? append!(suf_vals[g], v) : (suf_vals[g] = copy(v)); end
-            end
-            assign_calibrated!(per_gene_prefix, per_gene_suffix, gt, pre_vals, suf_vals, extension, adjust_percent)
-            @info "Per-gene extension calibrated for $(length(union(collect(keys(per_gene_prefix)), collect(keys(per_gene_suffix))))) genes"
-        end
-
-        p = Progress(nrow(table))
-        result = Folds.map(eachrow(table)) do row
-            next!(p)
-            case = row.case; well = row.well
-            matches = Vector{NamedTuple}()
-            totals = Dict{Tuple{String,String},Int}()
-            accepted = Dict{Tuple{String,String},Int}()
+        @info "Calibrating per-gene extension targeting ≥ $(Int(round(adjust_percent*100)))% safe reads"
+        p_cal = Progress(nrow(table))
+        tmp = Folds.map(eachrow(table)) do row
+            next!(p_cal)
+            local pre = Dict{String,Vector{Int}}()
+            local suf = Dict{String,Vector{Int}}()
+            rl = length(row.genomic_sequence)
             @inbounds for (name, seq) in query
                 m = findfirst(seq, row.genomic_sequence)
                 if m !== nothing
-                    sp = minimum(m); ep = maximum(m)
-                    if extension !== nothing && border > 0
-                        gb = first(split(string(name), '*'))
-                        key = (string(case), gb)
-                        totals[key] = get(totals, key, 0) + 1
-                        if adjust_per_gene_extension
-                            should_reject_border(gt, per_gene_prefix, per_gene_suffix, gb, extension, sp, ep, length(row.genomic_sequence), border) && continue
-                        else
-                            extension_overlaps_border(sp, ep, length(row.genomic_sequence), gt, extension, border) && continue
-                        end
-                        accepted[key] = get(accepted, key, 0) + 1
-                    end
-                    local flanks
-                    if extension !== nothing && adjust_per_gene_extension && (border > 0)
-                        gb = first(split(string(name), '*'))
-                        flanks = extract_flanking(row.genomic_sequence, (sp, ep), gt, affix, extension, get(per_gene_prefix, gb, extension), get(per_gene_suffix, gb, extension))
-                    else
-                        flanks = extract_flanking(row.genomic_sequence, (sp, ep), gt, affix, extension)
-                    end
-                    filtered_flanks = extension !== nothing ? flanks : filter_rss_flanks(rss, flanks, gt)
-                    meta = (well=string(well), case=string(case), db_name=string(name))
-                    if extension !== nothing
-                        push!(matches, Base.merge(meta, Base.merge(filtered_flanks, (prefix_len=length(filtered_flanks.prefix), suffix_len=length(filtered_flanks.suffix)))))
-                    else
-                        push!(matches, Base.merge(meta, filtered_flanks))
-                    end
+                    gb = first(split(string(name), '*'))
+                    collect_allowed_lengths!(pre, suf, gt, gb, extension, minimum(m), maximum(m), rl, border)
                 end
             end
-            (matches=matches, totals=totals, accepted=accepted)
+            (pre=pre, suf=suf)
+        end
+        pre_vals = Dict{String,Vector{Int}}()
+        suf_vals = Dict{String,Vector{Int}}()
+        for r in tmp
+            for (g, v) in r.pre; haskey(pre_vals, g) ? append!(pre_vals[g], v) : (pre_vals[g] = copy(v)); end
+            for (g, v) in r.suf; haskey(suf_vals, g) ? append!(suf_vals[g], v) : (suf_vals[g] = copy(v)); end
+        end
+        assign_calibrated!(per_gene_prefix, per_gene_suffix, gt, pre_vals, suf_vals, extension, adjust_percent)
+        @info "Per-gene extension calibrated for $(length(union(collect(keys(per_gene_prefix)), collect(keys(per_gene_suffix))))) genes"
+        return per_gene_prefix, per_gene_suffix
+    end
+
+    # ========================== Matching (stage) ==========================
+
+    """
+        collect_matches(table, query, gt, affix, rss, extension, border, adjust, pgp, pgs)
+            -> (result_df, totals_all, accepted_all)
+
+    Scan every read for exact occurrences of each query allele, extract the flanks, and emit a
+    unified `MatchRow` per accepted occurrence. `totals_all`/`accepted_all` tally border-filter
+    bookkeeping per (case, gene). Pure aside from progress logging.
+    """
+    function collect_matches(table, query, gt::GeneType, affix::Int, rss, extension,
+                             border::Int, adjust::Bool, per_gene_prefix, per_gene_suffix)
+        p = Progress(nrow(table))
+        result = Folds.map(eachrow(table)) do row
+            next!(p)
+            case = string(row.case); well = string(row.well)
+            rl = length(row.genomic_sequence)
+            matches = MatchRow[]
+            totals = Dict{Tuple{String,String},Int}()
+            accepted_counts = Dict{Tuple{String,String},Int}()
+            @inbounds for (name, seq) in query
+                m = findfirst(seq, row.genomic_sequence)
+                m === nothing && continue
+                sp = minimum(m); ep = maximum(m)
+                if extension !== nothing && border > 0
+                    gb = first(split(string(name), '*'))
+                    key = (case, gb)
+                    totals[key] = get(totals, key, 0) + 1
+                    rejected = adjust ?
+                        should_reject_border(gt, per_gene_prefix, per_gene_suffix, gb, extension, sp, ep, rl, border) :
+                        extension_overlaps_border(sp, ep, rl, gt, extension, border)
+                    rejected && continue
+                    accepted_counts[key] = get(accepted_counts, key, 0) + 1
+                end
+                local flanks
+                if extension !== nothing && adjust && border > 0
+                    gb = first(split(string(name), '*'))
+                    flanks = extract_flanking(row.genomic_sequence, (sp, ep), gt, affix, extension,
+                                              get(per_gene_prefix, gb, extension), get(per_gene_suffix, gb, extension))
+                else
+                    flanks = extract_flanking(row.genomic_sequence, (sp, ep), gt, affix, extension)
+                end
+                selected = extension !== nothing ? flanks : filter_rss_flanks(rss, flanks, gt)
+                push!(matches, to_match_row(well, case, string(name), selected))
+            end
+            (matches=matches, totals=totals, accepted=accepted_counts)
         end
 
         valid_match_lists = [r.matches for r in result if !isempty(r.matches)]
         result_df = isempty(valid_match_lists) ? DataFrame() : DataFrame(reduce(vcat, valid_match_lists))
 
-        if extension !== nothing && border > 0
-            totals_all = Dict{Tuple{String,String},Int}()
-            accepted_all = Dict{Tuple{String,String},Int}()
-            for r in result
-                !isempty(r.totals) && merge_counts!(totals_all, r.totals)
-                !isempty(r.accepted) && merge_counts!(accepted_all, r.accepted)
-            end
-            if isempty(totals_all)
-                LAST_BORDER_STATS[] = BORDER_ROW[]; LAST_BORDER_GENE_STATS[] = BORDER_GENE_ROW[]
-            else
-                stats_rows = BORDER_ROW[]
-                tm = 0; tr = 0
-                for (c, g) in union(collect(keys(totals_all)), collect(keys(accepted_all)))
-                    mt = get(totals_all, (c, g), 0); a = get(accepted_all, (c, g), 0); r = mt - a
-                    push!(stats_rows, (case=c, gene=g, matched_total=mt, accepted_total=a, rejected_border=r, rejected_ratio=(mt > 0 ? r/mt : 0.0)))
-                    tm += mt; tr += r
-                end
-                @info "Border filter rejected $tr of $tm potential matches ($(tm>0 ? round(100*tr/tm;digits=2) : 0.0)%)"
-                LAST_BORDER_STATS[] = stats_rows
-                sr = Dict{String,Float64}(); sm = Dict{String,Int}(); srej = Dict{String,Int}(); nd = Dict{String,Int}()
-                for row in stats_rows
-                    g = row.gene; sr[g] = get(sr, g, 0.0) + row.rejected_ratio; sm[g] = get(sm, g, 0) + row.matched_total
-                    srej[g] = get(srej, g, 0) + row.rejected_border; nd[g] = get(nd, g, 0) + 1
-                end
-                LAST_BORDER_GENE_STATS[] = [
-                    (gene=g, mean_rejected_ratio=(nd[g]>0 ? sr[g]/nd[g] : 0.0), matched_total=sm[g], rejected_border=srej[g], num_donors=nd[g])
-                    for g in keys(sr)]
-            end
-        else
-            LAST_BORDER_STATS[] = BORDER_ROW[]; LAST_BORDER_GENE_STATS[] = BORDER_GENE_ROW[]
+        totals_all = Dict{Tuple{String,String},Int}()
+        accepted_all = Dict{Tuple{String,String},Int}()
+        for r in result
+            !isempty(r.totals) && merge_counts!(totals_all, r.totals)
+            !isempty(r.accepted) && merge_counts!(accepted_all, r.accepted)
         end
+        return result_df, totals_all, accepted_all
+    end
 
+    # ========================== Border statistics (stage) ==========================
+
+    """
+        summarize_border_stats!(totals_all, accepted_all, active)
+
+    Populate `LAST_BORDER_STATS` / `LAST_BORDER_GENE_STATS` (per case×gene and per gene) from the
+    border-filter tallies, and log the overall rejection rate. A no-op (empties the refs) when the
+    border filter was not active.
+    """
+    function summarize_border_stats!(totals_all, accepted_all, active::Bool)
+        if !active || isempty(totals_all)
+            LAST_BORDER_STATS[] = BORDER_ROW[]; LAST_BORDER_GENE_STATS[] = BORDER_GENE_ROW[]
+            return
+        end
+        stats_rows = BORDER_ROW[]
+        tm = 0; tr = 0
+        for (c, g) in union(collect(keys(totals_all)), collect(keys(accepted_all)))
+            mt = get(totals_all, (c, g), 0); a = get(accepted_all, (c, g), 0); r = mt - a
+            push!(stats_rows, (case=c, gene=g, matched_total=mt, accepted_total=a, rejected_border=r, rejected_ratio=(mt > 0 ? r/mt : 0.0)))
+            tm += mt; tr += r
+        end
+        @info "Border filter rejected $tr of $tm potential matches ($(tm>0 ? round(100*tr/tm;digits=2) : 0.0)%)"
+        LAST_BORDER_STATS[] = stats_rows
+        sr = Dict{String,Float64}(); sm = Dict{String,Int}(); srej = Dict{String,Int}(); nd = Dict{String,Int}()
+        for row in stats_rows
+            g = row.gene; sr[g] = get(sr, g, 0.0) + row.rejected_ratio; sm[g] = get(sm, g, 0) + row.matched_total
+            srej[g] = get(srej, g, 0) + row.rejected_border; nd[g] = get(nd, g, 0) + 1
+        end
+        LAST_BORDER_GENE_STATS[] = [
+            (gene=g, mean_rejected_ratio=(nd[g]>0 ? sr[g]/nd[g] : 0.0), matched_total=sm[g], rejected_border=srej[g], num_donors=nd[g])
+            for g in keys(sr)]
+        return
+    end
+
+    # ========================== Counting & metrics (stages) ==========================
+
+    """
+        add_counts!(result_df, sequence_lookup) -> df
+
+    Add `full_count` (identical full rows), `count` (per well/case/db_name/sequence), `gene`,
+    optional `isin_db`, and the within-gene allelic ratios `full_ratio` / `ratio`.
+    """
+    function add_counts!(result_df::DataFrame, sequence_lookup)
         df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
         transform!(groupby(df, [:well, :case, :db_name, :sequence]), nrow => :count)
         transform!(df, :db_name => ByRow(x -> first(split(x, '*'))) => :gene)
-
         if sequence_lookup !== nothing
             @info "Adding isin_db column based on reference FASTA"
             df[!, :isin_db] = map(row -> get(sequence_lookup, row.sequence, false) ? "" : "Novel", eachrow(df))
         end
-
-        raw !== nothing && CSV.write(raw*".gz", result_df, delim='\t', compress=true)
-
         add_group_ratio!(df, :full_count, [:well, :case, :gene], :full_ratio)
         add_group_ratio!(df, :count, [:well, :case, :gene], :ratio)
-        sort!(df, [:full_count, :count], rev=[true, true])
-        udf = sort(unique(df),[:well, :case, :gene, :db_name, :sequence])
-        # Single pass over count/full_count and their ratios; get_ratio (with its
-        # per-allele skip logging) is evaluated once per row instead of twice.
-        filter!(udf) do row
-            thr = get_ratio(expect_dict, row, minratio)
-            (row.full_count >= mincount) && (row.full_ratio >= thr) &&
-                (row.count >= mincount) && (row.ratio >= thr)
+        return df
+    end
+
+    """
+        add_quality_metrics!(udf) -> udf
+
+    Add per-candidate-core metrics over distinct rows: `n_donors` (cross-donor recurrence),
+    `n_reads_total` (read support), `max_full_ratio` (peak per-donor allelic ratio). Must be
+    called on the de-duplicated table so `full_count` is summed once per distinct row.
+    """
+    function add_quality_metrics!(udf::DataFrame)
+        transform!(groupby(udf, :sequence), :case => (x -> length(unique(x))) => :n_donors)
+        transform!(groupby(udf, :sequence), :full_count => sum => :n_reads_total)
+        transform!(groupby(udf, :sequence), :full_ratio => maximum => :max_full_ratio)
+        return udf
+    end
+
+    """
+        locus_group_stat!(df, groupcols, srccol, destcol, locus, statfn; default=0)
+
+    Within each group, set `destcol` to `statfn` over `srccol` for the rows that both start with
+    `locus` and are still accepted (`reject_reason == ""`); `default` when none qualify. Control
+    genes (outside `locus`) and already-rejected rows are excluded from the statistic.
+    """
+    function locus_group_stat!(df::DataFrame, groupcols, srccol::Symbol, destcol::Symbol, locus, statfn; default=0)
+        transform!(groupby(df, groupcols)) do g
+            fg = filter(r -> startswith(r.db_name, locus) && isempty(r.reject_reason), g)
+            DataFrame(destcol => fill(isempty(fg) ? default : statfn(fg[!, srccol]), nrow(g)))
         end
+        return df
+    end
+
+    """
+        add_frequency_columns!(df, locus) -> df
+
+    Add the locus-frequency columns used by the reference-frequency filters: per-well/case gene
+    and case counts, cross-case medians, the derived `*_freq` / `*_ratio` ratios, and `allele_freq`.
+    All aggregates are computed over accepted (count/ratio-passing) rows so the numerics match the
+    former filter-first design. Requires `reject_reason` to exist (count/ratio annotated first).
+    """
+    function add_frequency_columns!(df::DataFrame, locus::AbstractString)
+        locus_group_stat!(df, [:well, :case, :gene], :count, :gene_count, locus, sum)
+        locus_group_stat!(df, [:well, :case], :count, :case_count, locus, sum)
+        locus_group_stat!(df, [:gene], :count, :cross_case_median_count, locus, median; default=0.0)
+        locus_group_stat!(df, [:gene], :gene_count, :cross_case_median_gene_count, locus, median; default=0.0)
+        locus_group_stat!(df, [:db_name], :count, :cross_case_median_allele_count, locus, median; default=0.0)
+
+        df[:, :allele_case_freq] = safe_ratio.(df.count, df.case_count)
+        df[:, :gene_case_freq] = safe_ratio.(df.gene_count, df.case_count)
+        df[:, :allele_to_cross_case_median_ratio] = safe_ratio.(df.count, df.cross_case_median_allele_count)
+        df[:, :gene_to_cross_case_median_ratio] = safe_ratio.(df.gene_count, df.cross_case_median_gene_count)
+        # allele_freq = a row's reads as a fraction of its gene's accepted reads in that well+case.
+        transform!(groupby(df, [:well, :case, :gene])) do g
+            denom = sum((r.count for r in eachrow(g) if isempty(r.reject_reason)); init=0)
+            DataFrame(allele_freq = safe_ratio.(g.count, denom))
+        end
+        return df
+    end
+
+    # ========================== Filter assembly & annotation (stages) ==========================
+
+    """
+        exact_filter_criteria(; mincount, minratio, expect_dict, min_recurrence, min_seqlen, min_peak_ratio)
+
+    The count/ratio criteria (plus optional quality floors) applied to exact candidates. `count`
+    is intentionally omitted: it is ≥ `full_count` by construction, so `full_count ≥ mincount`
+    already subsumes it. The ratio criterion requires both the full-row and collapsed allelic
+    ratios to clear the (control-gene-relaxed) threshold.
+    """
+    function exact_filter_criteria(; mincount, minratio, expect_dict,
+                                   min_recurrence::Int=0, min_seqlen::Int=0, min_peak_ratio::Float64=0.0)
+        crit = FilterCriterion[
+            MinThreshold(:full_count, Float64(mincount), "min count (--mincount $mincount)"),
+            CustomFilter(r -> (thr = get_ratio(expect_dict, r, minratio); r.full_ratio >= thr && r.ratio >= thr),
+                         "min allelic ratio (--minratio $minratio)"),
+        ]
+        min_recurrence > 0 && push!(crit,
+            MinThreshold(:n_donors, Float64(min_recurrence), "min donor recurrence (--min-recurrence $min_recurrence)"))
+        min_seqlen > 0 && push!(crit,
+            MinStringLength(:sequence, min_seqlen, "min sequence length (--min-seqlen $min_seqlen)"))
+        min_peak_ratio > 0 && push!(crit,
+            MinThreshold(:max_full_ratio, min_peak_ratio, "min peak allelic ratio (--min-peak-ratio $min_peak_ratio)"))
+        return crit
+    end
+
+    """
+        exact_frequency_criteria(mod, expect_dict, deletion_dict, min_allele_mratio, min_gene_mratio)
+
+    The reference-frequency criteria: allele/gene-case frequency floors (control-gene-aware via
+    `get_ratio_threshold`) and the cross-case median ratios.
+    """
+    function exact_frequency_criteria(mod, expect_dict, deletion_dict, min_allele_mratio, min_gene_mratio)
+        return FilterCriterion[
+            CustomFilter(x -> x.allele_freq >= mod.get_ratio_threshold(expect_dict, x, type="allele_freq"), "allele frequency"),
+            CustomFilter(x -> x.gene_case_freq >= mod.get_ratio_threshold(deletion_dict, x, type="gene_case_freq"), "gene-case frequency"),
+            MinThreshold(:allele_to_cross_case_median_ratio, min_allele_mratio, "min allele median ratio (--min-allele-mratio)"),
+            MinThreshold(:gene_to_cross_case_median_ratio, min_gene_mratio, "min gene median ratio (--min-gene-mratio)"),
+        ]
+    end
+
+    """
+        annotate_stage!(df, criteria, stage)
+
+    Apply each criterion in turn, marking (not dropping) the first rejection per row and printing
+    a per-criterion kept/removed line. Shared shape with the discovery pipelines.
+    """
+    function annotate_stage!(df::DataFrame, criteria, stage::AbstractString)
+        for criterion in criteria
+            before = count(isempty, df.reject_reason)
+            fail = Bool[!passes(row, criterion) for row in eachrow(df)]
+            mark_rejected!(df, fail, criterion.label, stage)
+            stage_report(criterion.label, count(isempty, df.reject_reason), before)
+        end
+        return df
+    end
+
+    # ========================== exact_search (orchestrator) ==========================
+
+    """
+        exact_search(table, query, gene; kwargs...) -> DataFrame
+
+    Find exact occurrences of each `query` allele in the reads and return the UNFILTERED candidate
+    table (one row per distinct flank/sequence, capped at `N` flank records per allele) with counts,
+    allelic ratios and quality metrics. Callers annotate/filter as needed (`handle_exact` runs the
+    full transparency cascade; `hsmm` keeps `full_count ≥ mincount`).
+    """
+    function exact_search(table, query, gene; affix=13, rss=["heptamer", "spacer", "nonamer"],
+                          extension=nothing, N=10, raw=nothing, sequence_lookup=nothing,
+                          border::Int=0, adjust_per_gene_extension::Bool=false, adjust_percent::Float64=1.0)
+        gt = parse_gene_type(gene)
+        @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
+
+        per_gene_prefix = Dict{String,Int}()
+        per_gene_suffix = Dict{String,Int}()
+        if extension !== nothing && border > 0 && adjust_per_gene_extension
+            per_gene_prefix, per_gene_suffix = calibrate_extension(table, query, gt, extension, border, adjust_percent)
+        end
+
+        result_df, totals_all, accepted_all = collect_matches(table, query, gt, affix, rss, extension,
+            border, adjust_per_gene_extension, per_gene_prefix, per_gene_suffix)
+        summarize_border_stats!(totals_all, accepted_all, extension !== nothing && border > 0)
+
+        isempty(result_df) && return result_df
+        raw !== nothing && CSV.write(raw*".gz", result_df, delim='\t', compress=true)
+
+        df = add_counts!(result_df, sequence_lookup)
+        sort!(df, [:full_count, :count], rev=[true, true])
+        udf = sort(unique(df), [:well, :case, :gene, :db_name, :sequence])
+        add_quality_metrics!(udf)
 
         priority_columns = ["well", "case", "gene", "db_name", "count", "full_count", "ratio", "full_ratio"]
         remaining_columns = setdiff(names(udf), priority_columns)
         udf = udf[:, vcat(priority_columns, remaining_columns)]
         gdf = groupby(udf, [:well, :case, :gene, :db_name, :sequence])
         udf_indexed = transform(gdf, :well => (x -> 1:length(x)) => :flank_index)
-        return filter(x->x.flank_index <= N, udf_indexed)
+        return filter(x -> x.flank_index <= N, udf_indexed)
     end
 
-    # ========================== Post-processing ==========================
+    # ========================== Reference-gene ratios & lookups ==========================
 
     function transform_counts(group_df, name; count_col=:count)
         ref_row = filter(row -> startswith(row.db_name, name), group_df)
@@ -472,109 +661,81 @@ module Exact
         return Dict{String,Float64}(string(n) => Float64(r) for (n, r) in zip(df.name, df.ratio))
     end
 
-    # ========================== CLI handler ==========================
+    # ========================== CLI handler (orchestrator) ==========================
 
     function handle_exact(parsed_args, immunediscover_module, always_gz)
         @info "Exact search"
-        extension = parsed_args["search"]["exact"]["extension"]
-        border = get(parsed_args["search"]["exact"], "border", 0)
-        adjust_per_gene_extension = get(parsed_args["search"]["exact"], "adjust-per-gene-extension", false)
-        adjust_percent = get(parsed_args["search"]["exact"], "adjust-percent", 1.0)
-        limit = parsed_args["search"]["exact"]["limit"]
-        refgenes = parsed_args["search"]["exact"]["refgene"]
+        ex = parsed_args["search"]["exact"]
+        extension = ex["extension"]
+        border = get(ex, "border", 0)
+        adjust_per_gene_extension = get(ex, "adjust-per-gene-extension", false)
+        adjust_percent = get(ex, "adjust-percent", 1.0)
+        limit = ex["limit"]
+        refgenes = ex["refgene"]
         length(refgenes) > 0 && @info "Using reference genes $refgenes"
 
-        table = immunediscover_module.load_demultiplex(parsed_args["search"]["exact"]["tsv"])
-        limit > 0 && (@info "Limiting reads to $limit"; table = table[1:limit,:])
-        db = immunediscover_module.load_fasta(parsed_args["search"]["exact"]["fasta"], validate=false)
-        mincount = parsed_args["search"]["exact"]["mincount"]
-        minratio = parsed_args["search"]["exact"]["minratio"]
+        table = immunediscover_module.load_demultiplex(ex["tsv"])
+        limit > 0 && (@info "Limiting reads to $limit"; table = table[1:limit, :])
+        db = immunediscover_module.load_fasta(ex["fasta"], validate=false)
+        mincount = ex["mincount"]
+        minratio = ex["minratio"]
         mincount < 5 && @warn "Decreasing mincount below 5 may lead to false positives"
-        top = parsed_args["search"]["exact"]["top"]
-        affix = parsed_args["search"]["exact"]["affix"]
+        top = ex["top"]
+        affix = ex["affix"]
+        gene = ex["gene"]
+        locus = ex["locus"]
 
         local rss
         if extension !== nothing
             @info "Using extension mode with length $extension"; rss = String[]
         else
-            rss = split(parsed_args["search"]["exact"]["rss"], ',')
+            rss = split(ex["rss"], ',')
             immunediscover_module.validate_types(rss)
             @info "Extract RSS: $(join(rss,','))"
         end
         top != 1 && @info "Uncollapsed mode; at most $top full records returned."
 
-        gene = parsed_args["search"]["exact"]["gene"]
-        expect = parsed_args["search"]["exact"]["expect"]
-        deletion = parsed_args["search"]["exact"]["deletion"]
+        # `expect`/`deletion` control-gene threshold files serve two distinct, name-keyed roles:
+        # expect_dict also relaxes the within-gene allelic-ratio floor (get_ratio); both feed the
+        # allele_freq / gene_case_freq floors (get_ratio_threshold). Different thresholds, same list.
+        expect_dict = load_ratio_dict(ex["expect"])
+        deletion_dict = load_ratio_dict(ex["deletion"])
 
-        expect_dict = load_ratio_dict(expect)
-        deletion_dict = load_ratio_dict(deletion)
+        raw = ex["raw"]
+        sequence_lookup = ex["ref-fasta"] !== nothing ? build_sequence_lookup(ex["ref-fasta"]) : nothing
 
-        raw = parsed_args["search"]["exact"]["raw"]
-        locus = parsed_args["search"]["exact"]["locus"]
-        ref_fasta = parsed_args["search"]["exact"]["ref-fasta"]
-        sequence_lookup = ref_fasta !== nothing ? build_sequence_lookup(ref_fasta) : nothing
-
-        counts_df = exact_search(table, db, gene, mincount=mincount, minratio=minratio,
-            expect_dict=expect_dict, affix=affix, rss=rss, extension=extension, N=top,
+        counts_df = exact_search(table, db, gene; affix=affix, rss=rss, extension=extension, N=top,
             raw=raw, sequence_lookup=sequence_lookup, border=border,
             adjust_per_gene_extension=adjust_per_gene_extension, adjust_percent=adjust_percent)
-        nrow(counts_df) > 0 && add_chimera_scores!(counts_df, refs_by_gene(db);
-                                                    seq_col=:sequence, gene_col=:gene)
+        if nrow(counts_df) == 0
+            @warn "No exact matches"
+            return
+        end
+        add_chimera_scores!(counts_df, refs_by_gene(db); seq_col=:sequence, gene_col=:gene)
         sort!(counts_df, [:case, :db_name])
 
-        if !parsed_args["search"]["exact"]["noplot"]
-            nrow(counts_df) > 0 ? immunediscover_module.plotgenes(counts_df) : @warn "No exact matches to plot"
+        # Count/ratio filters — annotate (don't drop) so the full table records every candidate.
+        section("Exact search — count and ratio filters")
+        init_rejection_columns!(counts_df)
+        annotate_stage!(counts_df,
+            exact_filter_criteria(; mincount=mincount, minratio=minratio, expect_dict=expect_dict,
+                min_recurrence=get(ex, "min-recurrence", 0), min_seqlen=get(ex, "min-seqlen", 0),
+                min_peak_ratio=get(ex, "min-peak-ratio", 0.0)),
+            "count and ratio filter")
+
+        if !ex["noplot"]
+            plotdf = accepted(counts_df)
+            nrow(plotdf) > 0 ? immunediscover_module.plotgenes(plotdf) : @warn "No exact matches to plot"
         end
 
         @info "Excluding genes not starting with $locus for frequency calculation"
-
-        transform!(groupby(counts_df, [:well, :case, :gene])) do group
-            fg = filter(row -> startswith(row.db_name, locus), group)
-            DataFrame(gene_count = fill(isempty(fg) ? 0 : sum(fg.count), nrow(group)))
-        end
-        transform!(groupby(counts_df, [:well, :case])) do group
-            fg = filter(row -> startswith(row.db_name, locus), group)
-            DataFrame(case_count = fill(isempty(fg) ? 0 : sum(fg.count), nrow(group)))
-        end
-        transform!(groupby(counts_df, [:gene])) do group
-            fg = filter(row -> startswith(row.db_name, locus), group)
-            DataFrame(cross_case_median_count = fill(isempty(fg) ? 0 : median(fg.count), nrow(group)))
-        end
-        transform!(groupby(counts_df, [:gene])) do group
-            fg = filter(row -> startswith(row.db_name, locus), group)
-            DataFrame(cross_case_median_gene_count = fill(isempty(fg) ? 0 : median(fg.gene_count), nrow(group)))
-        end
-        transform!(groupby(counts_df, [:db_name])) do group
-            fg = filter(row -> startswith(row.db_name, locus), group)
-            DataFrame(cross_case_median_allele_count = fill(isempty(fg) ? 0 : median(fg.count), nrow(group)))
-        end
-
-        # Control genes (not matching --locus) have a 0 reference count/median; a 0 denominator
-        # yields a ratio of Inf so they pass the downstream min-ratio filters by design (controls
-        # are not subject to locus frequency filtering). Make that explicit instead of relying on
-        # IEEE Inf/NaN (count==0 over 0 would otherwise be NaN and fail the filter).
-        counts_df[:,:allele_case_freq] = safe_ratio.(counts_df.count, counts_df.case_count)
-        counts_df[:,:gene_case_freq] = safe_ratio.(counts_df.gene_count, counts_df.case_count)
-        counts_df[:,:allele_to_cross_case_median_ratio] = safe_ratio.(counts_df.count, counts_df.cross_case_median_allele_count)
-        counts_df[:,:gene_to_cross_case_median_ratio] = safe_ratio.(counts_df.gene_count, counts_df.cross_case_median_gene_count)
-        transform!(groupby(counts_df, [:well, :case, :gene]), :count => (x->x./sum(x)) => :allele_freq)
+        add_frequency_columns!(counts_df, locus)
 
         section("Exact search — frequency filters")
-        criteria = FilterCriterion[
-            CustomFilter(x -> x.allele_freq >= immunediscover_module.get_ratio_threshold(expect_dict, x, type="allele_freq"), "allele frequency"),
-            CustomFilter(x -> x.gene_case_freq >= immunediscover_module.get_ratio_threshold(deletion_dict, x, type="gene_case_freq"), "gene-case frequency"),
-            MinThreshold(:allele_to_cross_case_median_ratio, parsed_args["search"]["exact"]["min-allele-mratio"], "min allele median ratio (--min-allele-mratio)"),
-            MinThreshold(:gene_to_cross_case_median_ratio, parsed_args["search"]["exact"]["min-gene-mratio"], "min gene median ratio (--min-gene-mratio)"),
-        ]
-        # Annotate (not drop) so a full table records why each candidate was rejected.
-        init_rejection_columns!(counts_df)
-        for criterion in criteria
-            before = count(isempty, counts_df.reject_reason)
-            fail = Bool[!passes(row, criterion) for row in eachrow(counts_df)]
-            mark_rejected!(counts_df, fail, criterion.label, "frequency filter")
-            stage_report(criterion.label, count(isempty, counts_df.reject_reason), before)
-        end
+        annotate_stage!(counts_df,
+            exact_frequency_criteria(immunediscover_module, expect_dict, deletion_dict,
+                ex["min-allele-mratio"], ex["min-gene-mratio"]),
+            "frequency filter")
 
         reason_cols = [:reject_reason, :reject_stage]
         kept = accepted(counts_df)
@@ -585,7 +746,7 @@ module Exact
                 kept = grouped_ratios(kept, refgene, count_col=:ref_gene_count)
             end
         end
-        output = always_gz(parsed_args["search"]["exact"]["output"])
+        output = always_gz(ex["output"])
         full_output = always_gz(replace(replace(output, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv")
         section("Exact search — summary")
         stage_report("accepted (passed all filters)", nrow(kept), nrow(counts_df))
@@ -593,7 +754,8 @@ module Exact
         @info "Filtered exact results ($(nrow(kept)) rows) saved to $output"
         CSV.write(full_output, counts_df, compress=true, delim='\t')
         @info "Full annotated table ($(nrow(counts_df)) candidates + reject reason) saved to $full_output"
+        return
     end
 
-    export grouped_ratios, transform_counts, build_sequence_lookup, handle_exact
+    export grouped_ratios, transform_counts, build_sequence_lookup, handle_exact, exact_search
 end
