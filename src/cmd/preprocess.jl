@@ -5,7 +5,8 @@ function add_preprocess_args!(s)
                 action = :command
         end
 
-        @add_arg_table! s["preprocess"]["demultiplex"] begin
+        dm = s["preprocess"]["demultiplex"]
+        @add_arg_table! dm begin
             "fastq"
                 help = "Input FASTQ file with reads (single-end)"
                 required = true
@@ -15,21 +16,29 @@ function add_preprocess_args!(s)
             "output"
                 help = "Output TSV (gz auto-enabled) with demultiplexed reads and metadata"
                 required = true
+        end
+
+        add_arg_group!(dm, "Read filtering", "demux_filter")
+        @add_arg_table! dm begin
             "-l", "--length"
                 help = "Minimum read length to keep"
                 arg_type = Int
                 range_tester = (x->x >= 0)
                 default = 200
-            "-s", "--split"
-                help = "Write per-case FASTQ files"
-                action = :store_true
+            "--case-filter-regex"
+                help = "Regex to keep only cases matching pattern (e.g., '[ACDERF]')"
+                arg_type = String
+        end
+
+        add_arg_group!(dm, "Indexing and output", "demux_out")
+        @add_arg_table! dm begin
             "-f", "--forwardarrayindex"
                 help = "Name of the forward array index to use for demultiplexing (if present)"
                 arg_type = String
                 default = ""
-            "--case-filter-regex"
-                help = "Regex to keep only cases matching pattern (e.g., '[ACDERF]')"
-                arg_type = String
+            "-s", "--split"
+                help = "Write per-case FASTQ files"
+                action = :store_true
         end
 
     return s

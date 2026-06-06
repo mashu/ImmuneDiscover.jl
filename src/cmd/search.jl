@@ -11,7 +11,8 @@ function add_search_args!(s)
                 action = :command
         end
 
-        @add_arg_table! s["search"]["bwa"] begin
+        bw = s["search"]["bwa"]
+        @add_arg_table! bw begin
         "tsv"
             help = "TSV file with columns allele_name and seq"
             required = true
@@ -23,10 +24,22 @@ function add_search_args!(s)
             required = true
             nargs='+'
             arg_type = String
+        end
+
+        add_arg_group!(bw, "Target chromosome", "bwa_target")
+        @add_arg_table! bw begin
         "-c", "--chromosome"
             help = "Chromosome string to filter by"
             default = "chromosome 14"
             arg_type = String
+        "-t", "--tag"
+            help = "Regex to filter valid descriptions of chromosomes"
+            default = "(.*Primary Assembly.*)|(.*alternate locus.*)"
+            arg_type = String
+        end
+
+        add_arg_group!(bw, "Input columns", "bwa_cols")
+        @add_arg_table! bw begin
         "-n", "--colname"
             help = "Name of the column with allele names"
             default = "best_name"
@@ -36,13 +49,10 @@ function add_search_args!(s)
             default = ["prefix", "best_aln", "suffix"]
             nargs = '*'  # Accepts zero or more values
             arg_type = String
-        "-t", "--tag"
-            help = "Regex to filter valid descriptions of chromosomes"
-            default = "(.*Primary Assembly.*)|(.*alternate locus.*)"
-            arg_type = String
         end
 
-        @add_arg_table! s["search"]["heptamer"] begin
+        hp = s["search"]["heptamer"]
+        @add_arg_table! hp begin
             "tsv"
                 help = "TSV file with demultiplexed reads"
                 required = true
@@ -55,6 +65,10 @@ function add_search_args!(s)
             "summary"
                 help = "TSV file to save summary collapsed alleles with statistics"
                 required = true
+        end
+
+        add_arg_group!(hp, "Heptamer source", "hept_src")
+        @add_arg_table! hp begin
             "-j", "--json"
                 help = "JSON file with dictionary containing haptamers"
                 default = "heptamers.json"
@@ -68,6 +82,10 @@ function add_search_args!(s)
                 arg_type = Int
                 range_tester = (x->x >= 0)
                 default = 1
+        end
+
+        add_arg_group!(hp, "Query trimming", "hept_trim")
+        @add_arg_table! hp begin
             "-b", "--begin"
                 help = "How much to trim from the 5' beginning of the query sequence"
                 arg_type = Int
@@ -78,12 +96,16 @@ function add_search_args!(s)
                 arg_type = Int
                 range_tester = (x->x >= 0)
                 default = 8
+        end
+
+        add_arg_group!(hp, "Summary filters", "hept_summary")
+        @add_arg_table! hp begin
             "-m", "--mincount"
                 help = "Minimum count allowed in summary"
                 default = 1
                 arg_type = Int
                 range_tester = (x->x >= 1)
-            "-r","--ratio"
+            "-r", "--ratio"
                 help = "Lowest allowed ratio between counts of full allele sequence and trimmed allele sequence"
                 default = 0.25
                 arg_type = Float64
