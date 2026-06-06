@@ -83,8 +83,8 @@ immunediscover search exact <tsv> <fasta> <output> -g <gene> [options]
 **Count/Frequency Filters:**
 - `-c, --mincount` (default: 5): Minimum read count
 - `-f, --minratio` (default: 0.1): Minimum allelic ratio within gene
-- `--min-allele-mratio` (default: 0.05): Min ratio to cross-case median (allele level)
-- `--min-gene-mratio` (default: 0.05): Min ratio to cross-case median (gene level)
+- `--min-allele-cohort-fold` (default: 0.05): Min fold of an allele's donor count vs its cohort median across donors
+- `--min-gene-cohort-fold` (default: 0.05): Min fold of a gene's donor count vs its cohort median across donors
 - `--min-recurrence` (default: 0, off): Require a candidate sequence in ≥ N donors (`n_donors`)
 - `--min-seqlen` (default: 0, off): Drop candidates whose matched sequence is shorter than N nt
 - `--min-peak-ratio` (default: 0.0, off): Require the peak per-donor allelic ratio (`max_full_ratio`)
@@ -121,9 +121,9 @@ result and a full annotated table (`<output>.full.tsv.gz`).
   - RSS J: `suffix`, `sequence`, + selected `--rss` of `heptamer`/`spacer`/`nonamer`
   - RSS D: `pre_nonamer`/`pre_spacer`/`pre_heptamer` + `post_heptamer`/`post_spacer`/`post_nonamer`
   - Extension mode (any gene): `prefix`, `suffix`, `prefix_len`, `suffix_len`
-- **Frequencies**: `allele_freq`, `allele_case_freq`, `gene_case_freq`
+- **Frequencies**: `allelic_ratio` (within-gene allelic ratio — the key signal), `gene_case_freq` (gene-usage / deletion)
 - **Totals**: `gene_count`, `case_count`
-- **Cross-case**: `cross_case_median_count`, `cross_case_median_allele_count`, `cross_case_median_gene_count`, `allele_to_cross_case_median_ratio`, `gene_to_cross_case_median_ratio`
+- **Cohort fold-change**: `allele_cohort_median`, `gene_cohort_median`, `allele_cohort_fold`, `gene_cohort_fold` (count vs cohort-median across donors)
 - **Quality metrics**: `n_donors` (cross-donor recurrence), `n_reads_total` (read support), `max_full_ratio` (peak per-donor allelic ratio)
 - **Transparency**: `reject_reason`, `reject_stage` (full table only)
 - **Markers**: `isin_db` (if --ref-fasta)
@@ -140,7 +140,7 @@ immunediscover search exact demux.tsv.gz IGHD.fasta exact_D.tsv.gz -g D --extens
 
 # Low stringency for rare alleles
 immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V \
-  -c 1 -f 0.01 --min-allele-mratio 0.01
+  -c 1 -f 0.01 --min-allele-cohort-fold 0.01
 
 # With reference ratios
 immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V \

@@ -47,17 +47,42 @@ These appear in multiple command outputs:
 
 ## search exact Outputs
 
+`search exact` writes **two** tables: the filtered results (`<output>`) and the **full annotated
+table** (`<output>.full.tsv.gz`) with every candidate plus its `reject_reason` / `reject_stage`.
+Columns are ordered for reading — identifiers and metrics (most impactful first) on the left, the
+long flank/sequence columns last (in genomic 5'→3' order) — and float values are rounded to 4
+decimal places.
+
 ### Main Columns
 
 | Column | Description |
 |--------|-------------|
 | `well`, `case`, `gene`, `db_name` | Identifiers |
-| `sequence` | Core allele sequence |
 | `count` | Reads matching this allele sequence (collapsed) |
 | `full_count` | Reads matching sequence + flanks (uncollapsed) |
-| `ratio` | Allelic ratio (count / max in gene) |
-| `full_ratio` | Allelic ratio for full records |
+| `allelic_ratio` | Within-gene allelic ratio: count / sum(accepted counts in gene) — the key allele-calling signal |
+| `ratio` | Allelic ratio relative to the gene's top allele (count / max in gene) |
+| `full_ratio` | As `ratio`, for the uncollapsed (sequence + flanks) records |
 | `flank_index` | Flank variant number (1 to --top) |
+| `sequence` | Core allele sequence (placed last with the flank columns) |
+
+### Quality / discriminative metrics
+
+A real allele recurs across donors with solid support; an artifact is sporadic or composition-odd.
+
+| Column | Description |
+|--------|-------------|
+| `n_donors` | Distinct donors sharing this exact sequence (cross-donor recurrence) |
+| `n_reads_total` | Total reads backing this sequence across the run |
+| `max_full_ratio` | Peak per-donor allelic ratio reached by this sequence (`--min-peak-ratio`) |
+| `chimera_score` | Mosaic/recombination score vs the gene's references (higher ⇒ more chimera-like) |
+
+### Transparency columns (full table)
+
+| Column | Description |
+|--------|-------------|
+| `reject_reason` | Label of the first filter the candidate failed; empty if accepted |
+| `reject_stage` | Stage that rejected it (`count and ratio filter`, `frequency filter`); empty if accepted |
 
 ### Flank Columns (gene-dependent)
 
@@ -82,23 +107,26 @@ These appear in multiple command outputs:
 
 | Column | Description |
 |--------|-------------|
-| `allele_freq` | Allele frequency within gene (per case): count / sum(counts in gene) |
-| `allele_case_freq` | Allele frequency within case (all genes): count / case_count |
-| `gene_case_freq` | Gene frequency within case: gene_count / case_count |
+| `allelic_ratio` | **Within-gene allelic ratio** (per case): count / sum(accepted counts in gene). The standard allele-calling signal — a real allele is a major fraction of its gene. |
+| `gene_case_freq` | Gene-usage fraction in the case: gene_count / case_count. Low ⇒ possible gene deletion (see `--deletion`). |
 | `gene_count` | Total reads for this gene in this well/case |
 | `case_count` | Total reads in this well/case |
 
-### Cross-Case Comparison Columns
+### Cohort (across-donor) comparison columns
+
+These compare a donor's observation against the **cohort median** (the typical value across all
+donors), as a robust fold-change. They back the optional `--min-allele-cohort-fold` /
+`--min-gene-cohort-fold` filters (default 0.05). They are a secondary abundance-consistency
+heuristic — not the same as the discriminative metrics (`chimera_score`, etc.).
 
 | Column | Description |
 |--------|-------------|
-| `cross_case_median_count` | Median count for this allele across all cases |
-| `cross_case_median_allele_count` | Median allele count across cases |
-| `cross_case_median_gene_count` | Median gene count across cases |
-| `allele_to_cross_case_median_ratio` | count / cross_case_median_allele_count |
-| `gene_to_cross_case_median_ratio` | gene_count / cross_case_median_gene_count |
+| `allele_cohort_median` | Median count for this allele across donors (robust central tendency) |
+| `gene_cohort_median` | Median `gene_count` across donors |
+| `allele_cohort_fold` | count / `allele_cohort_median` — this donor's allele support vs typical |
+| `gene_cohort_fold` | `gene_count` / `gene_cohort_median` — this donor's gene support vs typical |
 
-**Use**: Identify donor-specific outliers (ratios <<1 suggest artifacts).
+**Use**: a fold ≪ 1 flags a sporadic low-support observation relative to the cohort.
 
 ### Optional Columns
 
@@ -331,18 +359,18 @@ All original input columns preserved.
 - **full_count**: Includes flanks (more specific, lower counts)
 - **count**: Excludes flanks (collapsed, higher counts)
 
-### Cross-Case Columns
+### Cohort (across-donor) fold-change
 
-Used to identify donor-specific artifacts:
+A robust fold-change of a donor's observation against the cohort-typical value:
 
 ```
-allele_to_cross_case_median_ratio = count / median(count across all cases)
+allele_cohort_fold = count / median(count for this allele across donors)
 ```
 
 **Interpretation:**
-- Ratio ≈ 1: Normal for this allele
-- Ratio >> 1: Unusually high (possible artifact or true high expression)
-- Ratio << 1: Unusually low (possible sequencing error specific to this donor)
+- Fold ≈ 1: typical for this allele
+- Fold ≫ 1: unusually high (true high expression, or an over-counted artifact)
+- Fold ≪ 1: unusually low (sporadic, donor-specific low support — what `--min-allele-cohort-fold` drops)
 
 ### Phi Coefficient (r)
 
@@ -403,7 +431,7 @@ posterior = exp(best_path_logprob - total_logprob)
 - Lengths: `db_length`, `full_length`, `qlen`, `slen`
 
 ### Numeric Columns (Float)
-- Ratios/Frequencies: `ratio`, `full_ratio`, `allele_freq`, `*_case_freq`
+- Ratios/Frequencies: `ratio`, `full_ratio`, `allelic_ratio`, `gene_case_freq`, `*_cohort_fold`
 - Correlations: `r`, `r2`, `jaccard`, `similarity`
 - Probabilities: `posterior_prob`, `heptamer_prob_*`
 - Coverage: `corecov`, `pident`, `qcovs`, `qcovhsp`

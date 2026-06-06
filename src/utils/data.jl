@@ -11,6 +11,24 @@ module Data
     export load_fasta, plotgenes, unique_name, sequence_hash, load_demultiplex
     export concatenate_columns, validate_types, get_ratio_threshold
     export barplot_if_available, histogram_if_available, heatmap_if_available
+    export round_floats!
+
+    """
+        round_floats!(df; digits=4) -> df
+
+    Round every floating-point column of `df` to `digits` decimal places in place, so written
+    tables carry readable values instead of full Float64 precision. Integer/string columns are
+    left untouched; `Inf`/`NaN` pass through. Suitable for ratio/frequency columns (0–1 range);
+    do not use on tables with tiny/huge floats like BLAST evalue/bitscore.
+    """
+    function round_floats!(df::DataFrame; digits::Int=4)
+        for c in propertynames(df)
+            col = df[!, c]
+            eltype(col) <: AbstractFloat || continue
+            df[!, c] = round.(col; digits=digits)
+        end
+        return df
+    end
 
     function sequence_hash(seq; digits=4)
         "S" * lpad(string(parse(Int, bytes2hex(MD5.md5(seq))[(end-(digits-1)):end], base=16) % 10^digits), digits, '0')

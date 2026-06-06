@@ -203,14 +203,14 @@ immunediscover discover blast demux.tsv.gz IGHV.fasta blast.tsv.gz -g V \
 
 ```bash
 immunediscover search exact demux.tsv.gz IGHV.fasta exact.tsv.gz -g V \
-  --mincount 10 --minratio 0.1 --min-allele-mratio 0.1
+  --mincount 10 --minratio 0.1 --min-allele-cohort-fold 0.1
 ```
 
 ### Rare Allele Detection
 
 ```bash
 immunediscover search exact demux.tsv.gz IGHV.fasta exact.tsv.gz -g V \
-  --mincount 1 --minratio 0.01 --min-allele-mratio 0.01
+  --mincount 1 --minratio 0.01 --min-allele-cohort-fold 0.01
 ```
 
 ### Haplotype Block Discovery
@@ -228,7 +228,7 @@ immunediscover analyze cooccurrence exact.tsv.gz \
 
 ```bash
 # Exact search
--c 10 -f 0.1 --min-allele-mratio 0.1 --min-gene-mratio 0.1
+-c 10 -f 0.1 --min-allele-cohort-fold 0.1 --min-gene-cohort-fold 0.1
 
 # BLAST
 -g V -c 10 -f 0.1 -d 5 -q 0.9 --min-corecov 0.8
@@ -241,7 +241,7 @@ immunediscover analyze cooccurrence exact.tsv.gz \
 
 ```bash
 # Exact search
--c 5 -f 0.1 --min-allele-mratio 0.05 --min-gene-mratio 0.05
+-c 5 -f 0.1 --min-allele-cohort-fold 0.05 --min-gene-cohort-fold 0.05
 
 # BLAST
 -g V  # Use preset defaults
@@ -254,7 +254,7 @@ immunediscover analyze cooccurrence exact.tsv.gz \
 
 ```bash
 # Exact search
--c 1 -f 0.01 --min-allele-mratio 0.01 --min-gene-mratio 0.01
+-c 1 -f 0.01 --min-allele-cohort-fold 0.01 --min-gene-cohort-fold 0.01
 
 # BLAST
 -g V -c 1 -f 0.01 -d 20 -q 0.5 --min-corecov 0.4

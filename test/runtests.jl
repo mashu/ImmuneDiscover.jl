@@ -214,7 +214,7 @@ test_outcomes = Dict(
         # (1,D1,IGHV1-1): only row1 accepted (row3 rejected) → gene_count 10; (1,D2): row2 → 8;
         # CTRL1 is outside the locus → default 0.
         @test df.gene_count == [10, 8, 10, 0]
-        @test df.allele_freq[1] == 1.0          # row1 is its gene's only accepted read in (1,D1)
+        @test df.allelic_ratio[1] == 1.0        # row1 is its gene's only accepted read in (1,D1)
 
         # optional recurrence filter drops a single-donor candidate
         df2 = DataFrame(db_name=["IGHV1-1*01", "IGHV1-1*02"], gene=["IGHV1-1", "IGHV1-1"],
@@ -226,6 +226,31 @@ test_outcomes = Dict(
             Exact.exact_filter_criteria(; mincount=5, minratio=0.1, expect_dict=Dict{String,Float64}(),
                                         min_recurrence=2), "count and ratio filter")
         @test df2.reject_reason == ["", "min donor recurrence (--min-recurrence 2)"]
+    end
+
+    @testset "exact column ordering + rounding" begin
+        df = DataFrame(
+            well=[1], case=["D1"], gene=["IGHV1-1"], db_name=["IGHV1-1*01"],
+            count=[10], allelic_ratio=[0.123456], heptamer=["CACAGTG"],
+            sequence=["ACGTACGT"], prefix=["TTTT"], spacer=["GGG"], nonamer=["AAAAAAAAA"],
+            reject_reason=[""], reject_stage=[""],
+        )
+        o = Exact.order_exact_columns(df, VGene(), nothing)
+        cols = names(o)
+        # the long DNA columns are last, in genomic 5'→3' order for V (prefix, seq, 3' RSS)
+        @test cols[end-4:end] == ["prefix", "sequence", "heptamer", "spacer", "nonamer"]
+        # identifiers/metrics precede the DNA block
+        @test findfirst(==("count"), cols) < findfirst(==("sequence"), cols)
+        @test findfirst(==("allelic_ratio"), cols) < findfirst(==("prefix"), cols)
+        # J places its 5' RSS before the sequence; extension mode just prefix/seq/suffix
+        @test Exact.dna_layout(JGene(), nothing) == ["nonamer", "spacer", "heptamer", "sequence", "suffix"]
+        @test Exact.dna_layout(VGene(), 20) == ["prefix", "sequence", "suffix"]
+
+        # floats rounded to 4 dp; integer/string columns untouched
+        Data.round_floats!(o)
+        @test o.allelic_ratio[1] ≈ 0.1235
+        @test o.count[1] === 10
+        @test o.sequence[1] == "ACGTACGT"
     end
 
     @testset "hsmm collapse + posterior annotation" begin

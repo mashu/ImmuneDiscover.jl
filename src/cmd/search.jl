@@ -180,13 +180,13 @@ function add_search_args!(s)
             default = 0.1
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "--min-allele-mratio"
-            help = "Minimum allelic ratio applied within each gene group for the allele against median"
+        "--min-allele-cohort-fold"
+            help = "Drop an allele whose count in a donor is below this fraction of its cohort-median count across donors (robust fold-change vs typical abundance). Default 0.05; 0 disables."
             default = 0.05
             arg_type = Float64
             range_tester = (x-> (x >= 0.0))
-        "--min-gene-mratio"
-            help = "Minimum allelic ratio applied within each gene group for the gene against median"
+        "--min-gene-cohort-fold"
+            help = "Drop a gene whose total count in a donor is below this fraction of its cohort-median across donors. Default 0.05; 0 disables."
             default = 0.05
             arg_type = Float64
             range_tester = (x-> (x >= 0.0))
@@ -210,7 +210,7 @@ function add_search_args!(s)
         add_arg_group!(ex, "Reference frequency thresholds", "exact_ref")
         @add_arg_table! ex begin
         "-e", "--expect"
-            help = "TSV file containing gene names and their corresponding allele_freq threshold, with two columns: name and ratio"
+            help = "TSV file containing gene names and their corresponding allelic_ratio threshold, with two columns: name and ratio"
             arg_type = String
         "-d", "--deletion"
             help = "TSV file containing gene names and their corresponding gene_case_freq threshold, with two columns: name and ratio"

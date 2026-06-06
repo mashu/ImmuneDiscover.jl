@@ -8,7 +8,7 @@ module Exact
     using ..Filters: FilterCriterion, MinThreshold, MinStringLength, CustomFilter, add_group_ratio!,
                      init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Mosaic: refs_by_gene, add_chimera_scores!
-    using ..Data: barplot_if_available
+    using ..Data: barplot_if_available, round_floats!
     using ..Report: section, stage_report, report_rejections, recurrence_report,
                     filter_quality_report, rss_consistency
 
@@ -491,26 +491,31 @@ module Exact
     """
         add_frequency_columns!(df, locus) -> df
 
-    Add the locus-frequency columns used by the reference-frequency filters: per-well/case gene
-    and case counts, cross-case medians, the derived `*_freq` / `*_ratio` ratios, and `allele_freq`.
-    All aggregates are computed over accepted (count/ratio-passing) rows so the numerics match the
-    former filter-first design. Requires `reject_reason` to exist (count/ratio annotated first).
+    Add the locus-frequency columns used by the reference-frequency filters: `gene_count` /
+    `case_count` (per-well/case totals), `allele_cohort_median` / `gene_cohort_median` (across-donor
+    medians), `gene_case_freq` (gene-usage fraction), `allele_cohort_fold` / `gene_cohort_fold`
+    (fold-change vs cohort median), and `allelic_ratio` (within-gene allelic ratio). All aggregates
+    are over accepted (count/ratio-passing) rows. Requires `reject_reason` (count/ratio annotated first).
     """
     function add_frequency_columns!(df::DataFrame, locus::AbstractString)
+        # Per-well/case totals (over accepted, in-locus rows).
         locus_group_stat!(df, [:well, :case, :gene], :count, :gene_count, locus, sum)
         locus_group_stat!(df, [:well, :case], :count, :case_count, locus, sum)
-        locus_group_stat!(df, [:gene], :count, :cross_case_median_count, locus, median; default=0.0)
-        locus_group_stat!(df, [:gene], :gene_count, :cross_case_median_gene_count, locus, median; default=0.0)
-        locus_group_stat!(df, [:db_name], :count, :cross_case_median_allele_count, locus, median; default=0.0)
+        # Cohort (across-donor) medians — robust central tendency used for the fold-change below.
+        locus_group_stat!(df, [:db_name], :count, :allele_cohort_median, locus, median; default=0.0)
+        locus_group_stat!(df, [:gene], :gene_count, :gene_cohort_median, locus, median; default=0.0)
 
-        df[:, :allele_case_freq] = safe_ratio.(df.count, df.case_count)
+        # gene_case_freq = gene-usage fraction in the case (low ⇒ possible deletion; see --deletion).
         df[:, :gene_case_freq] = safe_ratio.(df.gene_count, df.case_count)
-        df[:, :allele_to_cross_case_median_ratio] = safe_ratio.(df.count, df.cross_case_median_allele_count)
-        df[:, :gene_to_cross_case_median_ratio] = safe_ratio.(df.gene_count, df.cross_case_median_gene_count)
-        # allele_freq = a row's reads as a fraction of its gene's accepted reads in that well+case.
+        # *_cohort_fold = this donor's count ÷ the allele's/gene's cohort-median (robust fold-change
+        # vs typical); a tiny fold flags a sporadic low-support observation.
+        df[:, :allele_cohort_fold] = safe_ratio.(df.count, df.allele_cohort_median)
+        df[:, :gene_cohort_fold] = safe_ratio.(df.gene_count, df.gene_cohort_median)
+        # allelic_ratio = a row's reads as a fraction of its gene's accepted reads in that
+        # well+case (the standard within-gene allele-calling signal).
         transform!(groupby(df, [:well, :case, :gene])) do g
             denom = sum((r.count for r in eachrow(g) if isempty(r.reject_reason)); init=0)
-            DataFrame(allele_freq = safe_ratio.(g.count, denom))
+            DataFrame(allelic_ratio = safe_ratio.(g.count, denom))
         end
         return df
     end
@@ -542,17 +547,17 @@ module Exact
     end
 
     """
-        exact_frequency_criteria(mod, expect_dict, deletion_dict, min_allele_mratio, min_gene_mratio)
+        exact_frequency_criteria(mod, expect_dict, deletion_dict, min_allele_fold, min_gene_fold)
 
     The reference-frequency criteria: allele/gene-case frequency floors (control-gene-aware via
     `get_ratio_threshold`) and the cross-case median ratios.
     """
-    function exact_frequency_criteria(mod, expect_dict, deletion_dict, min_allele_mratio, min_gene_mratio)
+    function exact_frequency_criteria(mod, expect_dict, deletion_dict, min_allele_fold, min_gene_fold)
         return FilterCriterion[
-            CustomFilter(x -> x.allele_freq >= mod.get_ratio_threshold(expect_dict, x, type="allele_freq"), "allele frequency"),
+            CustomFilter(x -> x.allelic_ratio >= mod.get_ratio_threshold(expect_dict, x, type="allelic_ratio"), "allelic ratio"),
             CustomFilter(x -> x.gene_case_freq >= mod.get_ratio_threshold(deletion_dict, x, type="gene_case_freq"), "gene-case frequency"),
-            MinThreshold(:allele_to_cross_case_median_ratio, min_allele_mratio, "min allele median ratio (--min-allele-mratio)"),
-            MinThreshold(:gene_to_cross_case_median_ratio, min_gene_mratio, "min gene median ratio (--min-gene-mratio)"),
+            MinThreshold(:allele_cohort_fold, min_allele_fold, "min allele cohort fold (--min-allele-cohort-fold)"),
+            MinThreshold(:gene_cohort_fold, min_gene_fold, "min gene cohort fold (--min-gene-cohort-fold)"),
         ]
     end
 
@@ -660,6 +665,38 @@ module Exact
         return Dict{String,Float64}(string(n) => Float64(r) for (n, r) in zip(df.name, df.ratio))
     end
 
+    # ========================== Output column ordering ==========================
+    # Identifiers and metrics (most impactful first) on the left; the long DNA columns (flanks +
+    # sequence) on the right in genomic 5'→3' order, so the wide values don't bury the metrics.
+
+    dna_layout(gt::GeneType, ::Integer) = ["prefix", "sequence", "suffix"]   # extension mode
+    dna_layout(::VGene, ::Nothing) = ["prefix", "sequence", "heptamer", "spacer", "nonamer"]
+    dna_layout(::JGene, ::Nothing) = ["nonamer", "spacer", "heptamer", "sequence", "suffix"]
+    dna_layout(::DGene, ::Nothing) = ["pre_nonamer", "pre_spacer", "pre_heptamer", "sequence",
+                                      "post_heptamer", "post_spacer", "post_nonamer"]
+
+    const EXACT_LEFT_ORDER = ["well", "case", "gene", "db_name", "isin_db",
+        "count", "full_count", "allelic_ratio", "ratio", "full_ratio",
+        "n_donors", "n_reads_total", "max_full_ratio",
+        "gene_case_freq", "allele_cohort_fold", "allele_cohort_median",
+        "gene_cohort_fold", "gene_cohort_median", "gene_count", "case_count",
+        "chimera_score", "flank_index", "reject_reason", "reject_stage"]
+
+    """
+        order_exact_columns(df, gt, extension) -> df
+
+    Reorder for readability: identifiers + metrics (most impactful first), then any extra columns,
+    then the long DNA columns (flanks + sequence) last, in genomic 5'→3' order. Present columns only.
+    """
+    function order_exact_columns(df::DataFrame, gt::GeneType, extension)
+        present = names(df)
+        dna = [c for c in dna_layout(gt, extension) if c in present]
+        left = [c for c in EXACT_LEFT_ORDER if c in present && !(c in dna)]
+        placed = Set(vcat(left, dna))
+        middle = [c for c in present if !(c in placed)]
+        return select(df, vcat(left, middle, dna))
+    end
+
     # ========================== Findings report ==========================
 
     """
@@ -751,7 +788,7 @@ module Exact
 
         # `expect`/`deletion` control-gene threshold files serve two distinct, name-keyed roles:
         # expect_dict also relaxes the within-gene allelic-ratio floor (get_ratio); both feed the
-        # allele_freq / gene_case_freq floors (get_ratio_threshold). Different thresholds, same list.
+        # allelic_ratio / gene_case_freq floors (get_ratio_threshold). Different thresholds, same list.
         expect_dict = load_ratio_dict(ex["expect"])
         deletion_dict = load_ratio_dict(ex["deletion"])
 
@@ -788,7 +825,7 @@ module Exact
         section("Exact search — frequency filters")
         annotate_stage!(counts_df,
             exact_frequency_criteria(immunediscover_module, expect_dict, deletion_dict,
-                ex["min-allele-mratio"], ex["min-gene-mratio"]),
+                ex["min-allele-cohort-fold"], ex["min-gene-cohort-fold"]),
             "frequency filter")
 
         reason_cols = [:reject_reason, :reject_stage]
@@ -803,6 +840,11 @@ module Exact
         output = always_gz(ex["output"])
         full_output = always_gz(replace(replace(output, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv")
         report_exact_findings(counts_df, kept, db, extension)
+        # Readable output: metrics left, long sequence/flank columns right (genomic order); round
+        # float columns to 4 dp instead of full Float64 precision.
+        gt = parse_gene_type(gene)
+        kept = round_floats!(order_exact_columns(kept, gt, extension))
+        counts_df = round_floats!(order_exact_columns(counts_df, gt, extension))
         CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')
         printstyled("  ✓ "; color=:green, bold=true); println("filtered → $output  ($(nrow(kept)) rows)")
         CSV.write(full_output, counts_df, compress=true, delim='\t')
