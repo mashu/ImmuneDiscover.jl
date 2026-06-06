@@ -883,8 +883,13 @@ module Blast
         kept = accepted(blast_clusters)
         stage_report("accepted (passed all filters)", nrow(kept), nrow(blast_clusters))
         report_recurrence(kept)
-        nsat = count(==(1), kept.nn_dist)
-        nsat > 0 && @info "$nsat accepted candidate(s) sit 1 bp from a more-abundant core (likely error satellites — check nn_dist / parent_ratio in the output)"
+        # Distance alone is not suspicious — most genuine novel alleles are 1 bp from a known
+        # parent. What flags a likely error is being a small fraction of a much more abundant
+        # neighbour, i.e. a large parent_ratio. Report both, but weight by parent_ratio.
+        close_shadow = (kept.nn_dist .>= 0) .& (kept.nn_dist .<= 1) .& (kept.parent_ratio .>= 20)
+        n_close = count((kept.nn_dist .>= 0) .& (kept.nn_dist .<= 1))
+        n_shadow = count(close_shadow)
+        n_close > 0 && @info "$n_close accepted candidate(s) are within 1 bp of a more-abundant core; $n_shadow of those carry < 5% of that neighbour's reads (parent_ratio ≥ 20) and are the more likely error satellites. nn_dist / parent_ratio are columns for your own threshold — not a default filter."
         # Quick look at how consistent the accepted candidates are (base composition over the
         # dominant length); no-op unless ≥2 accepted candidates share a length.
         nrow(kept) >= 2 && cluster_profile_heatmap(String.(kept.aln_qseq); title="accepted candidates")
