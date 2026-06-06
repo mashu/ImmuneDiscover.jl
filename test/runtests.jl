@@ -261,6 +261,30 @@ test_outcomes = Dict(
         @test c[c.sequence .== "CCC", :reject_reason][1] == "min posterior"
     end
 
+    @testset "report findings helpers" begin
+        # reject_counts: accepted (empty) first, then reasons by descending count
+        rc = Report.reject_counts(["", "min count", "", "min count", "min ratio"])
+        @test rc[1] == ("accepted", 2)
+        @test rc[2] == ("min count", 2)
+        @test ("min ratio", 1) in rc
+        @test Report.reject_counts(String[]) == Tuple{String,Int}[]
+
+        # composition_matrix underlies rss_consistency: a conserved motif → one base per column
+        M = Report.composition_matrix(["CACAGTG", "CACAGTG", "CACAGTG"])
+        @test all(isapprox.(sum(M, dims=1), 1.0))
+        @test maximum(M[:, 1]) == 1.0           # fully conserved column
+        Mv = Report.composition_matrix(["AAAA", "CCCC"])
+        @test maximum(Mv[:, 1]) == 0.5          # split column ⇒ lower conservation
+
+        # filter_quality_report prints and returns nothing; no error with mixed accept/reject
+        qf = DataFrame(reject_reason=["", "x", ""], n_donors=[3, 1, 4],
+                       max_full_ratio=[1.0, 0.1, 0.9], full_count=[10, 2, 8])
+        @test Report.filter_quality_report(qf, [:n_donors, :max_full_ratio]) === nothing
+        # all-accepted ⇒ nothing to compare ⇒ no-op
+        qa = DataFrame(reject_reason=["", ""], n_donors=[3, 4])
+        @test Report.filter_quality_report(qa, [:n_donors]) === nothing
+    end
+
     @testset "report" begin
         @test occursin("kept 8/10", Report.stage_summary("edge", 8, 10))
         @test occursin("80.0%", Report.stage_summary("edge", 8, 10))

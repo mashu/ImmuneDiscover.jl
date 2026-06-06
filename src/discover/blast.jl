@@ -17,7 +17,7 @@ module Blast
     using ..SeqStats: gc_content, max_homopolymer
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
                      add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes
-    using ..Report: stage_report, section, cluster_profile_heatmap, params_report
+    using ..Report: stage_report, section, cluster_profile_heatmap, params_report, report_rejections
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
     export resolve_work_dir, blast_hits_gz_path
@@ -1068,6 +1068,7 @@ module Blast
         section("BLAST discovery — summary")
         kept = accepted(blast_clusters)
         stage_report("accepted (passed all filters)", nrow(kept), nrow(blast_clusters))
+        report_rejections(blast_clusters.reject_reason)
         report_recurrence(kept)
         # Distance alone is not suspicious — most genuine novel alleles are 1 bp from a known
         # parent. What flags a likely error is being a small fraction of a much more abundant

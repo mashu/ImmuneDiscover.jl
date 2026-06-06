@@ -13,7 +13,7 @@ using ..Data
 using ..Exact
 using ..Filters: FilterCriterion, MinThreshold, add_group_ratio!,
                  init_rejection_columns!, mark_rejected!, accepted, passes
-using ..Report: section, stage_report
+using ..Report: section, stage_report, report_rejections
 import ..Data: unique_name
 
 @inline function dna_index(c::Char)::Int
@@ -305,6 +305,7 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     full_output = replace(replace(outpath, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv.gz"
     section("HSMM D detection — summary")
     stage_report("accepted (passed all filters)", nrow(kept), nrow(collapsed))
+    report_rejections(collapsed.reject_reason)
     CSV.write(outpath, select(kept, Not(reason_cols)), compress=true, delim='\t')
     @info "Filtered D detections ($(nrow(kept)) rows) saved to $outpath"
     CSV.write(full_output, collapsed, compress=true, delim='\t')

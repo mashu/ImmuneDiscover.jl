@@ -8,7 +8,9 @@ module Exact
     using ..Filters: FilterCriterion, MinThreshold, MinStringLength, CustomFilter, add_group_ratio!,
                      init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Mosaic: refs_by_gene, add_chimera_scores!
-    using ..Report: section, stage_report
+    using ..Data: barplot_if_available
+    using ..Report: section, stage_report, report_rejections, recurrence_report,
+                    filter_quality_report, rss_consistency
 
     # ========================== GeneType dispatch hierarchy ==========================
 
@@ -658,6 +660,61 @@ module Exact
         return Dict{String,Float64}(string(n) => Float64(r) for (n, r) in zip(df.name, df.ratio))
     end
 
+    # ========================== Findings report ==========================
+
+    """
+        report_exact_findings(counts_df, kept, db, extension)
+
+    Colored summary of an exact search: accepted alleles per gene, reference genes that never
+    matched or were fully filtered, the reject-reason breakdown, cross-donor recurrence, an
+    accepted-vs-rejected filter-quality comparison, and (RSS mode) heptamer-motif consistency.
+    """
+    function report_exact_findings(counts_df::DataFrame, kept::DataFrame, db, extension)
+        section("Exact search — findings")
+        stage_report("accepted (passed all filters)", nrow(kept), nrow(counts_df))
+
+        query_genes = Set(String(first(split(string(n), '*'))) for (n, _) in db)
+        matched = Set(string.(counts_df.gene))
+        accepted_g = nrow(kept) > 0 ? Set(string.(kept.gene)) : Set{String}()
+
+        if nrow(kept) > 0
+            per_gene = sort(combine(groupby(unique(select(kept, [:gene, :db_name])), :gene),
+                                    nrow => :alleles), :alleles, rev=true)
+            novel_note = "isin_db" in names(kept) ?
+                " ($(count(==("Novel"), string.(kept.isin_db))) novel call row(s))" : ""
+            println("  $(sum(per_gene.alleles)) accepted allele(s) across $(nrow(per_gene)) gene(s)$novel_note.")
+            printstyled("  accepted alleles per gene:\n"; color=:light_black)
+            barplot_if_available(per_gene.gene, per_gene.alleles)
+        else
+            printstyled("  no alleles passed the filters\n"; color=:light_red)
+        end
+
+        never_matched = sort(collect(setdiff(query_genes, matched)))
+        fully_filtered = sort(collect(setdiff(matched, accepted_g)))
+        if !isempty(never_matched)
+            printstyled("  ⚠ $(length(never_matched)) reference gene(s) never matched any read: "; color=:yellow)
+            println(join(first(never_matched, 15), ", "), length(never_matched) > 15 ? " …" : "")
+        end
+        if !isempty(fully_filtered)
+            printstyled("  ⚠ $(length(fully_filtered)) gene(s) matched but every candidate was filtered out: "; color=:yellow)
+            println(join(first(fully_filtered, 15), ", "), length(fully_filtered) > 15 ? " …" : "")
+        end
+
+        report_rejections(counts_df.reject_reason)
+        if nrow(kept) > 0 && "n_donors" in names(kept)
+            u = unique(select(kept, [:sequence, :n_donors]))
+            recurrence_report(u.n_donors; label="candidate sequences")
+        end
+        filter_quality_report(counts_df, [:n_donors, :max_full_ratio, :full_count])
+
+        if extension === nothing && nrow(kept) > 0
+            for col in ("heptamer", "pre_heptamer", "post_heptamer")
+                col in names(kept) && rss_consistency(kept[!, Symbol(col)]; label=col)
+            end
+        end
+        return nothing
+    end
+
     # ========================== CLI handler (orchestrator) ==========================
 
     function handle_exact(parsed_args, immunediscover_module, always_gz)
@@ -745,12 +802,11 @@ module Exact
         end
         output = always_gz(ex["output"])
         full_output = always_gz(replace(replace(output, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv")
-        section("Exact search — summary")
-        stage_report("accepted (passed all filters)", nrow(kept), nrow(counts_df))
+        report_exact_findings(counts_df, kept, db, extension)
         CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')
-        @info "Filtered exact results ($(nrow(kept)) rows) saved to $output"
+        printstyled("  ✓ "; color=:green, bold=true); println("filtered → $output  ($(nrow(kept)) rows)")
         CSV.write(full_output, counts_df, compress=true, delim='\t')
-        @info "Full annotated table ($(nrow(counts_df)) candidates + reject reason) saved to $full_output"
+        printstyled("  ✓ "; color=:green, bold=true); println("full     → $full_output  ($(nrow(counts_df)) candidates + reject_reason)")
         return
     end
 

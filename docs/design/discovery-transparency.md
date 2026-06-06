@@ -24,6 +24,20 @@ filters are reported separately, so it is clear how many candidates each filter 
 `subject coverage`, `BLAST mismatch`, and `core coverage` also draw a unicode histogram of their
 metric.
 
+Every discovery/search command closes with a findings report (shared `Report` helpers):
+
+- `report_rejections` — a bar plot of candidates per outcome (accepted bucket + one bar per reject
+  reason), so it's obvious which filter removed what.
+- `recurrence_report` — cross-donor recurrence of the accepted candidates (single-donor share ≈
+  artifacts) as a histogram.
+- `filter_quality_report` — accepted-vs-rejected medians of metrics the filters do *not* key on
+  (e.g. `n_donors`): higher-for-accepted is independent evidence the filters keep the real alleles.
+- `rss_consistency` (`search exact`, RSS mode) — a base-composition heatmap and mean conservation
+  of the extracted heptamers, so a clean RSS motif is visible at a glance.
+
+`search exact` additionally reports accepted alleles per gene and which reference genes never
+matched a read versus matched but were fully filtered out.
+
 The annotate path lives in `Filters` (`annotate_rejections!`, `mark_rejected!`,
 `init_rejection_columns!`, `accepted`) and is shared with the rest of the pipeline; the colored
 diagnostics live in `Report`.

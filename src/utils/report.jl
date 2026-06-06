@@ -2,10 +2,11 @@ module Report
     using Statistics
     using Printf
     using ..Align: core_mismatch_row
-    using ..Data: histogram_if_available, heatmap_if_available
+    using ..Data: histogram_if_available, heatmap_if_available, barplot_if_available
 
     export stage_report, stage_summary, distribution_summary, section, cluster_profile_heatmap,
-           params_report
+           params_report, reject_counts, report_rejections, recurrence_report,
+           filter_quality_report, rss_consistency
 
     """
         section(title)
@@ -99,6 +100,70 @@ module Report
         return nothing
     end
 
+    # ===== Reusable findings reporting (rejections, recurrence, filter quality, RSS motif) =====
+
+    """
+        reject_counts(reasons; accepted_label="accepted") -> Vector{Tuple{String,Int}}
+
+    Tally `reject_reason` strings: the accepted (empty-reason) bucket first, then each reason by
+    descending count. Pure.
+    """
+    function reject_counts(reasons; accepted_label::AbstractString="accepted")
+        d = Dict{String,Int}()
+        for r in reasons
+            key = isempty(r) ? accepted_label : String(r)
+            d[key] = get(d, key, 0) + 1
+        end
+        rest = sort([(k, v) for (k, v) in d if k != accepted_label]; by = x -> -x[2])
+        acc = get(d, accepted_label, 0)
+        return acc > 0 ? vcat([(accepted_label, acc)], rest) : rest
+    end
+
+    "Bar plot of how many candidates each filter removed (accepted bucket first)."
+    function report_rejections(reasons; title::AbstractString="how candidates were filtered")
+        counts = reject_counts(reasons)
+        isempty(counts) && return nothing
+        printstyled("  ", title, " — candidates per outcome:\n"; color=:light_black)
+        barplot_if_available([c[1] for c in counts], [c[2] for c in counts])
+        return nothing
+    end
+
+    "Cross-donor recurrence of accepted candidates: single-donor share (≈ artifacts) + histogram."
+    function recurrence_report(n_donors; label::AbstractString="candidates")
+        isempty(n_donors) && return nothing
+        n = length(n_donors); single = count(==(1), n_donors)
+        println("  $n distinct accepted $label; $single in a single donor (",
+                round(100 * single / max(n, 1); digits=1), "% — more likely artifacts), ",
+                n - single, " in ≥2 donors.")
+        println("  donors per candidate (x = donors, bar height = candidates):")
+        histogram_if_available(collect(n_donors); nbins=20)
+        return nothing
+    end
+
+    """
+        filter_quality_report(df, metrics; reason_col=:reject_reason)
+
+    Compare the median of each metric among ACCEPTED vs REJECTED candidates. When a metric the
+    filters do not key on (e.g. cross-donor recurrence) is higher for accepted rows, that is
+    independent evidence the filters keep the stronger candidates. Returns nothing.
+    """
+    function filter_quality_report(df, metrics; reason_col::Symbol=:reject_reason)
+        reason_col in propertynames(df) || return nothing
+        acc = isempty.(df[!, reason_col])
+        (count(acc) == 0 || count(.!acc) == 0) && return nothing
+        printstyled("  filter quality — accepted vs rejected medians ",
+                    "(↑ = filters keep the stronger candidates):\n"; color=:light_black)
+        for m in metrics
+            m in propertynames(df) || continue
+            v = df[!, m]
+            am = median(v[acc]); rm = median(v[.!acc])
+            arrow = am > rm ? "↑" : am < rm ? "↓" : "≈"
+            printstyled("    ", rpad(String(m), 16); color=:cyan)
+            println("accepted ", round(am; digits=3), "   rejected ", round(rm; digits=3), "   ", arrow)
+        end
+        return nothing
+    end
+
     const BASES = ('A', 'C', 'G', 'T')
 
     """
@@ -138,6 +203,31 @@ module Report
         end
         M ./= length(seqs)
         return M
+    end
+
+    """
+        rss_consistency(seqs; label="heptamer", max_cols=40)
+
+    Composition heatmap of equal-length flank strings (e.g. extracted heptamers). Conserved
+    columns light up a single base; a clean RSS motif is highly conserved. Prints the mean
+    per-column conservation (1.0 = perfectly conserved). Uses the dominant length.
+    """
+    function rss_consistency(seqs; label::AbstractString="heptamer", max_cols::Int=40)
+        s = [String(x) for x in seqs if !isempty(x)]
+        isempty(s) && return nothing
+        L = dominant_length(s)
+        L == 0 && return nothing
+        keep = [first(x, L) for x in s if length(x) >= L]
+        isempty(keep) && return nothing
+        M = composition_matrix(keep)
+        conservation = mean(maximum(@view M[:, j]) for j in 1:size(M, 2))
+        printstyled("  ", label, " consistency over $(length(keep)) accepted alleles — ",
+                    "mean column conservation ", round(conservation; digits=3),
+                    " (1.0 = perfectly conserved):\n"; color=:light_black)
+        cols = min(size(M, 2), max_cols)
+        heatmap_if_available(M[:, 1:cols]; title="$label composition (rows A/C/G/T)",
+                             xlabel="position", ylabel="base", zlim=(0, 1))
+        return nothing
     end
 
     const NOVEL_SUFFIX = r"_S\d+$"
