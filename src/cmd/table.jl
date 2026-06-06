@@ -35,78 +35,52 @@ function add_table_args!(s)
                 action = :command
         end
 
-        @add_arg_table! s["table"]["outerjoin"] begin
-            "left"
-                help = "Left TSV file path"
-                required = true
-                arg_type = String
-            "right"
-                help = "Right TSV file path"
-                required = true
-                arg_type = String
-            "output"
-                help = "Output TSV (gz auto-enabled)"
-                required = true
-                arg_type = String
-            "-k", "--keys"
-                help = "Comma-separated column names to join on"
-                required = true
-                arg_type = String
-            "--left-keys"
-                help = "Comma-separated join keys from left file (defaults to --keys)"
-                arg_type = String
-            "--right-keys"
-                help = "Comma-separated join keys from right file (defaults to --keys)"
-                arg_type = String
-            "--left-prefix"
-                help = "Optional prefix for left non-key columns"
-                arg_type = String
-            "--right-prefix"
-                help = "Optional prefix for right non-key columns"
-                arg_type = String
-            "--left-select"
-                help = "Comma-separated subset of columns to keep from left file"
-                arg_type = String
-            "--right-select"
-                help = "Comma-separated subset of columns to keep from right file"
-                arg_type = String
-        end
+        for (cmd, tag) in (("outerjoin", "outerjoin"), ("leftjoin", "leftjoin"))
+            jn = s["table"][cmd]
+            @add_arg_table! jn begin
+                "left"
+                    help = "Left TSV file path"
+                    required = true
+                    arg_type = String
+                "right"
+                    help = "Right TSV file path"
+                    required = true
+                    arg_type = String
+                "output"
+                    help = "Output TSV (gz auto-enabled)"
+                    required = true
+                    arg_type = String
+            end
 
-        @add_arg_table! s["table"]["leftjoin"] begin
-            "left"
-                help = "Left TSV file path"
-                required = true
-                arg_type = String
-            "right"
-                help = "Right TSV file path"
-                required = true
-                arg_type = String
-            "output"
-                help = "Output TSV (gz auto-enabled)"
-                required = true
-                arg_type = String
-            "-k", "--keys"
-                help = "Comma-separated column names to join on"
-                required = true
-                arg_type = String
-            "--left-keys"
-                help = "Comma-separated join keys from left file (defaults to --keys)"
-                arg_type = String
-            "--right-keys"
-                help = "Comma-separated join keys from right file (defaults to --keys)"
-                arg_type = String
-            "--left-prefix"
-                help = "Optional prefix for left non-key columns"
-                arg_type = String
-            "--right-prefix"
-                help = "Optional prefix for right non-key columns"
-                arg_type = String
-            "--left-select"
-                help = "Comma-separated subset of columns to keep from left file"
-                arg_type = String
-            "--right-select"
-                help = "Comma-separated subset of columns to keep from right file"
-                arg_type = String
+            add_arg_group!(jn, "Join keys", tag * "_keys")
+            @add_arg_table! jn begin
+                "-k", "--keys"
+                    help = "Comma-separated column names to join on"
+                    required = true
+                    arg_type = String
+                "--left-keys"
+                    help = "Comma-separated join keys from left file (defaults to --keys)"
+                    arg_type = String
+                "--right-keys"
+                    help = "Comma-separated join keys from right file (defaults to --keys)"
+                    arg_type = String
+            end
+
+            add_arg_group!(jn, "Column selection", tag * "_cols")
+            @add_arg_table! jn begin
+                "--left-prefix"
+                    help = "Optional prefix for left non-key columns"
+                    arg_type = String
+                "--right-prefix"
+                    help = "Optional prefix for right non-key columns"
+                    arg_type = String
+                "--left-select"
+                    help = "Comma-separated subset of columns to keep from left file"
+                    arg_type = String
+                "--right-select"
+                    help = "Comma-separated subset of columns to keep from right file"
+                    arg_type = String
+            end
         end
 
         @add_arg_table! s["table"]["transform"] begin
@@ -190,7 +164,8 @@ function add_table_args!(s)
                 action = :store_true
         end
 
-        @add_arg_table! s["table"]["filter"] begin
+        fl = s["table"]["filter"]
+        @add_arg_table! fl begin
             "input"
                 help = "Input TSV file path"
                 required = true
@@ -203,9 +178,17 @@ function add_table_args!(s)
                 help = "Target column to filter on"
                 required = true
                 arg_type = String
+        end
+
+        add_arg_group!(fl, "String filter", "filter_string")
+        @add_arg_table! fl begin
             "--pattern"
                 help = "Regex pattern for string filtering (for text columns)"
                 arg_type = String
+        end
+
+        add_arg_group!(fl, "Numeric filter", "filter_numeric")
+        @add_arg_table! fl begin
             "--operator"
                 help = "Numeric operator: <, <=, >=, > (requires --threshold)"
                 arg_type = String
@@ -230,13 +213,18 @@ function add_table_args!(s)
                 arg_type = String
         end
 
-        @add_arg_table! s["table"]["fasta"] begin
+        tf = s["table"]["fasta"]
+        @add_arg_table! tf begin
         "input"
             help = "Input TSV file path"
             required = true
         "output"
             help = "Output FASTA file path"
             required = true
+        end
+
+        add_arg_group!(tf, "Input columns", "tfasta_cols")
+        @add_arg_table! tf begin
         "-n", "--colname"
             help = "Column name with sequence names/IDs"
             default = "allele_name"
@@ -249,6 +237,10 @@ function add_table_args!(s)
             help = "Optional column with descriptions appended to FASTA headers"
             default = nothing
             arg_type = Union{String, Nothing}
+        end
+
+        add_arg_group!(tf, "Name and description filtering", "tfasta_filter")
+        @add_arg_table! tf begin
         "-f", "--filter"
             help = "Regex to filter sequence names (e.g., 'Novel')"
             default = nothing
@@ -261,9 +253,10 @@ function add_table_args!(s)
             help = "Regex to filter description column; capture group 1 (if present) is appended"
             default = nothing
             arg_type = Union{String, Nothing}
-        "--no-sort"
-            help = "Do not sort records by sequence name"
-            action = :store_true
+        end
+
+        add_arg_group!(tf, "Case filtering", "tfasta_case")
+        @add_arg_table! tf begin
         "--mincase"
             help = "Minimum number of cases that must include the allele to export"
             default = 1
@@ -273,12 +266,18 @@ function add_table_args!(s)
             help = "Column name with donor/case identifiers"
             default = "case"
             arg_type = String
+        end
+
+        add_arg_group!(tf, "Output", "tfasta_out")
+        @add_arg_table! tf begin
+        "--no-sort"
+            help = "Do not sort records by sequence name"
+            action = :store_true
         "--unique-sequences"
             help = "Keep only unique sequences (ignore sequence names, use first encountered name)"
             action = :store_true
         end
 
-        # FASTA group (operations on FASTA files)
         @add_arg_table! s["table"]["collect"] begin
         "pattern"
             help = "Glob pattern of TSV files to concatenate (columns must match)"

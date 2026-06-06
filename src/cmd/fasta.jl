@@ -11,7 +11,8 @@ function add_fasta_args!(s)
                 action = :command
         end
 
-        @add_arg_table! s["fasta"]["merge"] begin
+        mg = s["fasta"]["merge"]
+        @add_arg_table! mg begin
         "output"
             help = "Output merged FASTA file"
             required = true
@@ -19,18 +20,26 @@ function add_fasta_args!(s)
             help = "Input FASTA files to merge (2 or more files)"
             nargs = '+'
             required = true
+        end
+
+        add_arg_group!(mg, "Naming", "merge_naming")
+        @add_arg_table! mg begin
         "-c", "--cleanup"
             help = "Optional regex pattern to remove from sequence names (e.g., ' Novel')"
             default = nothing
             arg_type = Union{String, Nothing}
+        "--add-source-prefix"
+            help = "Add source filename as prefix to sequence names"
+            action = :store_true
+        end
+
+        add_arg_group!(mg, "Merge behaviour", "merge_behaviour")
+        @add_arg_table! mg begin
         "--no-sort"
             help = "Disable sorting sequences by name (default: sort enabled)"
             action = :store_true
         "--prefer-last"
             help = "When duplicate sequences have different names, prefer the last encountered (default: prefer first)"
-            action = :store_true
-        "--add-source-prefix"
-            help = "Add source filename as prefix to sequence names"
             action = :store_true
         end
 
