@@ -116,7 +116,11 @@ result and a full annotated table (`<output>.full.tsv.gz`).
 **Output:** TSV with exact matches and flanks
 - **Core**: `well`, `case`, `gene`, `db_name`, `sequence`
 - **Counts**: `count`, `full_count`, `ratio`, `full_ratio`, `flank_index`
-- **Flanks**: `prefix`, `suffix`, `heptamer`, `spacer`, `nonamer` (gene-dependent)
+- **Flanks** (schema follows the gene and mode searched — a V search carries no D columns):
+  - RSS V: `prefix`, `sequence`, + selected `--rss` of `heptamer`/`spacer`/`nonamer`
+  - RSS J: `suffix`, `sequence`, + selected `--rss` of `heptamer`/`spacer`/`nonamer`
+  - RSS D: `pre_nonamer`/`pre_spacer`/`pre_heptamer` + `post_heptamer`/`post_spacer`/`post_nonamer`
+  - Extension mode (any gene): `prefix`, `suffix`, `prefix_len`, `suffix_len`
 - **Frequencies**: `allele_freq`, `allele_case_freq`, `gene_case_freq`
 - **Totals**: `gene_count`, `case_count`
 - **Cross-case**: `cross_case_median_count`, `cross_case_median_allele_count`, `cross_case_median_gene_count`, `allele_to_cross_case_median_ratio`, `gene_to_cross_case_median_ratio`

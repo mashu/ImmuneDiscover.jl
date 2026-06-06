@@ -59,61 +59,30 @@ module Exact
     const LAST_BORDER_STATS = Ref(Vector{BORDER_ROW}())
     const LAST_BORDER_GENE_STATS = Ref(Vector{BORDER_GENE_ROW}())
 
-    # ========================== Unified, type-stable match row ==========================
-    # Both RSS and extension modes emit a single concrete schema so the per-read hot loop
-    # builds a `Vector{MatchRow}` (type-stable) rather than a `Vector{NamedTuple}` (abstract).
-    # Fields not produced by a given mode/gene are left "" — and because `full_count` groups by
-    # every column, those constant-"" columns do not change the count granularity, so the RSS
-    # field selection still controls grouping exactly as before.
+    # ========================== Per-mode match schemas ==========================
+    # The output schema follows the gene and mode the user is searching, so a V search never
+    # carries D columns. Each mode/gene produces a CONCRETE row type, which keeps the per-read
+    # hot loop type-stable (a `Vector{<concrete NamedTuple>}`, not `Vector{NamedTuple}`):
+    #   - extension mode (any gene): ExtRow — prefix/sequence/suffix + their lengths;
+    #   - RSS mode: the gene-specific flank NamedTuple from `extract_flanking` (V: prefix +
+    #     heptamer/spacer/nonamer; J: suffix + heptamer/spacer/nonamer; D: pre_*/post_*).
+    # The `--rss` selection is applied as a column PROJECTION (`project_rss!`) rather than by
+    # varying the per-row type, so grouping/output keep exactly the requested RSS elements.
 
-    const MATCH_FIELDS = (:well, :case, :db_name, :sequence, :prefix, :suffix,
-                          :heptamer, :spacer, :nonamer,
-                          :pre_heptamer, :pre_spacer, :pre_nonamer,
-                          :post_heptamer, :post_spacer, :post_nonamer,
-                          :prefix_len, :suffix_len)
-    const MatchRow = NamedTuple{MATCH_FIELDS,
-        Tuple{String, String, String, String, String, String,
-              String, String, String, String, String, String,
-              String, String, String, Int, Int}}
+    const ExtRow = NamedTuple{(:well, :case, :db_name, :prefix, :sequence, :suffix, :prefix_len, :suffix_len),
+                              Tuple{String, String, String, String, String, String, Int, Int}}
 
-    @inline fval(nt, k::Symbol) = hasproperty(nt, k) ? String(getproperty(nt, k)) : ""
-
-    "Project a mode-specific `flanks` NamedTuple onto the unified `MatchRow` (absent fields = \"\")."
-    function to_match_row(well::AbstractString, case::AbstractString, db_name::AbstractString, flanks)::MatchRow
-        prefix = fval(flanks, :prefix)
-        suffix = fval(flanks, :suffix)
-        return (well = String(well), case = String(case), db_name = String(db_name),
-                sequence = fval(flanks, :sequence), prefix = prefix, suffix = suffix,
-                heptamer = fval(flanks, :heptamer), spacer = fval(flanks, :spacer), nonamer = fval(flanks, :nonamer),
-                pre_heptamer = fval(flanks, :pre_heptamer), pre_spacer = fval(flanks, :pre_spacer), pre_nonamer = fval(flanks, :pre_nonamer),
-                post_heptamer = fval(flanks, :post_heptamer), post_spacer = fval(flanks, :post_spacer), post_nonamer = fval(flanks, :post_nonamer),
-                prefix_len = length(prefix), suffix_len = length(suffix))
+    "Keep only the gene-appropriate RSS columns for `--rss` (V/J: mandatory flank + selected RSS; D: all)."
+    function project_rss!(df::DataFrame, ::VGene, rss)
+        optional = intersect(["heptamer", "spacer", "nonamer"], rss)
+        select!(df, vcat(["well", "case", "db_name", "prefix", "sequence"], optional))
     end
-
-    # ========================== RSS tuple filtering ==========================
-
-    function filter_tuple_by_types(types_as_strings, mandatory_key; tuple_data)
-        if mandatory_key ∉ ["prefix", "suffix"]
-            error("mandatory_key must be either 'prefix' or 'suffix'")
-        end
-        full_tuple_keys_as_strings = ["prefix", "sequence", "heptamer", "spacer", "nonamer", "suffix"]
-        selected_data = Dict("sequence" => tuple_data.sequence)
-        if mandatory_key in keys(tuple_data)
-            selected_data[mandatory_key] = getfield(tuple_data, Symbol(mandatory_key))
-        end
-        for key_str in full_tuple_keys_as_strings
-            key_sym = Symbol(key_str)
-            if (key_str in types_as_strings || key_str in ["sequence", mandatory_key]) && key_sym in keys(tuple_data)
-                selected_data[key_str] = getfield(tuple_data, key_sym)
-            end
-        end
-        return NamedTuple{Tuple(Symbol.(keys(selected_data)))}(values(selected_data))
+    function project_rss!(df::DataFrame, ::JGene, rss)
+        optional = intersect(["heptamer", "spacer", "nonamer"], rss)
+        select!(df, vcat(["well", "case", "db_name", "sequence", "suffix"], optional))
     end
+    project_rss!(df::DataFrame, ::DGene, rss) = df   # D keeps its full pre_/post_ RSS context
 
-    # Filter flanks by gene type for RSS mode (dispatch replaces string ternary)
-    filter_rss_flanks(rss, flanks, ::VGene) = filter_tuple_by_types(rss, "prefix", tuple_data=flanks)
-    filter_rss_flanks(rss, flanks, ::JGene) = filter_tuple_by_types(rss, "suffix", tuple_data=flanks)
-    filter_rss_flanks(rss, flanks, ::DGene) = flanks
 
     # ========================== Merge helpers ==========================
 
@@ -351,26 +320,57 @@ module Exact
         collect_matches(table, query, gt, affix, rss, extension, border, adjust, pgp, pgs)
             -> (result_df, totals_all, accepted_all)
 
-    Scan every read for exact occurrences of each query allele, extract the flanks, and emit a
-    unified `MatchRow` per accepted occurrence. `totals_all`/`accepted_all` tally border-filter
-    bookkeeping per (case, gene). Pure aside from progress logging.
+    Scan every read for exact occurrences of each query allele and emit one match row per accepted
+    occurrence, in the gene/mode-appropriate schema. Dispatches to a type-stable per-mode kernel
+    (RSS vs extension); `totals_all`/`accepted_all` hold border-filter tallies (extension only).
     """
     function collect_matches(table, query, gt::GeneType, affix::Int, rss, extension,
                              border::Int, adjust::Bool, per_gene_prefix, per_gene_suffix)
+        if extension === nothing
+            result_df = collect_rss(table, query, gt, affix)
+            isempty(result_df) || project_rss!(result_df, gt, rss)
+            empty = Dict{Tuple{String,String},Int}()
+            return result_df, empty, copy(empty)
+        end
+        return collect_extension(table, query, gt, affix, extension, border, adjust,
+                                 per_gene_prefix, per_gene_suffix)
+    end
+
+    "RSS mode (no extension): full gene-specific flank rows; `gt` barrier keeps the row type concrete."
+    function collect_rss(table, query, gt::G, affix::Int) where {G<:GeneType}
+        p = Progress(nrow(table))
+        per_read = Folds.map(eachrow(table)) do row
+            next!(p)
+            read_matches_rss(row, query, gt, affix)
+        end
+        valid = [v for v in per_read if !isempty(v)]
+        return isempty(valid) ? DataFrame() : DataFrame(reduce(vcat, valid))
+    end
+
+    "Match rows for one read in RSS mode. The comprehension infers a concrete element type under `G`."
+    function read_matches_rss(row, query, gt::G, affix::Int) where {G<:GeneType}
+        well = string(row.well); case = string(row.case); gs = row.genomic_sequence
+        return [merge((well=well, case=case, db_name=string(name)),
+                      extract_flanking(gs, (minimum(m), maximum(m)), gt, affix, nothing))
+                for (name, seq) in query for m in (findfirst(seq, gs),) if m !== nothing]
+    end
+
+    "Extension mode: fixed `ExtRow` schema (prefix/sequence/suffix + lengths) plus border tallies."
+    function collect_extension(table, query, gt::G, affix::Int, extension::Int, border::Int,
+                               adjust::Bool, per_gene_prefix, per_gene_suffix) where {G<:GeneType}
         p = Progress(nrow(table))
         result = Folds.map(eachrow(table)) do row
             next!(p)
-            case = string(row.case); well = string(row.well)
-            rl = length(row.genomic_sequence)
-            matches = MatchRow[]
+            well = string(row.well); case = string(row.case); gs = row.genomic_sequence; rl = length(gs)
+            matches = ExtRow[]
             totals = Dict{Tuple{String,String},Int}()
             accepted_counts = Dict{Tuple{String,String},Int}()
             @inbounds for (name, seq) in query
-                m = findfirst(seq, row.genomic_sequence)
+                m = findfirst(seq, gs)
                 m === nothing && continue
                 sp = minimum(m); ep = maximum(m)
-                if extension !== nothing && border > 0
-                    gb = first(split(string(name), '*'))
+                gb = first(split(string(name), '*'))
+                if border > 0
                     key = (case, gb)
                     totals[key] = get(totals, key, 0) + 1
                     rejected = adjust ?
@@ -379,16 +379,13 @@ module Exact
                     rejected && continue
                     accepted_counts[key] = get(accepted_counts, key, 0) + 1
                 end
-                local flanks
-                if extension !== nothing && adjust && border > 0
-                    gb = first(split(string(name), '*'))
-                    flanks = extract_flanking(row.genomic_sequence, (sp, ep), gt, affix, extension,
-                                              get(per_gene_prefix, gb, extension), get(per_gene_suffix, gb, extension))
-                else
-                    flanks = extract_flanking(row.genomic_sequence, (sp, ep), gt, affix, extension)
-                end
-                selected = extension !== nothing ? flanks : filter_rss_flanks(rss, flanks, gt)
-                push!(matches, to_match_row(well, case, string(name), selected))
+                flanks = (adjust && border > 0) ?
+                    extract_flanking(gs, (sp, ep), gt, affix, extension, get(per_gene_prefix, gb, extension), get(per_gene_suffix, gb, extension)) :
+                    extract_flanking(gs, (sp, ep), gt, affix, extension)
+                push!(matches, (well=well, case=case, db_name=string(name),
+                                prefix=String(flanks.prefix), sequence=String(flanks.sequence),
+                                suffix=String(flanks.suffix),
+                                prefix_len=length(flanks.prefix), suffix_len=length(flanks.suffix)))
             end
             (matches=matches, totals=totals, accepted=accepted_counts)
         end
