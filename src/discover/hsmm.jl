@@ -288,12 +288,13 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     annotate!(FilterCriterion[MinThreshold(:posterior_prob, min_posterior,
                               "min posterior (--min-posterior $min_posterior)")], "detection filter")
 
-    out_criteria = FilterCriterion[]
-    if any(x->x!="", collapsed.gene)
-        add_group_ratio!(collapsed, :count, [:well,:case,:gene], :ratio)
-        push!(out_criteria, MinThreshold(:count, Float64(out_mincount), "min output count (--out-mincount $out_mincount)"))
-        push!(out_criteria, MinThreshold(:ratio, out_minratio, "min output ratio (--out-minratio $out_minratio)"))
-    end
+    # Always apply the count/ratio output filters. Grouping by gene handles an all-novel batch
+    # (gene == "" collapses to one bucket) instead of silently skipping the filters.
+    add_group_ratio!(collapsed, :count, [:well,:case,:gene], :ratio)
+    out_criteria = FilterCriterion[
+        MinThreshold(:count, Float64(out_mincount), "min output count (--out-mincount $out_mincount)"),
+        MinThreshold(:ratio, out_minratio, "min output ratio (--out-minratio $out_minratio)"),
+    ]
     min_heptamer_prob_pre > 0 && push!(out_criteria, MinThreshold(:heptamer_prob_pre, min_heptamer_prob_pre, "min pre-heptamer prob (--min-heptamer-prob-pre $min_heptamer_prob_pre)"))
     min_heptamer_prob_post > 0 && push!(out_criteria, MinThreshold(:heptamer_prob_post, min_heptamer_prob_post, "min post-heptamer prob (--min-heptamer-prob-post $min_heptamer_prob_post)"))
     annotate!(out_criteria, "output filter")

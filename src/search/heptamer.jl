@@ -69,11 +69,11 @@ module Heptamer
         return result
     end
 
-    function summarize(df; ratio=0.2, count=10)
+    function summarize(df; ratio=0.2, mincount=10)
         nrow(df) == 0 && return DataFrame()
         summary = combine(groupby(df, [:db_name, :sequence, :heptamer]), nrow => :count)
         add_group_ratio!(summary, :count, [:db_name], :ratio)
-        filter!(x -> x.count >= count && x.ratio >= ratio, summary)
+        filter!(x -> x.count >= mincount && x.ratio >= ratio, summary)
         sort!(summary, [:db_name, :count], rev=[false, true])
         return summary
     end
@@ -97,7 +97,7 @@ module Heptamer
         @info "Heptamer search results saved to $output"
         summary_df = summarize(heptamer_df,
             ratio=parsed_args["search"]["heptamer"]["ratio"],
-            count=parsed_args["search"]["heptamer"]["mincount"])
+            mincount=parsed_args["search"]["heptamer"]["mincount"])
         summary_file = parsed_args["search"]["heptamer"]["summary"]
         CSV.write(summary_file, summary_df, delim='\t')
         @info "Heptamer summary saved to $summary_file"

@@ -26,7 +26,7 @@ function add_preprocess_args!(s)
                 range_tester = (x->x >= 0)
                 default = 200
             "--case-filter-regex"
-                help = "Regex to keep only cases matching pattern (e.g., '[ACDERF]')"
+                help = "Keep only cases whose identifier matches this regex anywhere (unanchored; e.g. '[ACDERF]', or '^A' to anchor)"
                 arg_type = String
         end
 

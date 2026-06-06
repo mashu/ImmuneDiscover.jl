@@ -513,7 +513,7 @@ test_outcomes = Dict(
             summary_df = Heptamer.summarize(
                 heptamer_df,
                 ratio=parsed_args["search"]["heptamer"]["ratio"],
-                count=parsed_args["search"]["heptamer"]["mincount"]
+                mincount=parsed_args["search"]["heptamer"]["mincount"]
             )
             @test nrow(summary_df) > 0
         end

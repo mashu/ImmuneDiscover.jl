@@ -95,7 +95,8 @@ module Demultiplex
             @info "Filtering cases with regex: $case_filter_regex"
             original_count = nrow(table)
             compiled_regex = Regex(case_filter_regex)
-            filter!(x -> startswith(x.case, compiled_regex), table)
+            # Keep cases whose identifier matches the pattern anywhere (unanchored); use ^…$ to anchor.
+            filter!(x -> occursin(compiled_regex, x.case), table)
             @info "Filtered from $original_count to $(nrow(table)) rows"
         end
 
