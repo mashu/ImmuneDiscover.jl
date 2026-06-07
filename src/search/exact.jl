@@ -8,7 +8,7 @@ module Exact
     using ..Filters: FilterCriterion, MinThreshold, MinStringLength, CustomFilter, add_group_ratio!,
                      init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Mosaic: refs_by_gene, add_chimera_scores!
-    using ..Data: barplot_if_available, round_floats!
+    using ..Data: barplot_if_available, boxplot_if_available, round_floats!
     using ..Report: section, stage_report, report_rejections, recurrence_report,
                     filter_quality_report, rss_consistency
 
@@ -699,14 +699,57 @@ module Exact
 
     # ========================== Findings report ==========================
 
-    """
-        report_exact_findings(counts_df, kept, db, extension)
+    "Per-donor (case) depth (reads) and breadth (genes/alleles); flags the weakest donors."
+    function report_per_donor(kept::DataFrame, table)
+        nrow(kept) == 0 && return nothing
+        breadth = combine(groupby(kept, :case),
+                          :gene => (x -> length(unique(x))) => :n_genes,
+                          :db_name => (x -> length(unique(x))) => :n_alleles)
+        # total reads per donor from the demux table; string-keyed so case-id types can differ.
+        depth = combine(groupby(table, :case), nrow => :reads)
+        reads_by_case = Dict(string(r.case) => r.reads for r in eachrow(depth))
+        breadth.reads = [get(reads_by_case, string(c), 0) for c in breadth.case]
+        sort!(breadth, :case)
+        ndon = nrow(breadth)
 
-    Colored summary of an exact search: accepted alleles per gene, reference genes that never
-    matched or were fully filtered, the reject-reason breakdown, cross-donor recurrence, an
-    accepted-vs-rejected filter-quality comparison, and (RSS mode) heptamer-motif consistency.
+        printstyled("  per-donor QC over $ndon donor(s) — genes & reads (low ⇒ donor may have failed):\n";
+                    color=:light_black)
+        boxplot_if_available(["genes/donor", "alleles/donor"], [breadth.n_genes, breadth.n_alleles])
+        boxplot_if_available(["reads/donor"], [breadth.reads])
+        worst = first(sort(breadth, :n_genes), min(5, ndon))
+        println("    weakest donors by genes detected: ",
+                join(["$(r.case): $(r.n_genes)g/$(r.reads)r" for r in eachrow(worst)], ",  "))
+        return nothing
+    end
+
+    "Per-gene read-count distribution (amplification efficiency), genes sorted by median count."
+    function report_per_gene_amplification(kept::DataFrame; max_genes::Int=50)
+        nrow(kept) == 0 && return nothing
+        genes = String[]; data = Vector{Vector{Int}}()
+        for sub in groupby(kept, :gene)
+            push!(genes, String(first(sub.gene)))
+            push!(data, Vector{Int}(sub.count))
+        end
+        ord = sortperm([median(d) for d in data]; rev=true)
+        genes, data = genes[ord], data[ord]
+        if length(genes) > max_genes
+            genes, data = genes[1:max_genes], data[1:max_genes]
+        end
+        printstyled("  per-gene read-count distribution (top = best amplifying; box = spread across alleles/donors):\n";
+                    color=:light_black)
+        boxplot_if_available(genes, data)
+        return nothing
+    end
+
     """
-    function report_exact_findings(counts_df::DataFrame, kept::DataFrame, db, extension)
+        report_exact_findings(counts_df, kept, db, extension, table)
+
+    Colored diagnostics for an exact search: accepted alleles per gene; per-donor QC (depth &
+    breadth, to spot failed donors); per-gene amplification; reference genes never matched or
+    fully filtered; the reject-reason breakdown; cross-donor recurrence; an accepted-vs-rejected
+    filter-quality comparison; and (RSS mode) the heptamer consensus + variation.
+    """
+    function report_exact_findings(counts_df::DataFrame, kept::DataFrame, db, extension, table)
         section("Exact search — findings")
         stage_report("accepted (passed all filters)", nrow(kept), nrow(counts_df))
 
@@ -725,6 +768,9 @@ module Exact
         else
             printstyled("  no alleles passed the filters\n"; color=:light_red)
         end
+
+        report_per_donor(kept, table)
+        report_per_gene_amplification(kept)
 
         never_matched = sort(collect(setdiff(query_genes, matched)))
         fully_filtered = sort(collect(setdiff(matched, accepted_g)))
@@ -839,7 +885,7 @@ module Exact
         end
         output = always_gz(ex["output"])
         full_output = always_gz(replace(replace(output, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv")
-        report_exact_findings(counts_df, kept, db, extension)
+        report_exact_findings(counts_df, kept, db, extension, table)
         # Readable output: metrics left, long sequence/flank columns right (genomic order); round
         # float columns to 4 dp instead of full Float64 precision.
         gt = parse_gene_type(gene)

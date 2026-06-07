@@ -301,6 +301,13 @@ test_outcomes = Dict(
         Mv = Report.composition_matrix(["AAAA", "CCCC"])
         @test maximum(Mv[:, 1]) == 0.5          # split column ⇒ lower conservation
 
+        # consensus_motif: most-frequent base per position + per-position conservation
+        cons, cN = Report.consensus_motif(["CACAGTG", "CACAGTG", "CACAGTC"])
+        @test cons == "CACAGTG"                 # pos 7: G in 2/3 ⇒ consensus G
+        @test cN[1] == 1.0                      # pos 1 fully conserved
+        @test cN[7] ≈ 2/3
+        @test Report.consensus_motif(String[]) == ("", Float64[])
+
         # filter_quality_report prints and returns nothing; no error with mixed accept/reject
         qf = DataFrame(reject_reason=["", "x", ""], n_donors=[3, 1, 4],
                        max_full_ratio=[1.0, 0.1, 0.9], full_count=[10, 2, 8])

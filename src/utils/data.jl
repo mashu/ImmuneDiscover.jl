@@ -10,7 +10,7 @@ module Data
 
     export load_fasta, plotgenes, unique_name, sequence_hash, load_demultiplex
     export concatenate_columns, validate_types, get_ratio_threshold
-    export barplot_if_available, histogram_if_available, heatmap_if_available
+    export barplot_if_available, histogram_if_available, heatmap_if_available, boxplot_if_available
     export round_floats!
 
     """
@@ -123,6 +123,13 @@ module Data
     function barplot_if_available(labels, counts)
         isempty(labels) && return nothing
         println(UnicodePlots.barplot(labels, counts))
+        return nothing
+    end
+
+    """Unicode boxplot of one or more named numeric series (no-op for empty input)."""
+    function boxplot_if_available(labels, data; kwargs...)
+        (isempty(labels) || isempty(data)) && return nothing
+        println(UnicodePlots.boxplot(labels, data; kwargs...))
         return nothing
     end
 

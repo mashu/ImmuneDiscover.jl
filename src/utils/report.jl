@@ -6,7 +6,7 @@ module Report
 
     export stage_report, stage_summary, distribution_summary, section, cluster_profile_heatmap,
            params_report, reject_counts, report_rejections, recurrence_report,
-           filter_quality_report, rss_consistency
+           filter_quality_report, rss_consistency, consensus_motif
 
     """
         section(title)
@@ -206,27 +206,52 @@ module Report
     end
 
     """
-        rss_consistency(seqs; label="heptamer", max_cols=40)
+        consensus_motif(seqs) -> (consensus::String, conservation::Vector{Float64})
 
-    Composition heatmap of equal-length flank strings (e.g. extracted heptamers). Conserved
-    columns light up a single base; a clean RSS motif is highly conserved. Prints the mean
-    per-column conservation (1.0 = perfectly conserved). Uses the dominant length.
+    Per-position consensus base (the most frequent base) and its frequency (conservation, 0–1)
+    over the dominant-length sequences. Pure.
     """
-    function rss_consistency(seqs; label::AbstractString="heptamer", max_cols::Int=40)
+    function consensus_motif(seqs)
         s = [String(x) for x in seqs if !isempty(x)]
-        isempty(s) && return nothing
+        isempty(s) && return ("", Float64[])
         L = dominant_length(s)
-        L == 0 && return nothing
+        L == 0 && return ("", Float64[])
         keep = [first(x, L) for x in s if length(x) >= L]
-        isempty(keep) && return nothing
+        isempty(keep) && return ("", Float64[])
         M = composition_matrix(keep)
-        conservation = mean(maximum(@view M[:, j]) for j in 1:size(M, 2))
-        printstyled("  ", label, " consistency over $(length(keep)) accepted alleles — ",
-                    "mean column conservation ", round(conservation; digits=3),
-                    " (1.0 = perfectly conserved):\n"; color=:light_black)
-        cols = min(size(M, 2), max_cols)
-        heatmap_if_available(M[:, 1:cols]; title="$label composition (rows A/C/G/T)",
-                             xlabel="position", ylabel="base", zlim=(0, 1))
+        cons = Char[]; conservation = Float64[]
+        for j in axes(M, 2)
+            col = @view M[:, j]
+            i = argmax(col)
+            push!(cons, BASES[i]); push!(conservation, col[i])
+        end
+        return (String(cons), conservation)
+    end
+
+    """
+        rss_consistency(seqs; label="heptamer")
+
+    Legible RSS-motif consistency: prints the consensus motif (e.g. `CACAGTG`) and mean
+    conservation, then a per-position **variation** bar plot (taller ⇒ that position is less
+    conserved), labelled by the consensus base — so it is obvious whether the extracted motif is
+    clean and where it varies. A perfectly conserved motif prints a one-line note instead.
+    """
+    function rss_consistency(seqs; label::AbstractString="heptamer")
+        cons, conservation = consensus_motif(seqs)
+        isempty(cons) && return nothing
+        meanc = mean(conservation)
+        printstyled("  ", label, " motif — consensus ", cons, ", mean conservation ",
+                    round(meanc; digits=3), " (1.0 = identical at every position):\n";
+                    color=:light_black)
+        variation = round.(1 .- conservation; digits=3)
+        if maximum(variation) <= 0.001
+            printstyled("    perfectly conserved at every position\n"; color=:light_black)
+        else
+            printstyled("    per-position variation (taller ⇒ less conserved; x = position:consensus base):\n";
+                        color=:light_black)
+            labels = ["$(j):$(cons[j])" for j in 1:length(cons)]
+            barplot_if_available(labels, variation)
+        end
         return nothing
     end
 
