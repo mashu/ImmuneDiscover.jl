@@ -851,7 +851,7 @@ module Blast
         @info "Work directory (caches, intermediates): $work_dir"
         file_stem = split(basename(fasta_path), '.')[1]
         affixes_path = joinpath(work_dir, file_stem * ".affixes")
-        DB = immunediscover_module.load_fasta(fasta_path, validate=false)
+        DB = immunediscover_module.load_fasta(fasta_path)
 
         verbose = parsed_args["discover"]["blast"]["verbose"]
         overwrite = parsed_args["discover"]["blast"]["overwrite"]
@@ -873,11 +873,11 @@ module Blast
         db_p = Vector{Tuple{String, String}}()
         pseudo = parsed_args["discover"]["blast"]["pseudo"]
         if !isempty(pseudo)
-            for (name, seq) in data_load_fasta(pseudo, validate=false)
+            for (name, seq) in data_load_fasta(pseudo)
                 push!(db_p, ("P" * name, seq))
             end
         end
-        for (name, seq) in data_load_fasta(fasta_path, validate=false)
+        for (name, seq) in data_load_fasta(fasta_path)
             push!(db_p, (name, seq))
         end
         combined_fasta_path = joinpath(work_dir, file_stem * "-combined.fasta")

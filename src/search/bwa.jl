@@ -10,6 +10,7 @@ module Bwa
     using CSV
     using BioSequences
     using CodecZlib
+    using ..Data: load_fasta
 
     function description(aln::BurrowsWheelerAligner.LibBWA.mem_aln_t, aligner::BurrowsWheelerAligner.Aligner)
         anns = BurrowsWheelerAligner.LibBWA.unsafe_load(aligner.index.bns).anns
@@ -99,25 +100,9 @@ module Bwa
     end
 
     function load_reference_sequences(fasta_path::String)
-        ref_seqs = Dict{String, String}()
         @info "Loading reference sequences from $fasta_path"
-        if endswith(fasta_path, ".gz")
-            open(fasta_path) do file
-                stream = GzipDecompressorStream(file)
-                reader = FASTA.Reader(stream)
-                for record in reader
-                    ref_seqs[FASTA.identifier(record)] = FASTA.sequence(String, record)
-                end
-                close(reader)
-                close(stream)
-            end
-        else
-            open(FASTA.Reader, fasta_path) do reader
-                for record in reader
-                    ref_seqs[FASTA.identifier(record)] = FASTA.sequence(String, record)
-                end
-            end
-        end
+        records = Data.load_fasta(fasta_path)
+        ref_seqs = Dict(name => seq for (name, seq) in records)
         @info "Loaded $(length(ref_seqs)) reference sequences"
         return ref_seqs
     end

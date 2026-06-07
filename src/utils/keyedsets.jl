@@ -10,10 +10,8 @@ module KeyedSets
         data::Dict{String, String}
     end
 
-    # Constructor
     KeyedSet() = KeyedSet(Dict{String, String}())
 
-    # New constructor for Vector of Tuples
     function KeyedSet(pairs::Vector{Tuple{String, String}})
         ks = KeyedSet()
         for pair in pairs
@@ -22,22 +20,25 @@ module KeyedSets
         return ks
     end
 
-    # Add a key-value pair
-    function Base.push!(ks::KeyedSet, pair::KeyedPair)
-        if !haskey(ks.data, pair.key)
-            ks.data[pair.key] = pair.value
-        elseif ks.data[pair.key] != pair.value
-            @warn "Key $(pair.key) with value $(pair.value) already exists in KeyedSet with value $(ks.data[pair.key])"
-        else
-            @info "Duplicate key $(pair.key) with value $(pair.value) already exists in KeyedSet"
+    function _register_sequence_name!(data::Dict{String,String}, sequence::String, name::String; strict::Bool=true)
+        if haskey(data, sequence)
+            existing = data[sequence]
+            existing != name && throw(ArgumentError(
+                "Identical sequence appears under different names: \"$existing\" and \"$name\""))
+            strict && throw(ArgumentError("Duplicate sequence entry for \"$name\""))
+            return nothing
         end
+        data[sequence] = name
+        return nothing
+    end
+
+    function Base.push!(ks::KeyedSet, pair::KeyedPair)
+        _register_sequence_name!(ks.data, pair.key, pair.value)
         return ks
     end
 
-    # Add a tuple of strings
     Base.push!(ks::KeyedSet, pair::Tuple{String, String}) = push!(ks, KeyedPair(pair...))
 
-    # Implement set operations
     Base.in(key::String, ks::KeyedSet) = haskey(ks.data, key)
     Base.length(ks::KeyedSet) = length(ks.data)
     Base.iterate(ks::KeyedSet, state...) = iterate(keys(ks.data), state...)
@@ -45,42 +46,30 @@ module KeyedSets
     Base.:(==)(ks1::KeyedSet, ks2::KeyedSet) = ks1.data == ks2.data
     Base.show(io::IO, ks::KeyedSet) = print(io, "KeyedSet(size=$(length(ks)))")
 
-    # Set operations
     function Base.union(ks1::KeyedSet, ks2::KeyedSet)
         result = KeyedSet(copy(ks1.data))
-        for (k, v2) in ks2.data
-            if haskey(result.data, k)
-                v1 = result.data[k]
-                if v1 != v2
-                    @info "Key $k exists in both sets with different names. Using name '$(v1)' from the first set instead of '$(v2)' from the second set."
-                end
-            else
-                result.data[k] = v2
-            end
+        for (sequence, name) in ks2.data
+            _register_sequence_name!(result.data, sequence, name; strict=false)
         end
         return result
     end
 
     function Base.intersect(ks1::KeyedSet, ks2::KeyedSet)
         result = KeyedSet()
-        for (k, v1) in ks1.data
-            if haskey(ks2.data, k)
-                v2 = ks2.data[k]
-                if v1 != v2
-                    @info "Sequence with key $k is identical but has different names: $(v1) in set 1, $(v2) in set 2"
-                end
-                push!(result, (k, v1))
-            end
+        for (sequence, name1) in ks1.data
+            haskey(ks2.data, sequence) || continue
+            name2 = ks2.data[sequence]
+            name1 != name2 && throw(ArgumentError(
+                "Identical sequence has different names: \"$name1\" vs \"$name2\""))
+            push!(result, (sequence, name1))
         end
         return result
     end
 
     function Base.setdiff(ks1::KeyedSet, ks2::KeyedSet)
         result = KeyedSet()
-        for (k1, v1) in ks1.data
-            if !haskey(ks2.data, k1)
-                push!(result, (k1, v1))
-            end
+        for (sequence, name) in ks1.data
+            haskey(ks2.data, sequence) || push!(result, (sequence, name))
         end
         return result
     end

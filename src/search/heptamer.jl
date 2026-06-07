@@ -85,7 +85,7 @@ module Heptamer
     function handle_heptamer(parsed_args, immunediscover_module, always_gz)
         @info "Heptamer search"
         table = immunediscover_module.load_demultiplex(parsed_args["search"]["heptamer"]["tsv"])
-        db = immunediscover_module.load_fasta(parsed_args["search"]["heptamer"]["fasta"], validate=false)
+        db = immunediscover_module.load_fasta(parsed_args["search"]["heptamer"]["fasta"])
         chain = parsed_args["search"]["heptamer"]["chain"]
         heptamers = load_heptamers(parsed_args["search"]["heptamer"]["json"])
         heptamer_df = extract_heptamers(table, db, heptamers[chain];

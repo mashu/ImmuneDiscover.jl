@@ -203,7 +203,7 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     tbl = limit>0 ? Data.load_demultiplex(tsv,limit=limit) : Data.load_demultiplex(tsv)
     @info "Loaded $(nrow(tbl)) rows"
     @info "Loading D allele FASTA: $fasta_path"
-    db = Data.load_fasta(fasta_path, validate=false)
+    db = Data.load_fasta(fasta_path)
     db_seq_lookup = Dict{String,String}((seq=>name) for (name,seq) in db)
     db_names=first.(db); db_seqs=last.(db)
     @info "Searching known D alleles"

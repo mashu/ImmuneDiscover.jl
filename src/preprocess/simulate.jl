@@ -103,6 +103,51 @@ module Simulate
         error("Unknown mutation type: $mutation_type")
     end
 
+    function append_unique_novel!(
+        novel_records::Vector{FASTARecord},
+        used_names::Set{String},
+        used_seqs::Set{String},
+        name::String,
+        seq::String,
+    )
+        name in used_names && throw(ArgumentError("duplicate novel allele name: $name"))
+        seq in used_seqs && throw(ArgumentError("duplicate novel sequence under name $name"))
+        push!(novel_records, FASTARecord(name, seq))
+        push!(used_names, name)
+        push!(used_seqs, seq)
+        return nothing
+    end
+
+    function unique_mutation(
+        reference_seq::String,
+        used_seqs::Set{String},
+        mutation_types,
+        mutation_lengths;
+        max_tries::Int=200,
+    )
+        for _ in 1:max_tries
+            variant = apply_random_mutation(reference_seq, rand(mutation_types), rand(mutation_lengths))
+            variant in used_seqs || return variant
+        end
+        throw(ArgumentError("Could not generate a unique mutation sequence after $max_tries attempts"))
+    end
+
+    function unique_mutation(
+        reference_seq::String,
+        used_seqs::Set{String},
+        mutation_type::String,
+        mutation_length::Int;
+        max_tries::Int=200,
+    )
+        for _ in 1:max_tries
+            variant = apply_random_mutation(reference_seq, mutation_type, mutation_length)
+            variant in used_seqs || return variant
+        end
+        throw(ArgumentError(
+            "Could not generate a unique $mutation_type mutation of length $mutation_length " *
+            "after $max_tries attempts"))
+    end
+
     function generate_fasta_with_mutations(fasta_output::String, indices_output::String,
                                            reference_output::String, novel_output::String;
                                            n_reads::Int=100, base_length::Int=400)
@@ -114,6 +159,8 @@ module Simulate
 
         records = FASTARecord[]
         novel_records = FASTARecord[]
+        used_novel_names = Set{String}()
+        used_novel_seqs = Set{String}()
         mutation_types = ["insertion", "deletion", "substitution"]
         mutation_lengths = [1, 3, 5]
 
@@ -124,9 +171,9 @@ module Simulate
 
             for mut_type in mutation_types
                 for mut_len in mutation_lengths
-                    mutated = apply_random_mutation(reference_seq, mut_type, mut_len)
+                    mutated = unique_mutation(reference_seq, used_novel_seqs, mut_type, mut_len)
                     allele_name = "REF*$(donor_idx)_$(mut_type)_$(mut_len)"
-                    push!(novel_records, FASTARecord(allele_name, mutated))
+                    append_unique_novel!(novel_records, used_novel_names, used_novel_seqs, allele_name, mutated)
 
                     for read_idx in 1:n_reads
                         prefix = random_sequence(20, 30)
@@ -150,8 +197,10 @@ module Simulate
         # Add reference-derived novel records
         for (donor_idx, _) in enumerate(eachrow(indices))
             for i in 1:17
-                variant = apply_random_mutation(reference_seq, rand(mutation_types), rand(mutation_lengths))
-                push!(novel_records, FASTARecord("REF*$(donor_idx)_extra_$(i)", variant))
+                variant = unique_mutation(reference_seq, used_novel_seqs, mutation_types, mutation_lengths)
+                append_unique_novel!(
+                    novel_records, used_novel_names, used_novel_seqs,
+                    "REF*$(donor_idx)_extra_$(i)", variant)
             end
         end
 

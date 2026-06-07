@@ -318,8 +318,8 @@ module Selftest
         b = parsed_args["discover"]["selftest"]
         section("Self-test — recovery of novel alleles")
         discovery = CSV.File(b["discovery"], delim='\t') |> DataFrame
-        base = Set(String(s) for (_, s) in load_fasta(b["base"], validate=false))
-        truth = load_fasta(b["truth"], validate=false)
+        base = Set(String(s) for (_, s) in load_fasta(b["base"]))
+        truth = load_fasta(b["truth"])
         seq_col = Symbol(get(b, "seq-col", "aln_qseq"))
         substring = !get(b, "no-substring", false)
 

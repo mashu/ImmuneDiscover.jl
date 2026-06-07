@@ -56,15 +56,11 @@ test_outcomes = Dict(
         @test ks2["key3"] == "value3"
         @test ks2["key4"] == "value4"
 
-        # Duplicate warning behaviour
+        # Duplicate entries are rejected
         ks = KeyedSet()
         push!(ks, ("key1", "value1"))
-
-        # Test duplicate key with same value (should log info)
-        @test_logs (:info, "Duplicate key key1 with value value1 already exists in KeyedSet") push!(ks, ("key1", "value1"))
-
-        # Test duplicate key with different value (should log warning)
-        @test_logs (:warn, "Key key1 with value value2 already exists in KeyedSet with value value1") push!(ks, ("key1", "value2"))
+        @test_throws ArgumentError push!(ks, ("key1", "value1"))
+        @test_throws ArgumentError push!(ks, ("key1", "value2"))
 
         # Set operations
         ks1 = KeyedSet([("key1", "value1"), ("key2", "value2")])
@@ -209,12 +205,25 @@ test_outcomes = Dict(
         # row 3 fails min count (full_count 2 < 5); the count term subsumes the redundant count check
         @test df.reject_reason == ["", "", "min count (--mincount 5)", ""]
 
-        # locus aggregates exclude control genes AND already-rejected rows
+        # explicit locus prefix scopes frequency denominators; control genes stay in table with zeroed stats
         Exact.add_frequency_columns!(df, "IGHV")
         # (1,D1,IGHV1-1): only row1 accepted (row3 rejected) → gene_count 10; (1,D2): row2 → 8;
         # CTRL1 is outside the locus → default 0.
         @test df.gene_count == [10, 8, 10, 0]
         @test df.allelic_ratio[1] == 1.0        # row1 is its gene's only accepted read in (1,D1)
+
+        # empty locus: TCR and control alleles participate in frequency totals like everything else
+        mix = DataFrame(
+            well=[1, 1, 1], case=["D1", "D1", "D1"],
+            gene=["IGHV1-1", "TRBV1-1", "CTRL1"],
+            db_name=["IGHV1-1*01", "TRBV1-1*01", "CTRL1*01"],
+            count=[10, 4, 2], reject_reason=["", "", ""],
+        )
+        Exact.add_frequency_columns!(mix, "")
+        @test mix.gene_count == [10, 4, 2]
+        @test mix.case_count == [16, 16, 16]
+        @test Exact.in_analysis_locus("TRBV1-1*01", "")
+        @test !Exact.in_analysis_locus("CTRL1*01", "IGHV")
 
         # optional recurrence filter drops a single-donor candidate
         df2 = DataFrame(db_name=["IGHV1-1*01", "IGHV1-1*02"], gene=["IGHV1-1", "IGHV1-1"],
@@ -431,9 +440,9 @@ test_outcomes = Dict(
         @test isfile("novel.fasta")
 
         # Test data loading
-        db = Data.load_fasta("test.fasta", validate=false)
-        ref_db = Data.load_fasta("reference.fasta", validate=false)
-        novel_db = Data.load_fasta("novel.fasta", validate=false)
+        db = Data.load_fasta("test.fasta")
+        ref_db = Data.load_fasta("reference.fasta")
+        novel_db = Data.load_fasta("novel.fasta")
         indices_df = CSV.read("test_indices.tsv", DataFrame, delim='\t')
 
         # Test basic properties
@@ -461,7 +470,7 @@ test_outcomes = Dict(
             empty!(ARGS)
             # Convert FASTA to FASTQ for demultiplex test
             fastq_records = Vector{FASTQRecord}()
-            for record in Data.load_fasta("test.fasta", validate=false)
+            for record in Data.load_fasta("test.fasta")
                 push!(fastq_records, FASTQRecord(record[1], String(record[2]), repeat('I', length(record[2]))))
             end
             Data.write_fastq("test.fastq", fastq_records)
@@ -501,7 +510,7 @@ test_outcomes = Dict(
 
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            db = Data.load_fasta("novel.fasta", validate=false)
+            db = Data.load_fasta("novel.fasta")
             gene = "V"
             counts_df = Exact.exact_search(table, db, gene)
             sort!(counts_df, [:case, :db_name])
@@ -523,7 +532,7 @@ test_outcomes = Dict(
 
         @testset "profile.jl" begin
             # Get heptamer sequences from simulated data
-            db = Data.load_fasta("novel.fasta", validate=false)
+            db = Data.load_fasta("novel.fasta")
             motifs = [string(db[i][2]) for i in 1:3]  # Take first 3 sequences
 
             countsum = sum(Profile.counts(motifs))
@@ -551,7 +560,7 @@ test_outcomes = Dict(
 
             # Preparing test data from simulation
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame
-            db = Data.load_fasta("novel.fasta", validate=false)
+            db = Data.load_fasta("novel.fasta")
             heptamers = Heptamer.load_heptamers(parsed_args["search"]["heptamer"]["json"])
 
             # Extract Heptamers Tests
@@ -658,7 +667,7 @@ test_outcomes = Dict(
         
         open(FASTA.Writer, test_fasta2) do writer
             write(writer, FASTARecord("C*01", "TTTTAAAA"))
-            write(writer, FASTARecord("A*01", "ATCGATCG"))  # Duplicate sequence
+            write(writer, FASTARecord("E*01", "CCCCGGGG"))
         end
         
         open(FASTA.Writer, test_fasta3) do writer
@@ -681,10 +690,23 @@ test_outcomes = Dict(
         immunediscover.Merge.merge_fasta_files([test_fasta1, test_fasta2], "test_merge_cleanup.fasta", 
                                cleanup_pattern="\\*")
         @test isfile("test_merge_cleanup.fasta")
+
+        # Conflicting duplicate sequence across files must abort
+        conflict_a = "test_merge_conflict_a.fasta"
+        conflict_b = "test_merge_conflict_b.fasta"
+        open(FASTA.Writer, conflict_a) do writer
+            write(writer, FASTARecord("A*01", "ATCGATCG"))
+        end
+        open(FASTA.Writer, conflict_b) do writer
+            write(writer, FASTARecord("B*01", "ATCGATCG"))
+        end
+        @test_throws ErrorException immunediscover.Merge.merge_fasta_files(
+            [conflict_a, conflict_b], "test_merge_conflict_out.fasta")
         
         # Clean up test files
         for file in [test_fasta1, test_fasta2, test_fasta3, "test_merge_two.fasta", 
-                    "test_merge_three.fasta", "test_merge_convenience.fasta", "test_merge_cleanup.fasta"]
+                    "test_merge_three.fasta", "test_merge_convenience.fasta", "test_merge_cleanup.fasta",
+                    conflict_a, conflict_b, "test_merge_conflict_out.fasta"]
             isfile(file) && rm(file)
         end
     end
@@ -802,7 +824,7 @@ test_outcomes = Dict(
             write(io, test_fasta_content)
         end
         
-        fasta_records = Data.load_fasta("test_blast_fasta.fasta", validate=false)
+        fasta_records = Data.load_fasta("test_blast_fasta.fasta")
         @test length(fasta_records) == 2
         @test fasta_records[1] == ("seq1", "ATCGATCG")
         @test fasta_records[2] == ("seq2", "GCTAGCTA")
@@ -1667,6 +1689,30 @@ test_outcomes = Dict(
             @test_throws ErrorException Data.validate_types(String[])
             @test Data.get_ratio_threshold(Dict("A*01" => 0.5), (db_name="A*01", gene="A")) == 0.5
             @test Data.get_ratio_threshold(Dict{String,Float64}(), (db_name="A*01", gene="A")) == 0.0
+
+            dup_name = "test_dup_name.fasta"
+            open(FASTA.Writer, dup_name) do writer
+                write(writer, FASTARecord("A*01", "ATCG"))
+                write(writer, FASTARecord("A*01", "GCTA"))
+            end
+            @test_throws ErrorException Data.load_fasta(dup_name)
+
+            dup_seq_a = "test_dup_seq_a.fasta"
+            dup_seq_b = "test_dup_seq_b.fasta"
+            open(FASTA.Writer, dup_seq_a) do writer
+                write(writer, FASTARecord("A*01", "ATCG"))
+                write(writer, FASTARecord("B*01", "ATCG"))
+            end
+            @test_throws ErrorException Data.load_fasta(dup_seq_a)
+            open(FASTA.Writer, dup_seq_b) do writer
+                write(writer, FASTARecord("A*01", "ATCG"))
+                write(writer, FASTARecord("A*01", "ATCG"))
+            end
+            @test_throws ErrorException Data.load_fasta(dup_seq_b)
+
+            for f in [dup_name, dup_seq_a, dup_seq_b]
+                isfile(f) && rm(f)
+            end
         end
 
         @testset "blast string utils" begin
@@ -1700,6 +1746,9 @@ test_outcomes = Dict(
             @test Exact.gene_type_from_name("IGHV1-2") isa VGene
             @test Exact.gene_type_from_name("IGHD3") isa DGene
             @test Exact.gene_type_from_name("IGHJ4") isa JGene
+            @test Exact.gene_type_from_name("TRBV1-1") isa VGene
+            @test Exact.gene_type_from_name("TRAV1-1") isa VGene
+            @test Exact.gene_type_from_name("GAPDH") === nothing
             @test Exact.gene_type_from_name("XYZ") === nothing
             @test Exact.parse_gene_type("V") isa VGene
             @test_throws ErrorException Exact.parse_gene_type("Q")

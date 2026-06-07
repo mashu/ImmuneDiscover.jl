@@ -8,7 +8,7 @@ module Exact
     using ..Filters: FilterCriterion, MinThreshold, MinStringLength, CustomFilter, add_group_ratio!,
                      init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Mosaic: refs_by_gene, add_chimera_scores!
-    using ..Data: barplot_if_available, boxplot_if_available, round_floats!
+    using ..Data: barplot_if_available, boxplot_if_available, round_floats!, load_fasta
     using ..Report: section, stage_report, report_rejections,
                     filter_quality_report, rss_consistency
 
@@ -36,22 +36,22 @@ module Exact
     gene_string(::JGene) = "J"
     gene_string(::DGene) = "D"
 
-    const GENE_CHAR_MAP = (('V', VGene()), ('D', DGene()), ('J', JGene()))
+    const SEGMENT_CHAR_TO_TYPE = Dict('V' => VGene(), 'D' => DGene(), 'J' => JGene())
+    const IG_TR_SEGMENT_PATTERN = r"(?:IG|TR)[A-Z]*([VDJ])(?:\d|\*)"
 
     """
         gene_type_from_name(name) -> GeneType or nothing
 
-    Infer gene type from an allele/gene name (e.g. "IGHV1-2" → VGene()).
-    Returns nothing if no V/D/J is found.
+    Infer V/D/J segment type from an immunoglobulin or TCR gene name (e.g. `IGHV1-2`, `TRBV1-1`).
+    Returns nothing for unrelated names (controls, housekeeping) that lack an IG/TR V/D/J segment.
     """
     function gene_type_from_name(name::AbstractString)
-        for (ch, gt) in GENE_CHAR_MAP
-            occursin(ch, name) && return gt
-        end
-        return nothing
+        m = match(IG_TR_SEGMENT_PATTERN, String(name))
+        m === nothing && return nothing
+        return get(SEGMENT_CHAR_TO_TYPE, only(m.captures[1]), nothing)
     end
 
-    export GeneType, VGene, DGene, JGene, parse_gene_type, gene_type_from_name
+    export GeneType, VGene, DGene, JGene, parse_gene_type, gene_type_from_name, in_analysis_locus
 
     # ========================== Typed rows for border statistics ==========================
 
@@ -474,15 +474,27 @@ module Exact
     end
 
     """
+        in_analysis_locus(db_name, locus) -> Bool
+
+    Whether `db_name` participates in locus-scoped frequency denominators. When `locus` is empty,
+    every allele is included (TCR, housekeeping, immunoglobulin, controls). Otherwise only names
+    starting with `locus` are included — use e.g. `IGHV` or `IG` to keep spike-in controls out of
+    IG/TCR frequency totals without dropping those rows from the output table.
+    """
+    function in_analysis_locus(db_name::AbstractString, locus::AbstractString)
+        prefix = strip(String(locus))
+        return isempty(prefix) || startswith(String(db_name), prefix)
+    end
+
+    """
         locus_group_stat!(df, groupcols, srccol, destcol, locus, statfn; default=0)
 
-    Within each group, set `destcol` to `statfn` over `srccol` for the rows that both start with
-    `locus` and are still accepted (`reject_reason == ""`); `default` when none qualify. Control
-    genes (outside `locus`) and already-rejected rows are excluded from the statistic.
+    Within each group, set `destcol` to `statfn` over `srccol` for accepted rows (`reject_reason == ""`)
+    that pass `in_analysis_locus`; `default` when none qualify.
     """
     function locus_group_stat!(df::DataFrame, groupcols, srccol::Symbol, destcol::Symbol, locus, statfn; default=0)
         transform!(groupby(df, groupcols)) do g
-            fg = filter(r -> startswith(r.db_name, locus) && isempty(r.reject_reason), g)
+            fg = filter(r -> in_analysis_locus(r.db_name, locus) && isempty(r.reject_reason), g)
             DataFrame(destcol => fill(isempty(fg) ? default : statfn(fg[!, srccol]), nrow(g)))
         end
         return df
@@ -496,6 +508,10 @@ module Exact
     medians), `gene_case_freq` (gene-usage fraction), `allele_cohort_fold` / `gene_cohort_fold`
     (fold-change vs cohort median), and `allelic_ratio` (within-gene allelic ratio). All aggregates
     are over accepted (count/ratio-passing) rows. Requires `reject_reason` (count/ratio annotated first).
+
+    Pass an empty `locus` to include every allele in the frequency denominators. Pass a prefix such
+    as `IGHV` or `TRBV` to scope denominators to that locus and zero out locus-scoped stats for other
+    alleles (e.g. spike-in controls) while still retaining their rows in the table.
     """
     function add_frequency_columns!(df::DataFrame, locus::AbstractString)
         # Per-well/case totals (over accepted, in-locus rows).
@@ -642,11 +658,9 @@ module Exact
     end
 
     function build_sequence_lookup(ref_fasta_path::String)
-        sequence_lookup = Dict{String, Bool}()
         @info "Building sequence lookup from reference FASTA: $ref_fasta_path"
-        open(FASTA.Reader, ref_fasta_path) do reader
-            for record in reader; sequence_lookup[string(FASTA.sequence(record))] = true; end
-        end
+        records = Data.load_fasta(ref_fasta_path)
+        sequence_lookup = Dict(seq => true for (_, seq) in records)
         @info "Loaded $(length(sequence_lookup)) sequences from reference FASTA"
         return sequence_lookup
     end
@@ -816,7 +830,7 @@ module Exact
 
         table = immunediscover_module.load_demultiplex(ex["tsv"])
         limit > 0 && (@info "Limiting reads to $limit"; table = table[1:limit, :])
-        db = immunediscover_module.load_fasta(ex["fasta"], validate=false)
+        db = immunediscover_module.load_fasta(ex["fasta"])
         mincount = ex["mincount"]
         minratio = ex["minratio"]
         mincount < 5 && @warn "Decreasing mincount below 5 may lead to false positives"
@@ -868,7 +882,11 @@ module Exact
             nrow(plotdf) > 0 ? immunediscover_module.plotgenes(plotdf) : @warn "No exact matches to plot"
         end
 
-        @info "Excluding genes not starting with $locus for frequency calculation"
+        if isempty(strip(locus))
+            @info "Computing frequency columns across all alleles (no --locus prefix filter)"
+        else
+            @info "Scoping frequency denominators to db_name prefixes starting with $locus"
+        end
         add_frequency_columns!(counts_df, locus)
 
         section("Exact search — frequency filters")

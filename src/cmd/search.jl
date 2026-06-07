@@ -134,9 +134,9 @@ function add_search_args!(s)
             arg_type = String
             help = "gene; must be one of " * join(GENES, ", ", " or ")
         "--locus"
-            help = "Locus to filter genes to start with this string (e.g. IGHV) excluding other genes from the analysis (i.e control genes)"
+            help = "Optional db_name prefix for locus-scoped frequency columns (e.g. IGHV, TRBV, IG). Empty = all alleles included. Non-matching alleles (e.g. spike-in controls) stay in the output but get zeroed locus frequency stats."
             arg_type = String
-            default = "IG"
+            default = ""
         end
 
         add_arg_group!(ex, "RSS / core extraction", "exact_rss")

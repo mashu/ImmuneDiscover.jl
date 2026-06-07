@@ -9,6 +9,7 @@ using DataFrames
 using CSV
 using Statistics
 using FASTX
+using ..Data: load_fasta
 using ..Exact: GeneType, VGene, DGene, JGene, gene_type_from_name
 
 export infer_haplotypes, handle_haplotype
@@ -18,15 +19,8 @@ const HaplotypeRow = NamedTuple{
     Tuple{String,String,String,String,String,Int,Int,Float64,Float64,Float64,Int,String,Bool,Bool}}
 
 function load_novel_alleles(fasta_path::String)::Set{String}
-    novel_alleles = Set{String}()
-    if isfile(fasta_path)
-        open(FASTA.Reader, fasta_path) do reader
-            for record in reader
-                push!(novel_alleles, FASTA.identifier(record))
-            end
-        end
-    end
-    return novel_alleles
+    isfile(fasta_path) || return Set{String}()
+    return Set(name for (name, _) in load_fasta(fasta_path))
 end
 
 # Handle missing values safely — String(missing) throws before coalesce sees it.

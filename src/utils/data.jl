@@ -82,26 +82,81 @@ module Data
         return all(c -> c in allowed_chars, seq)
     end
 
-    function load_fasta(path; validate=false)
-        records = Vector{Tuple{String, String}}()
-        seen_descriptions = Set{String}()
-        seen_sequences = Set{String}()
-        open(FASTA.Reader, path) do reader
-            for record in reader
-                desc = string(FASTA.description(record))
-                seq = string(FASTA.sequence(record))
-                if validate
-                    length(seq) == 0 && throw(ErrorException("Empty sequence found: $(desc)"))
-                    !validate_identifier(desc) && throw(ErrorException("Invalid identifier found: $(desc)"))
-                    length(desc) == 0 && throw(ErrorException("Empty identifier found: $(desc)"))
-                    desc in seen_descriptions && throw(ErrorException("Duplicate identifier found: $(desc)"))
-                    seq in seen_sequences && throw(ErrorException("Duplicate sequence found: $(seq)"))
-                end
-                push!(seen_descriptions, desc)
-                push!(seen_sequences, seq)
-                push!(records, (desc, seq))
-            end
+    """
+        register_fasta_entry!(name, seq, path, name_to_seq, seq_to_name)
+
+    Record one `(allele name, sequence)` pair. Throws if `name` or `seq` was already seen with
+    a conflicting partner, or if the exact pair is duplicated.
+    """
+    function register_fasta_entry!(
+        name::AbstractString,
+        seq::AbstractString,
+        path::AbstractString,
+        name_to_seq::Dict{String,String},
+        seq_to_name::Dict{String,String},
+    )
+        name = String(name)
+        seq = String(seq)
+        if haskey(name_to_seq, name)
+            other = name_to_seq[name]
+            other != seq && throw(ErrorException(
+                "FASTA \"$path\": allele name \"$name\" appears with different sequences"))
+            throw(ErrorException(
+                "FASTA \"$path\": duplicate entry for allele name \"$name\""))
         end
+        if haskey(seq_to_name, seq)
+            other = seq_to_name[seq]
+            other != name && throw(ErrorException(
+                "FASTA \"$path\": identical sequence appears under different names " *
+                "\"$other\" and \"$name\""))
+            throw(ErrorException(
+                "FASTA \"$path\": duplicate sequence under allele name \"$name\""))
+        end
+        name_to_seq[name] = seq
+        seq_to_name[seq] = name
+        return nothing
+    end
+
+    function _fasta_reader(path::AbstractString)
+        io = open(path, "r")
+        stream = endswith(path, ".gz") ? GzipDecompressorStream(io) : io
+        return FASTA.Reader(stream), stream, io
+    end
+
+    function _close_fasta_reader!(reader, stream, io, path::AbstractString)
+        close(reader)
+        endswith(path, ".gz") && close(stream)
+        close(io)
+    end
+
+    """
+        load_fasta(path; unique=true, validate_format=false)
+
+    Load FASTA records as `(name, sequence)` tuples using the full header (`FASTA.description`).
+
+    When `unique=true` (default), aborts on duplicate allele names, duplicate sequences, repeated
+    rows, or one name mapping to multiple sequences / one sequence mapping to multiple names.
+
+    When `validate_format=true`, also require non-empty names and sequences and IMGT-like
+    identifiers (`validate_identifier`).
+    """
+    function load_fasta(path::AbstractString; unique::Bool=true, validate_format::Bool=false)
+        records = Vector{Tuple{String,String}}()
+        name_to_seq = Dict{String,String}()
+        seq_to_name = Dict{String,String}()
+        reader, stream, io = _fasta_reader(path)
+        for record in reader
+            name = String(FASTA.description(record))
+            seq = String(FASTA.sequence(record))
+            if validate_format
+                length(seq) == 0 && throw(ErrorException("Empty sequence found: $name"))
+                !validate_identifier(name) && throw(ErrorException("Invalid identifier found: $name"))
+                length(name) == 0 && throw(ErrorException("Empty identifier found: $name"))
+            end
+            unique && register_fasta_entry!(name, seq, path, name_to_seq, seq_to_name)
+            push!(records, (name, seq))
+        end
+        _close_fasta_reader!(reader, stream, io, path)
         return records
     end
 

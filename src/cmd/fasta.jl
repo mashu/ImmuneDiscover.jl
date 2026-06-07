@@ -1,7 +1,7 @@
 function add_fasta_args!(s)
         @add_arg_table! s["fasta"] begin
             "merge"
-                help = "Merge multiple FASTA files, keeping only unique sequences"
+                help = "Merge multiple FASTA files (aborts on duplicate names or sequences)"
                 action = :command
             "diff"
                 help = "Diff two FASTA files based on sequence identity but keep associated names"
@@ -37,9 +37,6 @@ function add_fasta_args!(s)
         @add_arg_table! mg begin
         "--no-sort"
             help = "Disable sorting sequences by name (default: sort enabled)"
-            action = :store_true
-        "--prefer-last"
-            help = "When duplicate sequences have different names, prefer the last encountered (default: prefer first)"
             action = :store_true
         end
 
