@@ -217,20 +217,20 @@ module Report
     end
 
     """
-        rss_consistency(seqs; label="heptamer")
+        rss_consistency(seqs; label="heptamer", color=:green)
 
     Legible RSS-motif consistency: prints the consensus motif (e.g. `CACAGTG`) and mean
     conservation, then a per-position **variation** bar plot (taller ⇒ that position is less
-    conserved), labelled by the consensus base — so it is obvious whether the extracted motif is
-    clean and where it varies. A perfectly conserved motif prints a one-line note instead.
+    conserved), labelled by the consensus base. `color` accents the label and bars so distinct
+    panels (e.g. a D gene's 5' vs 3' RSS) are visually separable. Perfectly conserved ⇒ one-line note.
     """
-    function rss_consistency(seqs; label::AbstractString="heptamer")
+    function rss_consistency(seqs; label::AbstractString="heptamer", color::Symbol=:green)
         cons, conservation = consensus_motif(seqs)
         isempty(cons) && return nothing
         meanc = mean(conservation)
-        printstyled("  ", label, " — consensus ", cons, "  (mean conservation ",
-                    round(meanc; digits=3), " = avg fraction of alleles matching the consensus base):\n";
-                    color=:light_black)
+        printstyled("  ", label; color=color, bold=true)
+        printstyled("  — consensus ", cons, "  (mean conservation ", round(meanc; digits=3),
+                    " = avg fraction of alleles matching the consensus base):\n"; color=:light_black)
         variation = round.(1 .- conservation; digits=3)
         if maximum(variation) <= 0.001
             printstyled("    perfectly conserved at every position (variation 0)\n"; color=:light_black)
@@ -238,7 +238,7 @@ module Report
             printstyled("    per-position variation (0 = fully conserved, taller = more variable; x = position:consensus base):\n";
                         color=:light_black)
             labels = ["$(j):$(cons[j])" for j in 1:length(cons)]
-            barplot_if_available(labels, variation)
+            barplot_if_available(labels, variation; color=color)
         end
         return nothing
     end

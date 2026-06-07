@@ -741,11 +741,12 @@ module Exact
         return nothing
     end
 
-    # Which heptamer column(s) to show, by gene orientation: V's RSS is 3', J's is 5', D has both.
-    heptamer_panels(::VGene) = (("heptamer", "heptamer (3' RSS)"),)
-    heptamer_panels(::JGene) = (("heptamer", "heptamer (5' RSS)"),)
-    heptamer_panels(::DGene) = (("pre_heptamer", "pre-heptamer (5' RSS)"),
-                                ("post_heptamer", "post-heptamer (3' RSS)"))
+    # Which heptamer column(s) to show, by gene orientation, with a side colour (5' = cyan, 3' =
+    # yellow) so a D gene's two RSS panels are visually separable: V's RSS is 3', J's is 5', D both.
+    heptamer_panels(::VGene) = (("heptamer", "heptamer (3' RSS)", :yellow),)
+    heptamer_panels(::JGene) = (("heptamer", "heptamer (5' RSS)", :cyan),)
+    heptamer_panels(::DGene) = (("pre_heptamer", "pre-heptamer (5' RSS)", :cyan),
+                                ("post_heptamer", "post-heptamer (3' RSS)", :yellow))
 
     """
         report_exact_findings(counts_df, kept, db, gt, extension, table)
@@ -793,8 +794,8 @@ module Exact
         filter_quality_report(counts_df, [:n_donors, :max_full_ratio, :full_count])
 
         if extension === nothing && nrow(kept) > 0
-            for (col, lbl) in heptamer_panels(gt)
-                col in names(kept) && rss_consistency(kept[!, Symbol(col)]; label=lbl)
+            for (col, lbl, clr) in heptamer_panels(gt)
+                col in names(kept) && rss_consistency(kept[!, Symbol(col)]; label=lbl, color=clr)
             end
         end
         return nothing

@@ -119,10 +119,10 @@ module Data
         endswith(path, ".gz") && close(stream)
     end
 
-    """Unicode bar plot of labels → counts (no-op for empty input)."""
-    function barplot_if_available(labels, counts)
+    """Unicode bar plot of labels → counts (no-op for empty input). Extra kwargs (e.g. color) pass through."""
+    function barplot_if_available(labels, counts; kwargs...)
         isempty(labels) && return nothing
-        println(UnicodePlots.barplot(labels, counts))
+        println(UnicodePlots.barplot(labels, counts; kwargs...))
         return nothing
     end
 
