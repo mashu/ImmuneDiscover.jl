@@ -9,7 +9,7 @@ module Exact
                      init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Mosaic: refs_by_gene, add_chimera_scores!
     using ..Data: barplot_if_available, boxplot_if_available, round_floats!
-    using ..Report: section, stage_report, report_rejections, recurrence_report,
+    using ..Report: section, stage_report, report_rejections,
                     filter_quality_report, rss_consistency
 
     # ========================== GeneType dispatch hierarchy ==========================
@@ -741,15 +741,21 @@ module Exact
         return nothing
     end
 
+    # Which heptamer column(s) to show, by gene orientation: V's RSS is 3', J's is 5', D has both.
+    heptamer_panels(::VGene) = (("heptamer", "heptamer (3' RSS)"),)
+    heptamer_panels(::JGene) = (("heptamer", "heptamer (5' RSS)"),)
+    heptamer_panels(::DGene) = (("pre_heptamer", "pre-heptamer (5' RSS)"),
+                                ("post_heptamer", "post-heptamer (3' RSS)"))
+
     """
-        report_exact_findings(counts_df, kept, db, extension, table)
+        report_exact_findings(counts_df, kept, db, gt, extension, table)
 
     Colored diagnostics for an exact search: accepted alleles per gene; per-donor QC (depth &
     breadth, to spot failed donors); per-gene amplification; reference genes never matched or
-    fully filtered; the reject-reason breakdown; cross-donor recurrence; an accepted-vs-rejected
-    filter-quality comparison; and (RSS mode) the heptamer consensus + variation.
+    fully filtered; the reject-reason breakdown; an accepted-vs-rejected filter-quality comparison;
+    and (RSS mode) the heptamer consensus + variation for the side(s) of the searched gene.
     """
-    function report_exact_findings(counts_df::DataFrame, kept::DataFrame, db, extension, table)
+    function report_exact_findings(counts_df::DataFrame, kept::DataFrame, db, gt::GeneType, extension, table)
         section("Exact search — findings")
         stage_report("accepted (passed all filters)", nrow(kept), nrow(counts_df))
 
@@ -784,15 +790,11 @@ module Exact
         end
 
         report_rejections(counts_df.reject_reason)
-        if nrow(kept) > 0 && "n_donors" in names(kept)
-            u = unique(select(kept, [:sequence, :n_donors]))
-            recurrence_report(u.n_donors; label="candidate sequences")
-        end
         filter_quality_report(counts_df, [:n_donors, :max_full_ratio, :full_count])
 
         if extension === nothing && nrow(kept) > 0
-            for col in ("heptamer", "pre_heptamer", "post_heptamer")
-                col in names(kept) && rss_consistency(kept[!, Symbol(col)]; label=col)
+            for (col, lbl) in heptamer_panels(gt)
+                col in names(kept) && rss_consistency(kept[!, Symbol(col)]; label=lbl)
             end
         end
         return nothing
@@ -885,10 +887,10 @@ module Exact
         end
         output = always_gz(ex["output"])
         full_output = always_gz(replace(replace(output, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv")
-        report_exact_findings(counts_df, kept, db, extension, table)
+        gt = parse_gene_type(gene)
+        report_exact_findings(counts_df, kept, db, gt, extension, table)
         # Readable output: metrics left, long sequence/flank columns right (genomic order); round
         # float columns to 4 dp instead of full Float64 precision.
-        gt = parse_gene_type(gene)
         kept = round_floats!(order_exact_columns(kept, gt, extension))
         counts_df = round_floats!(order_exact_columns(counts_df, gt, extension))
         CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')

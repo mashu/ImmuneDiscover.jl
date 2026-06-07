@@ -5,7 +5,7 @@ module Report
     using ..Data: histogram_if_available, heatmap_if_available, barplot_if_available
 
     export stage_report, stage_summary, distribution_summary, section, cluster_profile_heatmap,
-           params_report, reject_counts, report_rejections, recurrence_report,
+           params_report, reject_counts, report_rejections,
            filter_quality_report, rss_consistency, consensus_motif
 
     """
@@ -128,18 +128,6 @@ module Report
         return nothing
     end
 
-    "Cross-donor recurrence of accepted candidates: single-donor share (≈ artifacts) + histogram."
-    function recurrence_report(n_donors; label::AbstractString="candidates")
-        isempty(n_donors) && return nothing
-        n = length(n_donors); single = count(==(1), n_donors)
-        println("  $n distinct accepted $label; $single in a single donor (",
-                round(100 * single / max(n, 1); digits=1), "% — more likely artifacts), ",
-                n - single, " in ≥2 donors.")
-        println("  donors per candidate (x = donors, bar height = candidates):")
-        histogram_if_available(collect(n_donors); nbins=20)
-        return nothing
-    end
-
     """
         filter_quality_report(df, metrics; reason_col=:reject_reason)
 
@@ -152,7 +140,7 @@ module Report
         acc = isempty.(df[!, reason_col])
         (count(acc) == 0 || count(.!acc) == 0) && return nothing
         printstyled("  filter quality — accepted vs rejected medians ",
-                    "(↑ = filters keep the stronger candidates):\n"; color=:light_black)
+                    "(↑ = filters keep the stronger rows):\n"; color=:light_black)
         for m in metrics
             m in propertynames(df) || continue
             v = df[!, m]
@@ -240,14 +228,14 @@ module Report
         cons, conservation = consensus_motif(seqs)
         isempty(cons) && return nothing
         meanc = mean(conservation)
-        printstyled("  ", label, " motif — consensus ", cons, ", mean conservation ",
-                    round(meanc; digits=3), " (1.0 = identical at every position):\n";
+        printstyled("  ", label, " — consensus ", cons, "  (mean conservation ",
+                    round(meanc; digits=3), " = avg fraction of alleles matching the consensus base):\n";
                     color=:light_black)
         variation = round.(1 .- conservation; digits=3)
         if maximum(variation) <= 0.001
-            printstyled("    perfectly conserved at every position\n"; color=:light_black)
+            printstyled("    perfectly conserved at every position (variation 0)\n"; color=:light_black)
         else
-            printstyled("    per-position variation (taller ⇒ less conserved; x = position:consensus base):\n";
+            printstyled("    per-position variation (0 = fully conserved, taller = more variable; x = position:consensus base):\n";
                         color=:light_black)
             labels = ["$(j):$(cons[j])" for j in 1:length(cons)]
             barplot_if_available(labels, variation)
