@@ -5,6 +5,7 @@ using DataFrames
 export FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter
 export GermlineFilter, passes, apply_filters!, add_group_ratio!
 export init_rejection_columns!, mark_rejected!, annotate_rejections!, accepted
+export criterion_column
 
 abstract type FilterCriterion end
 
@@ -42,6 +43,13 @@ passes(row, f::MinStringLength) = length(getproperty(row, f.column)) >= f.value
 passes(row, f::NonNegative) = getproperty(row, f.column) >= 0
 passes(row, f::CustomFilter) = f.predicate(row)
 
+"Discovery-table column used for threshold tuning / self-test metrics."
+criterion_column(f::MinThreshold) = String(f.column)
+criterion_column(f::MaxThreshold) = String(f.column)
+criterion_column(f::MinStringLength) = String(f.column)
+criterion_column(f::NonNegative) = String(f.column)
+criterion_column(::CustomFilter) = ""
+
 """
     GermlineFilter(criteria)
 
@@ -52,7 +60,7 @@ dispatch-based criteria to a DataFrame, logging kept/total counts at each step.
 ```julia
 gf = GermlineFilter([
     MinThreshold(:full_count, 5, "Min full count (--min-fullcount)"),
-    MaxThreshold(:mismatch, 10, "Max edit distance"),
+    MaxThreshold(:core_aln_mismatch, 10, "Max trimmed-core distance (--max-aln-mismatch)"),
     MinStringLength(:qseq, 290, "Min read length"),
 ])
 gf(df)  # filters df in-place, returns df

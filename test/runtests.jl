@@ -114,7 +114,7 @@ test_outcomes = Dict(
             ratio = [1.0, 0.5, 0.2, 0.8, 0.1],
             name = ["IGHV1*01", "IGHV2*01", "IGHV3*01", "IGHV4*01", "IGHV5*01"],
             qseq = ["ATCGATCGATCG", "ATCG", "ATCGATCGATCGATCG", "ATCGATCG", "AT"],
-            mismatch = [0, 3, 5, 1, -1]
+            core_aln_mismatch = [0, 3, 5, 1, -1]
         )
 
         df_copy = copy(df)
@@ -123,9 +123,9 @@ test_outcomes = Dict(
         @test all(df_copy.count .>= 5)
 
         df_copy = copy(df)
-        GermlineFilter([MaxThreshold(:mismatch, 3.0, "Max mismatch")])(df_copy)
+        GermlineFilter([MaxThreshold(:core_aln_mismatch, 3.0, "Max core_aln_mismatch")])(df_copy)
         @test nrow(df_copy) == 4
-        @test all(df_copy.mismatch .<= 3)
+        @test all(df_copy.core_aln_mismatch .<= 3)
 
         df_copy = copy(df)
         GermlineFilter([MinStringLength(:qseq, 8, "Min read length")])(df_copy)
@@ -133,9 +133,9 @@ test_outcomes = Dict(
         @test all(length.(df_copy.qseq) .>= 8)
 
         df_copy = copy(df)
-        GermlineFilter([NonNegative(:mismatch, "Non-negative mismatch")])(df_copy)
+        GermlineFilter([NonNegative(:core_aln_mismatch, "Non-negative core_aln_mismatch")])(df_copy)
         @test nrow(df_copy) == 4
-        @test all(df_copy.mismatch .>= 0)
+        @test all(df_copy.core_aln_mismatch .>= 0)
 
         df_copy = copy(df)
         GermlineFilter([CustomFilter(x -> x.ratio > 0.3, "High ratio")])(df_copy)
@@ -145,7 +145,7 @@ test_outcomes = Dict(
         df_copy = copy(df)
         GermlineFilter([
             MinThreshold(:count, 5.0, "Min count"),
-            MaxThreshold(:mismatch, 3.0, "Max mismatch"),
+            MaxThreshold(:core_aln_mismatch, 3.0, "Max core_aln_mismatch"),
         ])(df_copy)
         @test nrow(df_copy) == 3
 
@@ -155,8 +155,8 @@ test_outcomes = Dict(
 
         @test passes((count=10, ratio=1.0), MinThreshold(:count, 5.0, ""))
         @test !passes((count=3, ratio=1.0), MinThreshold(:count, 5.0, ""))
-        @test passes((mismatch=3,), MaxThreshold(:mismatch, 5.0, ""))
-        @test !passes((mismatch=6,), MaxThreshold(:mismatch, 5.0, ""))
+        @test passes((core_aln_mismatch=3,), MaxThreshold(:core_aln_mismatch, 5.0, ""))
+        @test !passes((core_aln_mismatch=6,), MaxThreshold(:core_aln_mismatch, 5.0, ""))
 
         # add_group_ratio!: value / per-group maximum (shared "allelic ratio" helper)
         gr = DataFrame(gene=["V","V","D"], count=[2,4,5])
@@ -419,7 +419,7 @@ test_outcomes = Dict(
             ["ACGT", "ACGA", "ACGT"],
             ["IGHV1-2*01", "IGHV1-2*01_S1234", "IGHV1-2*01"],
             ["IGHV1-2*01", "IGHV1-2*01", "IGHV1-2*01"];
-            reads=[500, 50, 500], aln_mismatches=[0, 1, 0], db_seqs=db)
+            reads=[500, 50, 500], core_aln_mismatches=[0, 1, 0], db_seqs=db)
         @test suspicious == 0
         @test length(panels) == 1
         @test first(first(panels)) == "IGHV1-2"
@@ -429,30 +429,30 @@ test_outcomes = Dict(
             ["IGHV3-7", "IGHV1-2"], ["ACGC", "ACGA"],
             ["IGHV3-7*01_S1", "IGHV1-2*01_S1"],
             ["IGHV3-7*01", "IGHV1-2*01"];
-            reads=[100, 50], aln_mismatches=[1, 1], db_seqs=db2)
+            reads=[100, 50], core_aln_mismatches=[1, 1], db_seqs=db2)
         @test length(panels2) == 2
         @test [first(p) for p in panels2] == ["IGHV1-2", "IGHV3-7"]
         panels3, _ = Report.gene_novel_diff_panels(
             ["IGHV1-2", "IGHV1-2"], ["ACGA", "ACGC"],
             ["IGHV1-2*01_S1", "IGHV1-2*01_S2"],
             ["IGHV1-2*01", "IGHV1-2*01"];
-            reads=[500, 100], aln_mismatches=[1, 1], db_seqs=db)
+            reads=[500, 100], core_aln_mismatches=[1, 1], db_seqs=db)
         M3 = first(panels3)[2]
         @test maximum(@view(M3[1, :])) ≈ 1.0
         @test maximum(@view(M3[2, :])) ≈ 0.2
         @test Report.snp_support_row("ACGA", "ACGT", 50, 100) == [0.0, 0.0, 0.0, 0.5]
         @test Report.cluster_profile_heatmap(["IGHV1-2"], ["ACGT"],
                                              ["IGHV1-2*01"], ["IGHV1-2*01"];
-                                             reads=[100], aln_mismatch=[0],
+                                             reads=[100], core_aln_mismatch=[0],
                                              db_seqs=db) === nothing
         @test Report.cluster_profile_heatmap(["IGHV1-2"], ["ACGA"],
                                              ["IGHV1-2*01_S1234"], ["IGHV1-2*01"];
-                                             reads=[50], aln_mismatch=[1],
+                                             reads=[50], core_aln_mismatch=[1],
                                              db_seqs=db) === nothing
         db_known = [("IGHV4-39*01_S1660", "ACGTACGT"), ("IGHV4-39*01", "ACGTACGT")]
         _, susp_known = Report.gene_novel_diff_panels(
             ["IGHV4-39"], ["ACGTACGT"], ["IGHV4-39*01_S1660"], ["IGHV4-39*01_S1660"];
-            reads=[100], aln_mismatches=[0], db_seqs=db_known)
+            reads=[100], core_aln_mismatches=[0], db_seqs=db_known)
         @test susp_known == 0
         # grouped parameter display: runs, groups known keys, "other" catches the rest
         @test Report.params_report(Dict("input" => "a.tsv", "gene" => "V", "extra" => 1),
@@ -856,6 +856,8 @@ test_outcomes = Dict(
         @test pa_preset["discover"]["blast"]["min-full-allelic-ratio"] == 0.0   # V preset: per-donor off
         @test pa_preset["discover"]["blast"]["min-peak-allelic-ratio"] ≈ 0.08  # V preset (recall-safe FP cut)
         @test pa_preset["discover"]["blast"]["min-corecov"] == 0.50     # V preset (was default 0.6)
+        @test pa_preset["discover"]["blast"]["max-blast-mismatch"] == 14
+        @test pa_preset["discover"]["blast"]["max-aln-mismatch"] == 14
 
         empty!(ARGS)
         append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V", "--min-corecov", "0.9"])
@@ -997,7 +999,7 @@ test_outcomes = Dict(
             full_count = [10, 2, 10, 10],         # B fails Min count
             full_allelic_ratio = [1.0, 1.0, 0.01, 1.0],   # C fails min allelic ratio
             qseq = ["ACGTACGTAC", "ACGTACGTAC", "ACGTACGTAC", "AC"],  # D fails Min len
-            aln_mismatch = [0, 0, 0, 0],
+            core_aln_mismatch = [0, 0, 0, 0],
             corecov = [0.9, 0.9, 0.9, 0.9],
         )
         Filters.mark_rejected!(clusters, clusters.corecov .< 0.5, "corecov < 0.5", "corecov")
@@ -1005,7 +1007,7 @@ test_outcomes = Dict(
             MinThreshold(:full_count, 5.0, "Min count"),
             MinThreshold(:full_allelic_ratio, 0.1, "Min ratio"),
             MinStringLength(:qseq, 5, "Min len"),
-            MaxThreshold(:aln_mismatch, 14.0, "Max dist"),
+            MaxThreshold(:core_aln_mismatch, 14.0, "Max dist"),
         ]
         Filters.annotate_rejections!(clusters, criteria; stage="output filter")
         @test clusters.reject_reason == ["", "Min count", "Min ratio", "Min len"]
@@ -1073,7 +1075,7 @@ test_outcomes = Dict(
         db = [("IGHD1-7*01", "GGTATAACTGGAACTAC"), ("IGHD1-7*02", "GGTATAACTGGAACAAC")]
         # exact match to the best-hit reference → that reference
         @test Blast.name_candidate("GGTATAACTGGAACTAC", "IGHD1-7*01", 0, db, true) == "IGHD1-7*01"
-        # core EXACTLY equals a different known allele than the best-hit (aln_mismatch>0 vs best
+        # core EXACTLY equals a different known allele than the best-hit (core_aln_mismatch>0 vs best
         # hit): must resolve to that known allele regardless of --isin — never a novel _S name.
         @test Blast.name_candidate("GGTATAACTGGAACAAC", "IGHD1-7*01", 1, db, true)  == "IGHD1-7*02"
         @test Blast.name_candidate("GGTATAACTGGAACAAC", "IGHD1-7*01", 1, db, false) == "IGHD1-7*02"
@@ -1195,13 +1197,21 @@ test_outcomes = Dict(
         @test mr[1, :fp_removed] == 2
         @test mr[1, :cli_suggestion] == "--min-peak-allelic-ratio 0.5"
 
-        @test Selftest.cli_threshold_suggestion("allelic_ratio", "keep ≥", 0.15) == "--min-allelic-ratio 0.15"
-        @test Selftest.cli_threshold_suggestion("count", "keep ≥", 12.0) == "--min-count 12"
-        @test Selftest.cli_threshold_suggestion("scov", "keep ≥", 0.95) == "--subjectcov 0.95"
-        @test Selftest.cli_threshold_suggestion("aln_mismatch", "keep ≤", 9.0) == "--maxdist 9"
-        @test "allelic_ratio" in Selftest.DEFAULT_METRICS
-        @test "count" in Selftest.DEFAULT_METRICS
-        @test "scov" in Selftest.DEFAULT_METRICS
+        @test Blast.blast_cli_suggestion("allelic_ratio", "keep ≥", 0.15) == "--min-allelic-ratio 0.15"
+        @test Blast.blast_cli_suggestion("count", "keep ≥", 12.0) == "--min-count 12"
+        @test Blast.blast_cli_suggestion("scov", "keep ≥", 0.95) == "--subjectcov 0.95"
+        @test Blast.blast_cli_suggestion("blast_mismatch", "keep ≤", 9.0) == "--max-blast-mismatch 9"
+        @test Blast.blast_cli_suggestion("core_aln_mismatch", "keep ≤", 9.0) == "--max-aln-mismatch 9"
+        discm2 = DataFrame(
+            peak_allelic_ratio=[0.1], full_allelic_ratio=[0.1], allelic_ratio=[0.1],
+            count=[1], full_count=[1], scov=[1.0], corecov=[1.0], aln_qseq=["ACGT"],
+            reject_reason=[""], reject_stage=[""])
+        dm = Selftest.discover_metrics(discm2)
+        @test "peak_allelic_ratio" in dm
+        @test "allelic_ratio" in dm
+        @test "scov" in dm
+        crits = Blast.build_blast_output_criteria(Cli.BLAST_DEFAULTS; include_inactive=true)
+        @test length(crits) >= 8
 
         # No accepted false novel cores ⇒ empty (nothing to cut).
         safez = Selftest.recall_safe_filters(discz, Set(String[]), [("V1", "NOVELAAA")]; seq_col=:aln_qseq)

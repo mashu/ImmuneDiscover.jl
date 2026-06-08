@@ -1,11 +1,11 @@
 module Align
-    # Core-vs-germline diff using the same Levenshtein alignment as BLAST trim (`aln_mismatch`).
+    # Core-vs-germline diff using the same Levenshtein alignment as BLAST trim (`core_aln_mismatch`).
     using BioAlignments
     using BioSequences
 
     export core_edit_distance, core_mismatch_row
 
-    "Edit distance between trimmed core and full DB reference (same as `aln_mismatch`)."
+    "Edit distance between trimmed core and full DB reference (same as `core_aln_mismatch`)."
     function core_edit_distance(core::AbstractString, reference::AbstractString)
         aln = pairalign(LevenshteinDistance(), LongDNA{4}(reference), LongDNA{4}(core))
         return score(aln)

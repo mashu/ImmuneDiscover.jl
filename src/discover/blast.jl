@@ -17,11 +17,13 @@ module Blast
     using ..SeqStats: gc_content, max_homopolymer
     using ..RatioColumns: ALLELIC_RATIO, FULL_ALLELIC_RATIO, PEAK_ALLELIC_RATIO
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
-                     add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes
+                     add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes,
+                     criterion_column
     using ..Report: stage_report, section, cluster_profile_heatmap, params_report, report_rejections
 
     export blast_discover, save_to_fasta, accumulate_affixes, save_extended, handle_blast
-    export resolve_work_dir, blast_hits_gz_path
+    export resolve_work_dir, blast_hits_gz_path, blast_cache_key
+    export build_blast_output_criteria, blast_discoverable_metrics, blast_cli_suggestion
     export consensus_prefix, consensus_suffix, name_candidate
 
     const columns = ["qseqid", "sseqid", "pident", "nident", "length", "mismatch", "gapopen", "qcovs", "qcovhsp", "qstart", "qend", "sstart", "send", "qlen", "slen", "evalue", "bitscore", "sstrand", "qseq"]
@@ -802,13 +804,15 @@ module Blast
         clusters = combine(groupby(blast_df, [:well, :case, :sseqid, :qseq, :mismatch]),
                             :qseqid => length => :full_count,
                             :scov => maximum => :scov)
+        rename!(clusters, :mismatch => :blast_mismatch)
         @info "Clusters after grouping: $(nrow(clusters)) rows"
         verbose && CSV.write(joinpath(run_dir, "clusters.tsv"), clusters)
 
         before = nrow(clusters)
-        mismatch_vals = Float64.(clusters.mismatch)
-        filter!(x -> x.mismatch <= max_dist, clusters)
-        stage_report("BLAST mismatch ≤ $max_dist", nrow(clusters), before; values=mismatch_vals, histogram=true)
+        mismatch_vals = Float64.(clusters.blast_mismatch)
+        filter!(x -> x.blast_mismatch <= max_dist, clusters)
+        stage_report("BLAST mismatch ≤ $max_dist (--max-blast-mismatch)", nrow(clusters), before;
+                     values=mismatch_vals, histogram=true)
         verbose && CSV.write(joinpath(run_dir, "clusters-mismatch.tsv"), clusters)
 
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
@@ -829,6 +833,114 @@ module Blast
         return df
     end
 
+    "Post-output diagnostic columns (no `discover blast` threshold flag; self-test still scans them)."
+    const BLAST_DIAGNOSTIC_METRICS = [
+        "nn_dist", "parent_ratio", "satellite_score", "chimera_score", "gc_content",
+    ]
+
+    "Cluster / trim stages before output filters (rows failing these never reach the full table)."
+    const BLAST_UPSTREAM_METRICS = ["scov", "corecov", "blast_mismatch"]
+
+    """
+        build_blast_output_criteria(b; keep_failed, include_inactive) -> Vector{FilterCriterion}
+
+    Same criterion list as `handle_blast` output filters. `include_inactive=true` lists every
+    optional threshold column (for self-test metric discovery), not only flags > 0 in `b`.
+    """
+    function build_blast_output_criteria(b::AbstractDict;
+                                         keep_failed::Bool=true, include_inactive::Bool=false)
+        min_count = get(b, "min-count", 0)
+        min_fullcount = get(b, "min-fullcount", 0)
+        min_allelic = get(b, "min-allelic-ratio", 0.0)
+        min_full_allelic = get(b, "min-full-allelic-ratio", 0.0)
+        min_peak_allelic = get(b, "min-peak-allelic-ratio", 0.0)
+        min_length = get(b, "length", 0)
+        min_recurrence = get(b, "min-recurrence", 0)
+        max_homop = get(b, "max-homopolymer", 0)
+        min_reads_total = get(b, "min-reads-total", 0)
+        max_aln_mismatch = get(b, "max-aln-mismatch", 0)
+
+        criteria = FilterCriterion[
+            MinStringLength(:qseq, min_length, "min trimmed length (--length $min_length)"),
+        ]
+        if !keep_failed
+            push!(criteria, NonNegative(:core_aln_mismatch, "trimming failed (core_aln_mismatch < 0)"))
+        end
+        push!(criteria, MaxThreshold(:core_aln_mismatch, Float64(max_aln_mismatch),
+                                     "max trimmed-core distance (--max-aln-mismatch $max_aln_mismatch)"))
+        (include_inactive || min_count > 0) && push!(criteria,
+            MinThreshold(:count, Float64(min_count), "min count (--min-count $min_count)"))
+        (include_inactive || min_fullcount > 0) && push!(criteria,
+            MinThreshold(:full_count, Float64(min_fullcount),
+                         "min full count (--min-fullcount $min_fullcount)"))
+        (include_inactive || min_allelic > 0) && push!(criteria,
+            MinThreshold(ALLELIC_RATIO, min_allelic,
+                         "min allelic ratio (--min-allelic-ratio $min_allelic)"))
+        (include_inactive || min_full_allelic > 0) && push!(criteria,
+            MinThreshold(FULL_ALLELIC_RATIO, min_full_allelic,
+                         "min full allelic ratio (--min-full-allelic-ratio $min_full_allelic)"))
+        (include_inactive || min_peak_allelic > 0) && push!(criteria,
+            MinThreshold(PEAK_ALLELIC_RATIO, min_peak_allelic,
+                         "min peak allelic ratio (--min-peak-allelic-ratio $min_peak_allelic)"))
+        (include_inactive || min_reads_total > 0) && push!(criteria,
+            MinThreshold(:n_reads_total, Float64(min_reads_total),
+                         "min total reads (--min-reads-total $min_reads_total)"))
+        (include_inactive || min_recurrence > 0) && push!(criteria,
+            MinThreshold(:n_donors, Float64(min_recurrence),
+                         "min donor recurrence (--min-recurrence $min_recurrence)"))
+        (include_inactive || max_homop > 0) && push!(criteria,
+            MaxThreshold(:max_homopolymer, Float64(max_homop),
+                         "max homopolymer (--max-homopolymer $max_homop)"))
+        return criteria
+    end
+
+    """
+        blast_discoverable_metrics(df; blast_block) -> Vector{String}
+
+    Every tunable / diagnostic metric column that `discover blast` can filter on or report,
+    intersected with columns present in `df`. Single source for self-test metric scans.
+    """
+    function blast_discoverable_metrics(df::DataFrame;
+                                        blast_block::Union{AbstractDict,Nothing}=nothing)
+        b = blast_block === nothing ? Dict{String,Any}() : blast_block
+        cols = Set(string.(names(df)))
+        out = String[]
+        seen = Set{String}()
+        for c in build_blast_output_criteria(b; include_inactive=true)
+            m = criterion_column(c)
+            isempty(m) || m in seen || (push!(seen, m); push!(out, m))
+        end
+        for m in vcat(BLAST_UPSTREAM_METRICS, BLAST_DIAGNOSTIC_METRICS, ["max_homopolymer"])
+            m in cols && m in seen && continue
+            m in cols && (push!(seen, m); push!(out, m))
+        end
+        return out
+    end
+
+    """
+        blast_cli_suggestion(metric, direction, threshold) -> String
+
+    Map a discovery-table column to the matching `discover blast` CLI flag when one exists.
+    """
+    function blast_cli_suggestion(metric::AbstractString, direction::AbstractString, threshold::Real)
+        t4 = round(Float64(threshold); digits=4)
+        ti = round(Int, threshold)
+        metric == "peak_allelic_ratio" && direction == "keep ≥" && return "--min-peak-allelic-ratio $t4"
+        metric == "full_allelic_ratio" && direction == "keep ≥" && return "--min-full-allelic-ratio $t4"
+        metric == "allelic_ratio" && direction == "keep ≥" && return "--min-allelic-ratio $t4"
+        metric == "count" && direction == "keep ≥" && return "--min-count $ti"
+        metric == "full_count" && direction == "keep ≥" && return "--min-fullcount $ti"
+        metric == "qseq" && direction == "keep ≥" && return "--length $ti"
+        metric == "corecov" && direction == "keep ≥" && return "--min-corecov $t4"
+        metric == "scov" && direction == "keep ≥" && return "--subjectcov $t4"
+        metric == "n_reads_total" && direction == "keep ≥" && return "--min-reads-total $ti"
+        metric == "n_donors" && direction == "keep ≥" && return "--min-recurrence $ti"
+        metric == "blast_mismatch" && direction == "keep ≤" && return "--max-blast-mismatch $ti"
+        metric == "core_aln_mismatch" && direction == "keep ≤" && return "--max-aln-mismatch $ti"
+        metric == "max_homopolymer" && direction == "keep ≤" && return "--max-homopolymer $ti"
+        return "$metric $direction $t4"
+    end
+
     function seq_to_name_lookup(db_seqs)
         lookup = Dict{String, String}()
         for (name, seq) in db_seqs
@@ -838,12 +950,12 @@ module Blast
     end
 
     """
-        name_candidate(core, sseqid, aln_mismatch, db_seqs, isin) -> String
+        name_candidate(core, sseqid, core_aln_mismatch, db_seqs, isin) -> String
 
     Name a discovery candidate from its trimmed `core`. "Novel" means genuine sequence variation
     in the (non-extended) gene relative to EVERY known allele, so the resolution order is:
 
-      1. `aln_mismatch == 0`  → the best-hit reference `sseqid` (core equals that reference).
+      1. `core_aln_mismatch == 0`  → the best-hit reference `sseqid` (core equals that reference).
       2. core identical to ANY known sequence → that allele — independent of which allele won the
          BLAST best-hit and of `isin`. A core equal to a reference *is* that allele, never novel.
       3. `isin` only: core is a substring of a known allele → that allele (the read covers only
@@ -854,14 +966,14 @@ module Blast
     the extra bases are variation in the gene region (e.g. a junction insertion), not coverage.
     `db_seqs` is the un-extended base reference as `(name, sequence)` pairs.
     """
-    function name_candidate(core::AbstractString, sseqid, aln_mismatch, db_seqs, isin::Bool)
-        name_candidate(core, sseqid, aln_mismatch, seq_to_name_lookup(db_seqs), db_seqs, isin)
+    function name_candidate(core::AbstractString, sseqid, core_aln_mismatch, db_seqs, isin::Bool)
+        name_candidate(core, sseqid, core_aln_mismatch, seq_to_name_lookup(db_seqs), db_seqs, isin)
     end
 
-    function name_candidate(core::AbstractString, sseqid, aln_mismatch,
+    function name_candidate(core::AbstractString, sseqid, core_aln_mismatch,
                             exact_lookup::Dict{String, String},
                             db_seqs, isin::Bool)
-        aln_mismatch == 0 && return String(sseqid)
+        core_aln_mismatch == 0 && return String(sseqid)
         haskey(exact_lookup, core) && return exact_lookup[core]
         if isin
             for (name, seq) in db_seqs
@@ -960,7 +1072,7 @@ module Blast
             parsed_args["discover"]["blast"]["input"],
             ext_fasta_path;
             work_dir=work_dir,
-            max_dist=parsed_args["discover"]["blast"]["maxdist"],
+            max_dist=parsed_args["discover"]["blast"]["max-blast-mismatch"],
             min_edge=parsed_args["discover"]["blast"]["edge"],
             min_scov=parsed_args["discover"]["blast"]["subjectcov"],
             args=parsed_args["discover"]["blast"]["args"],
@@ -1004,7 +1116,7 @@ module Blast
                     return (trimmed, distance, local_stats)
                 end
                 blast_clusters[:, :aln_qseq] = [r[1] for r in results]
-                blast_clusters[:, :aln_mismatch] = [r[2] for r in results]
+                blast_clusters[:, :core_aln_mismatch] = [r[2] for r in results]
                 for r in results
                     merge_stats!(stats, r[3])
                 end
@@ -1035,7 +1147,7 @@ module Blast
             end
         else
             blast_clusters[:, :aln_qseq] = blast_clusters[:, :qseq]
-            blast_clusters[:, :aln_mismatch] = blast_clusters[:, :mismatch]
+            blast_clusters[:, :core_aln_mismatch] = blast_clusters[:, :blast_mismatch]
         end
 
         add_blast_support_columns!(blast_clusters)
@@ -1054,45 +1166,8 @@ module Blast
         # artifacts stay minor everywhere — the most discriminative recall-safe separator.
         transform!(groupby(blast_clusters, :aln_qseq), FULL_ALLELIC_RATIO => maximum => PEAK_ALLELIC_RATIO)
 
-        # Apply output filters
-        min_count = parsed_args["discover"]["blast"]["min-count"]
-        min_fullcount = parsed_args["discover"]["blast"]["min-fullcount"]
-        min_allelic = parsed_args["discover"]["blast"]["min-allelic-ratio"]
-        min_full_allelic = parsed_args["discover"]["blast"]["min-full-allelic-ratio"]
-        min_peak_allelic = get(parsed_args["discover"]["blast"], "min-peak-allelic-ratio", 0.0)
-        min_length = parsed_args["discover"]["blast"]["length"]
-        min_recurrence = get(parsed_args["discover"]["blast"], "min-recurrence", 0)
-        max_homop = get(parsed_args["discover"]["blast"], "max-homopolymer", 0)
-        min_reads_total = get(parsed_args["discover"]["blast"], "min-reads-total", 0)
-
-        criteria = FilterCriterion[
-            MinStringLength(:qseq, min_length, "min trimmed length (--length $min_length)"),
-        ]
-        if !keep_failed
-            push!(criteria, NonNegative(:aln_mismatch, "trimming failed (aln_mismatch < 0)"))
-        end
-        push!(criteria, MaxThreshold(:aln_mismatch, Float64(parsed_args["discover"]["blast"]["maxdist"]),
-                                     "max edit distance (--maxdist $(parsed_args["discover"]["blast"]["maxdist"]))"))
-        min_count > 0 && push!(criteria,
-            MinThreshold(:count, Float64(min_count), "min count (--min-count $min_count)"))
-        min_fullcount > 0 && push!(criteria,
-            MinThreshold(:full_count, min_fullcount,
-                         "min full count (--min-fullcount $min_fullcount)"))
-        min_allelic > 0 && push!(criteria,
-            MinThreshold(ALLELIC_RATIO, min_allelic,
-                         "min allelic ratio (--min-allelic-ratio $min_allelic)"))
-        min_full_allelic > 0 && push!(criteria,
-            MinThreshold(FULL_ALLELIC_RATIO, min_full_allelic,
-                         "min full allelic ratio (--min-full-allelic-ratio $min_full_allelic)"))
-        min_peak_allelic > 0 && push!(criteria,
-            MinThreshold(PEAK_ALLELIC_RATIO, min_peak_allelic,
-                         "min peak allelic ratio (--min-peak-allelic-ratio $min_peak_allelic)"))
-        min_reads_total > 0 && push!(criteria,
-            MinThreshold(:n_reads_total, Float64(min_reads_total), "min total reads (--min-reads-total $min_reads_total)"))
-        min_recurrence > 0 && push!(criteria,
-            MinThreshold(:n_donors, Float64(min_recurrence), "min donor recurrence (--min-recurrence $min_recurrence)"))
-        max_homop > 0 && push!(criteria,
-            MaxThreshold(:max_homopolymer, Float64(max_homop), "max homopolymer (--max-homopolymer $max_homop)"))
+        blast_block = parsed_args["discover"]["blast"]
+        criteria = build_blast_output_criteria(blast_block; keep_failed=keep_failed)
 
         # Apply each output filter in turn, annotating (not dropping) so the full table keeps
         # every candidate, and report how many each filter removes — separately.
@@ -1118,7 +1193,7 @@ module Blast
                             only_accepted=true)
         @info "Naming candidates"
         blast_clusters[:, :allele_name] = map(r -> name_candidate(String(r.aln_qseq), r.sseqid,
-                                                                  r.aln_mismatch, exact_lookup,
+                                                                  r.core_aln_mismatch, exact_lookup,
                                                                   db_seqs, isin),
                                               eachrow(blast_clusters))
 
@@ -1154,12 +1229,12 @@ module Blast
                          :gene => first => :gene,
                          :allele_name => first => :allele_name,
                          :sseqid => first => :sseqid,
-                         :aln_mismatch => first => :aln_mismatch,
+                         :core_aln_mismatch => first => :core_aln_mismatch,
                          :n_reads_total => first => :n_reads_total)
             cluster_profile_heatmap(String.(uc.gene), String.(uc.aln_qseq),
                                     String.(uc.allele_name), String.(uc.sseqid);
                                     reads=uc.n_reads_total,
-                                    aln_mismatch=uc.aln_mismatch,
+                                    core_aln_mismatch=uc.core_aln_mismatch,
                                     db_seqs=db_seqs,
                                     title="novel alleles")
         end

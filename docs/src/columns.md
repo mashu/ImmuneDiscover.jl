@@ -154,7 +154,8 @@ full table.
 | `gene` | Gene name (from sseqid) |
 | `qseq` | Query core sequence (gaps removed) |
 | `aln_qseq` | Trimmed core: the read segment left after removing the prefix/suffix affixes |
-| `aln_mismatch` | Edit distance of the trimmed core to the assigned reference (−1 if trimming failed) |
+| `blast_mismatch` | BLAST alignment mismatch count (extended query vs hit); filtered by `--max-blast-mismatch` before trimming |
+| `core_aln_mismatch` | Edit distance of the trimmed core to the assigned reference (−1 if trimming failed); filtered by `--max-aln-mismatch` |
 | `scov` | BLAST subject coverage = aligned subject span `(|send−sstart|+1)/slen`, bounded in (0, 1]; max per cluster. Rows below `--subjectcov` are dropped before the full table is built |
 | `corecov` | Core ÷ reference length = `length(aln_qseq)/length(db allele)`. **Can exceed 1.0** when the candidate is longer than the reference (an insertion) |
 | `isin_db` | Whether `aln_qseq` is an exact substring of a known allele |
@@ -447,7 +448,7 @@ posterior = exp(best_path_logprob - total_logprob)
 ### Numeric Columns (Integer)
 - Counts: `count`, `full_count`, `gene_count`, `case_count`, `support`
 - Identifiers: `well`, `flank_index`, `group_id`, `n_donors`
-- Distances: `aln_mismatch`, `nearest_db_dist`, `edit_distance`
+- Distances: `blast_mismatch`, `core_aln_mismatch`, `nearest_db_dist`, `edit_distance`
 - Lengths: `db_length`, `full_length`, `qlen`, `slen`
 
 ### Numeric Columns (Float)

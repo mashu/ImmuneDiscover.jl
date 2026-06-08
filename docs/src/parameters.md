@@ -39,14 +39,14 @@ Control allelic frequency within gene groups.
 
 Maximum mismatches for allele assignment.
 
-| Gene | --maxdist | Rationale |
-|------|-----------|-----------|
-| **V genes** | 14 (`-g V` preset) | Genomic IGHV + novel recovery (trim vs reference) |
-| **D genes** | 20 (default) | Highly variable, short |
-| **J genes** | 10 (default) | Moderately conserved |
-| **Very strict** | 5 | High confidence only |
+| Gene | --max-blast-mismatch | --max-aln-mismatch | Rationale |
+|------|---------------------|-------------------|-----------|
+| **V genes** | 14 (`-g V`) | 14 (`-g V`) | BLAST cluster + trimmed-core distance for IGHV novel recovery |
+| **D genes** | 20 (default) | 20 (default) | Highly variable, short |
+| **J genes** | 10 (default) | 10 (default) | Moderately conserved |
+| **Very strict** | 5 | 5 | High confidence only |
 
-**Note**: Higher maxdist includes more divergent alleles but may capture pseudogenes.
+**Note**: `--max-blast-mismatch` filters the BLAST `mismatch` field (stored as `blast_mismatch` in the full table) before trimming; `--max-aln-mismatch` filters `core_aln_mismatch` in the output stage. They measure different things when affix extension is on.
 
 ---
 

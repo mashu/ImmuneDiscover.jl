@@ -270,7 +270,7 @@ module Report
         return get(db, s, nothing)
     end
 
-    "SNP weights along `core` vs matched germline (same alignment as `aln_mismatch`)."
+    "SNP weights along `core` vs matched germline (same alignment as `core_aln_mismatch`)."
     mismatch_row(core, ref, weight) = core_mismatch_row(core, ref, weight)
 
     """
@@ -287,17 +287,17 @@ module Report
     end
 
     """
-        gene_novel_diff_panels(genes, seqs, names, sseqids; reads, aln_mismatches, db_seqs) ->
+        gene_novel_diff_panels(genes, seqs, names, sseqids; reads, core_aln_mismatches, db_seqs) ->
             (panels, n_suspicious)
 
     One matrix per gene with plottable novels. Each row = trimmed core vs its BLAST-matched
     germline allele (`sseqid` in DB). `n_suspicious` counts discovered novels with
-    `aln_mismatch == 0` but zero SNP diff on the core (a naming bug).
+    `core_aln_mismatch == 0` but zero SNP diff on the core (a naming bug).
     """
-    function gene_novel_diff_panels(genes, seqs, names, sseqids; reads, aln_mismatches, db_seqs)
+    function gene_novel_diff_panels(genes, seqs, names, sseqids; reads, core_aln_mismatches, db_seqs)
         db = db_dict(db_seqs)
         bygene = Dict{String,Dict{String,Tuple{String,Int,String,Int}}}()
-        for (g, s, nm, sid, r, mm) in zip(genes, seqs, names, sseqids, reads, aln_mismatches)
+        for (g, s, nm, sid, r, mm) in zip(genes, seqs, names, sseqids, reads, core_aln_mismatches)
             core = String(s)
             isempty(core) && continue
             gene = String(g)
@@ -360,14 +360,15 @@ module Report
     every novel in that gene matched germline exactly — investigate naming. Requires `db_seqs`
     and per-row `sseqids`.
     """
-    function cluster_profile_heatmap(genes, seqs, names, sseqids; reads, aln_mismatch, db_seqs,
+    function cluster_profile_heatmap(genes, seqs, names, sseqids; reads, core_aln_mismatch, db_seqs,
                                      title::AbstractString="novel alleles",
                                      max_rows::Int=12)
         panels, n_suspicious = gene_novel_diff_panels(genes, seqs, names, sseqids;
-                                                      reads=reads, aln_mismatches=aln_mismatch,
+                                                      reads=reads,
+                                                      core_aln_mismatches=core_aln_mismatch,
                                                       db_seqs=db_seqs)
         n_suspicious > 0 && printstyled("      ⚠ ", n_suspicious,
-                                        " novel(s) with aln_mismatch=0 but identical to germline — naming bug\n";
+                                        " novel(s) with core_aln_mismatch=0 but identical to germline — naming bug\n";
                                         color=:yellow)
         isempty(panels) && return nothing
         printstyled("      ", title,

@@ -10,46 +10,36 @@ module Selftest
     using DataFrames
     using CSV
     using Statistics: median
+    using ..Blast: blast_discoverable_metrics, blast_cli_suggestion, build_blast_output_criteria
+    using ..Cli: BLAST_DEFAULTS, BLAST_PRESETS
     using ..Data: load_fasta, barplot_if_available
+    using ..Filters: passes
     using ..Report: section, stage_report
 
     export handle_selftest, evaluate_recovery, classify_allele, is_novel, metric_separation,
-           recall_safe_filters, cli_threshold_suggestion, DEFAULT_METRICS
-
-    # Metric columns scanned for separation (intersected with what the table actually has).
-    # Order: ratio/count filters first, then support and quality metrics.
-    const DEFAULT_METRICS = [
-        "peak_allelic_ratio", "full_allelic_ratio", "allelic_ratio",
-        "full_count", "count",
-        "n_reads_total", "n_donors", "scov", "corecov",
-        "aln_mismatch", "mismatch",
-        "gc_content", "max_homopolymer",
-        "nn_dist", "parent_ratio", "satellite_score", "chimera_score",
-    ]
+           recall_safe_filters, discover_metrics, marginal_filter_shadowing, selftest_blast_block
 
     """
-        cli_threshold_suggestion(metric, direction, threshold) -> String
+        selftest_blast_block(parsed_args) -> Dict
 
-    Map a metric column + keep-direction + cut value to the matching `discover blast` CLI flag,
-    when one exists. Diagnostic-only metrics fall back to `column direction value`.
+    Reconstruct the `discover blast` parameter block for marginal filter audit. Merges
+    `BLAST_DEFAULTS` with the optional `-g` preset (same keys as blast, no user overrides).
     """
-    function cli_threshold_suggestion(metric::AbstractString, direction::AbstractString, threshold::Real)
-        t4 = round(Float64(threshold); digits=4)
-        ti = round(Int, threshold)
-        metric == "peak_allelic_ratio" && direction == "keep ≥" && return "--min-peak-allelic-ratio $t4"
-        metric == "full_allelic_ratio" && direction == "keep ≥" && return "--min-full-allelic-ratio $t4"
-        metric == "allelic_ratio" && direction == "keep ≥" && return "--min-allelic-ratio $t4"
-        metric == "count" && direction == "keep ≥" && return "--min-count $ti"
-        metric == "full_count" && direction == "keep ≥" && return "--min-fullcount $ti"
-        metric == "corecov" && direction == "keep ≥" && return "--min-corecov $t4"
-        metric == "scov" && direction == "keep ≥" && return "--subjectcov $t4"
-        metric == "n_reads_total" && direction == "keep ≥" && return "--min-reads-total $ti"
-        metric == "n_donors" && direction == "keep ≥" && return "--min-recurrence $ti"
-        (metric == "aln_mismatch" || metric == "mismatch") && direction == "keep ≤" &&
-            return "--maxdist $ti"
-        metric == "max_homopolymer" && direction == "keep ≤" && return "--max-homopolymer $ti"
-        return "$metric $direction $t4"
+    function selftest_blast_block(parsed_args)
+        b = parsed_args["discover"]["selftest"]
+        block = Dict{String,Any}(k => v for (k, v) in BLAST_DEFAULTS)
+        gene = get(b, "gene", "")
+        if !isempty(gene) && haskey(BLAST_PRESETS, gene)
+            for (k, v) in BLAST_PRESETS[gene]
+                block[k] = v
+            end
+        end
+        return block
     end
+
+    "Metric columns to scan: every blast-tunable column present in `df` (single source in Blast)."
+    discover_metrics(df::DataFrame, blast_block::Union{AbstractDict,Nothing}=nothing) =
+        blast_discoverable_metrics(df; blast_block=blast_block)
 
     "True if `seq` is absent from the base (reference) set."
     is_novel(seq::AbstractString, base::AbstractSet) = !(seq in base)
@@ -160,6 +150,17 @@ module Selftest
         return out
     end
 
+    "Numeric values for metric scans; string columns (`qseq`) use sequence length."
+    function metric_values(df::DataFrame, name::AbstractString)
+        name in names(df) || return Float64[]
+        raw = df[!, name]
+        if eltype(raw) <: Union{AbstractString, Missing} ||
+           (length(raw) > 0 && (ismissing(raw[1]) || raw[1] isa AbstractString))
+            return Float64[length(ismissing(x) ? "" : String(x)) for x in raw]
+        end
+        return numeric_col(df, name)
+    end
+
     function best_threshold(tp::AbstractVector{<:Real}, fp::AbstractVector{<:Real})
         cuts = sort!(unique(vcat(collect(tp), collect(fp))))
         ntp, nfp = length(tp), length(fp)
@@ -176,7 +177,9 @@ module Selftest
     function metric_separation(discovery::DataFrame, base::AbstractSet{String},
                                truth::AbstractVector{<:Tuple{<:AbstractString,<:AbstractString}};
                                seq_col::Symbol=:aln_qseq, substring::Bool=true,
-                               metrics::AbstractVector{<:AbstractString}=DEFAULT_METRICS)
+                               metrics::Union{Nothing,AbstractVector{<:AbstractString}}=nothing,
+                               blast_block::Union{AbstractDict,Nothing}=nothing)
+        metrics === nothing && (metrics = discover_metrics(discovery, blast_block))
         cols = names(discovery)
         String(seq_col) in cols ||
             error("Discovery table has no '$seq_col' column — pass --seq-col, or use the full table (<output>.full.tsv.gz).")
@@ -199,7 +202,7 @@ module Selftest
         rows = Row[]
         for m in metrics
             m in cols || continue
-            vals = numeric_col(discovery, m)
+            vals = metric_values(discovery, m)
             tp = filter(isfinite, vals[tp_idx])
             fp = filter(isfinite, vals[fp_idx])
             (isempty(tp) || isempty(fp)) && continue
@@ -208,7 +211,7 @@ module Selftest
             push!(rows, (metric=m, n_tp=length(tp), n_fp=length(fp),
                          tp_median=median(tp), fp_median=median(fp),
                          direction=direction, threshold=thr,
-                         cli_suggestion=cli_threshold_suggestion(m, direction, thr),
+                         cli_suggestion=blast_cli_suggestion(m, direction, thr),
                          youden=j, tp_kept=keep_tp, fp_removed=length(fp) - keep_fp))
         end
         df = DataFrame(metric=String[], n_tp=Int[], n_fp=Int[], tp_median=Float64[],
@@ -221,7 +224,9 @@ module Selftest
     function recall_safe_filters(discovery::DataFrame, base::AbstractSet{String},
                                  truth::AbstractVector{<:Tuple{<:AbstractString,<:AbstractString}};
                                  seq_col::Symbol=:aln_qseq, substring::Bool=true,
-                                 metrics::AbstractVector{<:AbstractString}=DEFAULT_METRICS)
+                                 metrics::Union{Nothing,AbstractVector{<:AbstractString}}=nothing,
+                                 blast_block::Union{AbstractDict,Nothing}=nothing)
+        metrics === nothing && (metrics = discover_metrics(discovery, blast_block))
         cols = names(discovery)
         String(seq_col) in cols ||
             error("Discovery table has no '$seq_col' column — pass --seq-col, or use the full table (<output>.full.tsv.gz).")
@@ -253,7 +258,7 @@ module Selftest
         rows = Row[]
         for m in metrics
             m in cols || continue
-            vals = numeric_col(discovery, m)
+            vals = metric_values(discovery, m)
             cmax = Dict{String,Float64}(); cmin = Dict{String,Float64}()
             for (c, idx) in core_rows
                 fv = filter(isfinite, vals[idx])
@@ -269,12 +274,12 @@ module Selftest
             if fp_ge >= fp_le
                 direction = "keep ≥"
                 push!(rows, (metric=m, acc_fp=length(fp_cores), direction=direction, threshold=safe_ge,
-                             cli_suggestion=cli_threshold_suggestion(m, direction, safe_ge),
+                             cli_suggestion=blast_cli_suggestion(m, direction, safe_ge),
                              fp_removed=fp_ge))
             else
                 direction = "keep ≤"
                 push!(rows, (metric=m, acc_fp=length(fp_cores), direction=direction, threshold=safe_le,
-                             cli_suggestion=cli_threshold_suggestion(m, direction, safe_le),
+                             cli_suggestion=blast_cli_suggestion(m, direction, safe_le),
                              fp_removed=fp_le))
             end
         end
@@ -298,8 +303,54 @@ module Selftest
             printstyled("  ", rpad(r.metric, 14); color=col, bold=true)
             println(rpad(r.cli_suggestion, 28), "$(r.fp_removed)/$(r.acc_fp)")
         end
+        println("  Each metric tested in isolation on accepted novel cores (not the sequential filter cascade).")
         println("  Apply the top blast flag to cut false positives at zero recall cost.")
         return nothing
+    end
+
+    """
+        marginal_filter_shadowing(discovery, truth, base; seq_col, substring, blast_block)
+
+    For rejected truth-novel rows, list other output filters that would *also* fail when each
+    criterion is evaluated in isolation at run thresholds. The full table only records the first
+    sequential failure (`reject_reason`).
+    """
+    function marginal_filter_shadowing(discovery::DataFrame, base::AbstractSet{String},
+                                      truth::AbstractVector{<:Tuple{<:AbstractString,<:AbstractString}};
+                                      seq_col::Symbol=:aln_qseq, substring::Bool=true,
+                                      blast_block::Union{AbstractDict,Nothing}=nothing)
+        blast_block === nothing && return Dict{String,Int}()
+        cols = names(discovery)
+        String(seq_col) in cols || return Dict{String,Int}()
+        getcol(name) = name in cols ? [ismissing(x) ? "" : String(x) for x in discovery[!, name]] :
+                                      fill("", nrow(discovery))
+        reason = getcol("reject_reason")
+        seqs = [ismissing(x) ? "" : String(x) for x in discovery[!, seq_col]]
+        criteria = build_blast_output_criteria(blast_block)
+        truth_novel = [(String(n), String(s)) for (n, s) in truth if is_novel(s, base)]
+        shadow = Dict{String,Int}()
+        for (name, s) in truth_novel
+            for i in eachindex(seqs)
+                isempty(reason[i]) && continue
+                seq_match(seqs[i], s; substring=substring) || continue
+                recorded = reason[i]
+                row = discovery[i, :]
+                for c in criteria
+                    passes(row, c) && continue
+                    c.label == recorded && continue
+                    shadow[c.label] = get(shadow, c.label, 0) + 1
+                end
+            end
+        end
+        return shadow
+    end
+
+    function report_marginal_shadow(shadow::Dict{String,Int})
+        isempty(shadow) && return
+        section("Marginal filter shadowing — other filters that would also fail (isolated, at run thresholds)")
+        println("  discover blast applies output filters sequentially; reject_reason is the first failure only.")
+        ks = sort(collect(keys(shadow)), by=k -> -shadow[k])
+        barplot_if_available(ks, [shadow[k] for k in ks])
     end
 
     function report_separation(sep::DataFrame)
@@ -320,6 +371,7 @@ module Selftest
                   rpad("$(r.fp_removed)/$(r.n_fp)", 15),
                   "$(round(r.tp_median; digits=3)) | $(round(r.fp_median; digits=3))\n")
         end
+        println("  Each metric tested in isolation on all novel candidate rows (accepted + rejected).")
         println("  Higher youden ⇒ better separation; apply the blast flag on the top row to tune filters.")
     end
 
@@ -331,6 +383,10 @@ module Selftest
         truth = load_fasta(b["truth"])
         seq_col = Symbol(get(b, "seq-col", "aln_qseq"))
         substring = !get(b, "no-substring", false)
+        blast_block = selftest_blast_block(parsed_args)
+        gene = get(b, "gene", "")
+        n_metrics = length(discover_metrics(discovery, blast_block))
+        @info "Scanning $n_metrics blast metric column(s)$(isempty(gene) ? "" : " (gene preset $gene for marginal audit)")"
 
         res = evaluate_recovery(discovery, base, truth; seq_col=seq_col, substring=substring)
         s = res.summary
@@ -365,12 +421,22 @@ module Selftest
             end
             missed = count(==( "missed"), res.per_allele.status)
             missed > 0 && println("  missed: $missed truth-novel allele(s) never reached the full table (e.g. failed --subjectcov during BLAST clustering).")
+            if !isempty(gene)
+                shadow = marginal_filter_shadowing(discovery, base, truth;
+                                                   seq_col=seq_col, substring=substring,
+                                                   blast_block=blast_block)
+                report_marginal_shadow(shadow)
+            elseif nrow(filter(r -> r.status == "rejected", res.per_allele)) > 0
+                println("  Pass -g V|D|J to audit which other output filters would also fail (marginal / isolated).")
+            end
         end
 
-        safe = recall_safe_filters(discovery, base, truth; seq_col=seq_col, substring=substring)
+        safe = recall_safe_filters(discovery, base, truth; seq_col=seq_col, substring=substring,
+                                   blast_block=blast_block)
         report_recall_safe(safe)
 
-        sep = metric_separation(discovery, base, truth; seq_col=seq_col, substring=substring)
+        sep = metric_separation(discovery, base, truth; seq_col=seq_col, substring=substring,
+                                blast_block=blast_block)
         report_separation(sep)
 
         CSV.write(b["output"], res.per_allele, delim='\t')

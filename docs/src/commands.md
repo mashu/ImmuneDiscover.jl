@@ -185,7 +185,8 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 
 **BLAST Settings:**
 - `-a, --args` (default: gene-specific): Additional blastn arguments
-- `-d, --maxdist` (default: 20): Maximum mismatches
+- `-d, --max-blast-mismatch` (default: 20): Max BLAST `mismatch` per cluster (pre-trim hard filter)
+- `--max-aln-mismatch` (default: 20): Max edit distance of trimmed core vs reference (output filter)
 - `-e, --edge` (default: 0): Min nucleotides between gene and read end
 - `-s, --subjectcov` (default: 0.1): Min subject coverage fraction
 
@@ -215,17 +216,17 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 
 **V Gene:**
 - Extensions: forward=20, reverse=20
-- Filtering: min-peak-allelic-ratio=0.08, min-full-allelic-ratio=0 (off), length=283, maxdist=14, min-fullcount=5, minquality=0.62, min-corecov=0.50
+- Filtering: min-peak-allelic-ratio=0.08, min-full-allelic-ratio=0 (off), length=283, max-blast-mismatch=14, max-aln-mismatch=14, min-fullcount=5, minquality=0.62, min-corecov=0.50
 - BLAST: `-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50`
 
 **D Gene:**
 - Extensions: forward=40, reverse=40
-- Filtering: min-full-allelic-ratio=0.2, length=5, maxdist=20, min-fullcount=10, edge=10, subjectcov=0.25, minquality=0.5
+- Filtering: min-full-allelic-ratio=0.2, length=5, max-blast-mismatch=20, max-aln-mismatch=20, min-fullcount=10, edge=10, subjectcov=0.25, minquality=0.5
 - BLAST: `-task blastn -word_size 7 -xdrop_ungap 40 -xdrop_gap 40 -subject_besthit -num_alignments 10 -qcov_hsp_perc 5`
 
 **J Gene:**
 - Extensions: forward=12, reverse=12
-- Filtering: length=10, maxdist=10, min-fullcount=10
+- Filtering: length=10, max-blast-mismatch=10, max-aln-mismatch=10, min-fullcount=10
 - BLAST: `-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 10`
 
 ### Inputs/Outputs
@@ -239,7 +240,7 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 - **{fasta}-combined-extended.fasta**: Extended sequences (if extensions used)
 - **{fasta}.affixes**: TSV with `name`, `prefix`, `suffix`
 
-**Key columns**: `qseqid`, `sseqid`, `gene`, `qseq`, `db_seq`, `prefix`, `suffix`, `aln_qseq`, `aln_mismatch`, `corecov`, `isin_db`, `full_count`, `full_ratio`, `allele_name`
+**Key columns**: `qseqid`, `sseqid`, `gene`, `qseq`, `db_seq`, `prefix`, `suffix`, `aln_qseq`, `blast_mismatch`, `core_aln_mismatch`, `corecov`, `isin_db`, `full_count`, `full_ratio`, `allele_name`
 
 Plus standard BLAST columns: `pident`, `nident`, `length`, `mismatch`, `gapopen`, `qcovs`, `qcovhsp`, `qstart`, `qend`, `sstart`, `send`, `qlen`, `slen`, `evalue`, `bitscore`, `sstrand`
 
@@ -262,7 +263,7 @@ immunediscover discover blast demux_D.tsv.gz IGHD.fasta blast_D.tsv.gz -g D
 
 # Override preset
 immunediscover discover blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz \
-  -g V --forward 20 --maxdist 5
+  -g V --forward 20 --max-aln-mismatch 5
 
 # With pseudo-genes
 immunediscover discover blast demux_V.tsv.gz IGHV.fasta blast_V.tsv.gz \
@@ -405,6 +406,7 @@ immunediscover discover selftest <discovery> <base> <truth> <output> [options]
 - `--seq-col` (default: `aln_qseq`): Discovery column holding the candidate core sequence
 - `--no-substring`: Require exact sequence match (disable substring matching)
 - `--metrics-output`: Optional TSV path to save the metric-separation table
+- `-g, --gene` (optional): Gene preset used for `discover blast` — enables marginal filter shadowing audit at run thresholds
 
 ### Inputs/Outputs
 

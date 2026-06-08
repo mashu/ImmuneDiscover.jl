@@ -81,9 +81,14 @@ function add_discover_args!(s)
             help = "Additional arguments to pass to blastn"
             arg_type = String
             default = blast_default("args")
-        "-d", "--maxdist"
-            help = "Maximum distance allowed for alleles"
-            default = blast_default("maxdist")
+        "-d", "--max-blast-mismatch"
+            help = "Max BLAST mismatch per cluster (pre-trim; drops rows before the full table)"
+            default = blast_default("max-blast-mismatch")
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--max-aln-mismatch"
+            help = "Max edit distance of trimmed core (aln_qseq) vs reference allele (output filter)"
+            default = blast_default("max-aln-mismatch")
             arg_type = Int
             range_tester = (x->x >= 0)
         "-e", "--edge"
@@ -277,6 +282,11 @@ function add_discover_args!(s)
         "--metrics-output"
             help = "Optional TSV path to save the metric-separation table (which threshold best splits true from false novel candidates)"
             arg_type = String
+        "-g", "--gene"
+            help = "Gene preset used for discover blast (optional; reconstructs filter thresholds for marginal filter audit)"
+            default = ""
+            arg_type = String
+            range_tester = (x -> isempty(x) || x ∈ keys(BLAST_PRESETS))
         end
 
     return s
