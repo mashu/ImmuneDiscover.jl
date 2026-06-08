@@ -5,10 +5,11 @@ module Exact
     using Folds
     using FASTX
     using Statistics
+    using ..RatioColumns: ALLELIC_RATIO, FULL_ALLELIC_RATIO, PEAK_ALLELIC_RATIO, GENE_FRACTION
     using ..Filters: FilterCriterion, MinThreshold, MinStringLength, CustomFilter, add_group_ratio!,
                      init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Mosaic: refs_by_gene, add_chimera_scores!
-    using ..Data: barplot_if_available, boxplot_if_available, round_floats!, load_fasta
+    using ..Data: barplot_if_available, boxplot_if_available, round_floats!, load_fasta, get_ratio_threshold
     using ..Report: section, stage_report, report_rejections,
                     filter_quality_report, rss_consistency
 
@@ -268,12 +269,6 @@ module Exact
 
     # ========================== Ratio utilities ==========================
 
-    function get_ratio(expect_dict, row, ratio)
-        row.db_name in keys(expect_dict) && (@info "Skipping allelic ratio filters for $(row.db_name) in case $(row.case)"; return 0.0)
-        row.gene in keys(expect_dict) && (@info "Skipping gene ratio filters for $(row.db_name) in case $(row.case)"; return 0.0)
-        return ratio
-    end
-
     # Ratio with an explicit 0-denominator convention: control genes (0 reference count/median)
     # yield Inf so they pass the downstream min-ratio filters by design, never NaN.
     safe_ratio(num, den) = den == 0 ? Inf : num / den
@@ -439,12 +434,11 @@ module Exact
     end
 
     # ========================== Counting & metrics (stages) ==========================
-
     """
         add_counts!(result_df, sequence_lookup) -> df
 
     Add `full_count` (identical full rows), `count` (per well/case/db_name/sequence), `gene`,
-    optional `isin_db`, and the within-gene allelic ratios `full_ratio` / `ratio`.
+    optional `isin_db`, and IgDiscover-style `full_allelic_ratio` / `allelic_ratio` (÷max).
     """
     function add_counts!(result_df::DataFrame, sequence_lookup)
         df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
@@ -454,8 +448,8 @@ module Exact
             @info "Adding isin_db column based on reference FASTA"
             df[!, :isin_db] = map(row -> get(sequence_lookup, row.sequence, false) ? "" : "Novel", eachrow(df))
         end
-        add_group_ratio!(df, :full_count, [:well, :case, :gene], :full_ratio)
-        add_group_ratio!(df, :count, [:well, :case, :gene], :ratio)
+        add_group_ratio!(df, :full_count, [:well, :case, :gene], FULL_ALLELIC_RATIO)
+        add_group_ratio!(df, :count, [:well, :case, :gene], ALLELIC_RATIO)
         return df
     end
 
@@ -463,13 +457,13 @@ module Exact
         add_quality_metrics!(udf) -> udf
 
     Add per-candidate-core metrics over distinct rows: `n_donors` (cross-donor recurrence),
-    `n_reads_total` (read support), `max_full_ratio` (peak per-donor allelic ratio). Must be
+    `n_reads_total` (read support), `peak_allelic_ratio` (best per-donor full allelic ratio). Must be
     called on the de-duplicated table so `full_count` is summed once per distinct row.
     """
     function add_quality_metrics!(udf::DataFrame)
         transform!(groupby(udf, :sequence), :case => (x -> length(unique(x))) => :n_donors)
         transform!(groupby(udf, :sequence), :full_count => sum => :n_reads_total)
-        transform!(groupby(udf, :sequence), :full_ratio => maximum => :max_full_ratio)
+        transform!(groupby(udf, :sequence), FULL_ALLELIC_RATIO => maximum => PEAK_ALLELIC_RATIO)
         return udf
     end
 
@@ -506,8 +500,9 @@ module Exact
     Add the locus-frequency columns used by the reference-frequency filters: `gene_count` /
     `case_count` (per-well/case totals), `allele_cohort_median` / `gene_cohort_median` (across-donor
     medians), `gene_case_freq` (gene-usage fraction), `allele_cohort_fold` / `gene_cohort_fold`
-    (fold-change vs cohort median), and `allelic_ratio` (within-gene allelic ratio). All aggregates
-    are over accepted (count/ratio-passing) rows. Requires `reject_reason` (count/ratio annotated first).
+    (fold-change vs cohort median), and `gene_fraction` (count÷sum of accepted counts in gene).
+    All aggregates are over accepted (count/ratio-passing) rows. Requires `reject_reason`
+    (count/ratio annotated first).
 
     Pass an empty `locus` to include every allele in the frequency denominators. Pass a prefix such
     as `IGHV` or `TRBV` to scope denominators to that locus and zero out locus-scoped stats for other
@@ -527,11 +522,10 @@ module Exact
         # vs typical); a tiny fold flags a sporadic low-support observation.
         df[:, :allele_cohort_fold] = safe_ratio.(df.count, df.allele_cohort_median)
         df[:, :gene_cohort_fold] = safe_ratio.(df.gene_count, df.gene_cohort_median)
-        # allelic_ratio = a row's reads as a fraction of its gene's accepted reads in that
-        # well+case (the standard within-gene allele-calling signal).
+        # gene_fraction = allele reads ÷ all accepted reads in gene (÷sum, not IgDiscover allelic_ratio).
         transform!(groupby(df, [:well, :case, :gene])) do g
             denom = sum((r.count for r in eachrow(g) if isempty(r.reject_reason)); init=0)
-            DataFrame(allelic_ratio = safe_ratio.(g.count, denom))
+            DataFrame(GENE_FRACTION => safe_ratio.(g.count, denom))
         end
         return df
     end
@@ -539,26 +533,44 @@ module Exact
     # ========================== Filter assembly & annotation (stages) ==========================
 
     """
-        exact_filter_criteria(; mincount, minratio, expect_dict, min_recurrence, min_seqlen, min_peak_ratio)
+        exact_filter_criteria(; min_fullcount, min_count, min_allelic_ratio, min_full_allelic_ratio,
+                              expect_dict, expect_full_dict, min_recurrence, min_seqlen,
+                              min_peak_allelic_ratio, min_reads_total)
 
-    The count/ratio criteria (plus optional quality floors) applied to exact candidates. `count`
-    is intentionally omitted: it is ≥ `full_count` by construction, so `full_count ≥ mincount`
-    already subsumes it. The ratio criterion requires both the full-row and collapsed allelic
-    ratios to clear the (control-gene-relaxed) threshold.
+    Count and allelic-ratio criteria for exact candidates. Each flag filters one output column;
+    set a flag to 0 to disable that filter. Per-gene overrides: `expect_dict` / `expect_full_dict`.
     """
-    function exact_filter_criteria(; mincount, minratio, expect_dict,
-                                   min_recurrence::Int=0, min_seqlen::Int=0, min_peak_ratio::Float64=0.0)
-        crit = FilterCriterion[
-            MinThreshold(:full_count, Float64(mincount), "min count (--mincount $mincount)"),
-            CustomFilter(r -> (thr = get_ratio(expect_dict, r, minratio); r.full_ratio >= thr && r.ratio >= thr),
-                         "min allelic ratio (--minratio $minratio)"),
-        ]
-        min_recurrence > 0 && push!(crit,
-            MinThreshold(:n_donors, Float64(min_recurrence), "min donor recurrence (--min-recurrence $min_recurrence)"))
+    function exact_filter_criteria(; min_fullcount::Int=0, min_count::Int=0,
+                                   min_allelic_ratio::Float64, min_full_allelic_ratio::Float64,
+                                   expect_dict, expect_full_dict,
+                                   min_recurrence::Int=0, min_seqlen::Int=0,
+                                   min_peak_allelic_ratio::Float64=0.0, min_reads_total::Int=0)
+        crit = FilterCriterion[]
+        min_count > 0 && push!(crit,
+            MinThreshold(:count, Float64(min_count), "min count (--min-count $min_count)"))
+        min_fullcount > 0 && push!(crit,
+            MinThreshold(:full_count, Float64(min_fullcount),
+                         "min full count (--min-fullcount $min_fullcount)"))
         min_seqlen > 0 && push!(crit,
             MinStringLength(:sequence, min_seqlen, "min sequence length (--min-seqlen $min_seqlen)"))
-        min_peak_ratio > 0 && push!(crit,
-            MinThreshold(:max_full_ratio, min_peak_ratio, "min peak allelic ratio (--min-peak-ratio $min_peak_ratio)"))
+        if min_allelic_ratio > 0
+            push!(crit, CustomFilter(r -> r.allelic_ratio >= get_ratio_threshold(expect_dict, r,
+                                     type="allelic_ratio", default=min_allelic_ratio),
+                         "min allelic ratio (--min-allelic-ratio $min_allelic_ratio)"))
+        end
+        if min_full_allelic_ratio > 0
+            push!(crit, CustomFilter(r -> r.full_allelic_ratio >= get_ratio_threshold(expect_full_dict, r,
+                                     type="full_allelic_ratio", default=min_full_allelic_ratio),
+                         "min full allelic ratio (--min-full-allelic-ratio $min_full_allelic_ratio)"))
+        end
+        min_recurrence > 0 && push!(crit,
+            MinThreshold(:n_donors, Float64(min_recurrence), "min donor recurrence (--min-recurrence $min_recurrence)"))
+        min_peak_allelic_ratio > 0 && push!(crit,
+            MinThreshold(PEAK_ALLELIC_RATIO, min_peak_allelic_ratio,
+                         "min peak allelic ratio (--min-peak-allelic-ratio $min_peak_allelic_ratio)"))
+        min_reads_total > 0 && push!(crit,
+            MinThreshold(:n_reads_total, Float64(min_reads_total),
+                         "min reads total (--min-reads-total $min_reads_total)"))
         return crit
     end
 
@@ -568,13 +580,19 @@ module Exact
     The reference-frequency criteria: allele/gene-case frequency floors (control-gene-aware via
     `get_ratio_threshold`) and the cross-case median ratios.
     """
-    function exact_frequency_criteria(mod, expect_dict, deletion_dict, min_allele_fold, min_gene_fold)
-        return FilterCriterion[
-            CustomFilter(x -> x.allelic_ratio >= mod.get_ratio_threshold(expect_dict, x, type="allelic_ratio"), "allelic ratio"),
-            CustomFilter(x -> x.gene_case_freq >= mod.get_ratio_threshold(deletion_dict, x, type="gene_case_freq"), "gene-case frequency"),
+    function exact_frequency_criteria(mod, deletion_dict, min_gene_fraction,
+                                    min_gene_case_freq, min_allele_fold, min_gene_fold)
+        crit = FilterCriterion[
+            CustomFilter(x -> x.gene_case_freq >= mod.get_ratio_threshold(deletion_dict, x,
+                             type="gene_case_freq", default=min_gene_case_freq),
+                         "min gene case freq (--min-gene-case-freq $min_gene_case_freq)"),
             MinThreshold(:allele_cohort_fold, min_allele_fold, "min allele cohort fold (--min-allele-cohort-fold)"),
             MinThreshold(:gene_cohort_fold, min_gene_fold, "min gene cohort fold (--min-gene-cohort-fold)"),
         ]
+        min_gene_fraction > 0 && pushfirst!(crit,
+            CustomFilter(x -> x.gene_fraction >= min_gene_fraction,
+                         "min gene fraction (--min-gene-fraction $min_gene_fraction)"))
+        return crit
     end
 
     """
@@ -601,7 +619,7 @@ module Exact
     Find exact occurrences of each `query` allele in the reads and return the UNFILTERED candidate
     table (one row per distinct flank/sequence, capped at `N` flank records per allele) with counts,
     allelic ratios and quality metrics. Callers annotate/filter as needed (`handle_exact` runs the
-    full transparency cascade; `hsmm` keeps `full_count ≥ mincount`).
+    full transparency cascade; `hsmm` keeps `full_count ≥ select_min_fullcount`).
     """
     function exact_search(table, query, gene; affix=13, rss=["heptamer", "spacer", "nonamer"],
                           extension=nothing, N=10, raw=nothing, sequence_lookup=nothing,
@@ -627,7 +645,8 @@ module Exact
         udf = sort(unique(df), [:well, :case, :gene, :db_name, :sequence])
         add_quality_metrics!(udf)
 
-        priority_columns = ["well", "case", "gene", "db_name", "count", "full_count", "ratio", "full_ratio"]
+        priority_columns = ["well", "case", "gene", "db_name", "count", "full_count",
+                            "allelic_ratio", "full_allelic_ratio"]
         remaining_columns = setdiff(names(udf), priority_columns)
         udf = udf[:, vcat(priority_columns, remaining_columns)]
         gdf = groupby(udf, [:well, :case, :gene, :db_name, :sequence])
@@ -690,10 +709,10 @@ module Exact
                                       "post_heptamer", "post_spacer", "post_nonamer"]
 
     const EXACT_LEFT_ORDER = ["well", "case", "gene", "db_name", "isin_db",
-        "count", "full_count", "allelic_ratio", "ratio", "full_ratio",
-        "n_donors", "n_reads_total", "max_full_ratio",
-        "gene_case_freq", "allele_cohort_fold", "allele_cohort_median",
-        "gene_cohort_fold", "gene_cohort_median", "gene_count", "case_count",
+        "count", "full_count", "gene_count", "case_count", "n_reads_total", "n_donors",
+        "allelic_ratio", "full_allelic_ratio", "peak_allelic_ratio", "gene_fraction",
+        "gene_case_freq", "allele_cohort_fold", "gene_cohort_fold",
+        "allele_cohort_median", "gene_cohort_median",
         "chimera_score", "flank_index", "reject_reason", "reject_stage"]
 
     """
@@ -784,8 +803,9 @@ module Exact
             novel_note = "isin_db" in names(kept) ?
                 " ($(count(==("Novel"), string.(kept.isin_db))) novel call row(s))" : ""
             println("  $(sum(per_gene.alleles)) accepted allele(s) across $(nrow(per_gene)) gene(s)$novel_note.")
-            printstyled("  accepted alleles per gene:\n"; color=:light_black)
-            barplot_if_available(per_gene.gene, per_gene.alleles)
+            allele_title = "Accepted alleles per gene"
+            printstyled("  ", allele_title, ":\n"; color=:light_black)
+            barplot_if_available(per_gene.gene, per_gene.alleles; title=allele_title)
         else
             printstyled("  no alleles passed the filters\n"; color=:light_red)
         end
@@ -805,7 +825,7 @@ module Exact
         end
 
         report_rejections(counts_df.reject_reason)
-        filter_quality_report(counts_df, [:n_donors, :max_full_ratio, :full_count])
+        filter_quality_report(counts_df, [:n_donors, PEAK_ALLELIC_RATIO, :full_count])
 
         if extension === nothing && nrow(kept) > 0
             for (col, lbl, clr) in heptamer_panels(gt)
@@ -831,9 +851,9 @@ module Exact
         table = immunediscover_module.load_demultiplex(ex["tsv"])
         limit > 0 && (@info "Limiting reads to $limit"; table = table[1:limit, :])
         db = immunediscover_module.load_fasta(ex["fasta"])
-        mincount = ex["mincount"]
-        minratio = ex["minratio"]
-        mincount < 5 && @warn "Decreasing mincount below 5 may lead to false positives"
+        min_fullcount = ex["min-fullcount"]
+        min_allelic_ratio = ex["min-allelic-ratio"]
+        min_fullcount > 0 && min_fullcount < 5 && @warn "Decreasing --min-fullcount below 5 may lead to false positives"
         top = ex["top"]
         affix = ex["affix"]
         gene = ex["gene"]
@@ -850,9 +870,10 @@ module Exact
         top != 1 && @info "Uncollapsed mode; at most $top full records returned."
 
         # `expect`/`deletion` control-gene threshold files serve two distinct, name-keyed roles:
-        # expect_dict also relaxes the within-gene allelic-ratio floor (get_ratio); both feed the
-        # allelic_ratio / gene_case_freq floors (get_ratio_threshold). Different thresholds, same list.
+        # expect_dict: per-gene/per-allele overrides for --min-allelic-ratio (IgDiscover allele_ratio).
+        # deletion_dict: per-gene gene_case_freq overrides only.
         expect_dict = load_ratio_dict(ex["expect"])
+        expect_full_dict = load_ratio_dict(ex["expect-full"])
         deletion_dict = load_ratio_dict(ex["deletion"])
 
         raw = ex["raw"]
@@ -872,14 +893,22 @@ module Exact
         section("Exact search — count and ratio filters")
         init_rejection_columns!(counts_df)
         annotate_stage!(counts_df,
-            exact_filter_criteria(; mincount=mincount, minratio=minratio, expect_dict=expect_dict,
-                min_recurrence=get(ex, "min-recurrence", 0), min_seqlen=get(ex, "min-seqlen", 0),
-                min_peak_ratio=get(ex, "min-peak-ratio", 0.0)),
+            exact_filter_criteria(; min_fullcount=min_fullcount,
+                min_count=ex["min-count"],
+                min_allelic_ratio=min_allelic_ratio,
+                min_full_allelic_ratio=ex["min-full-allelic-ratio"],
+                expect_dict=expect_dict, expect_full_dict=expect_full_dict,
+                min_recurrence=get(ex, "min-recurrence", 0),
+                min_seqlen=get(ex, "min-seqlen", 0),
+                min_peak_allelic_ratio=get(ex, "min-peak-allelic-ratio", 0.0),
+                min_reads_total=get(ex, "min-reads-total", 0)),
             "count and ratio filter")
 
         if !ex["noplot"]
             plotdf = accepted(counts_df)
-            nrow(plotdf) > 0 ? immunediscover_module.plotgenes(plotdf) : @warn "No exact matches to plot"
+            n_donors_input = length(unique(table.case))
+            nrow(plotdf) > 0 ? immunediscover_module.plotgenes(plotdf; n_donors_in_input=n_donors_input) :
+                @warn "No exact matches to plot"
         end
 
         if isempty(strip(locus))
@@ -891,7 +920,8 @@ module Exact
 
         section("Exact search — frequency filters")
         annotate_stage!(counts_df,
-            exact_frequency_criteria(immunediscover_module, expect_dict, deletion_dict,
+            exact_frequency_criteria(immunediscover_module, deletion_dict,
+                ex["min-gene-fraction"], ex["min-gene-case-freq"],
                 ex["min-allele-cohort-fold"], ex["min-gene-cohort-fold"]),
             "frequency filter")
 

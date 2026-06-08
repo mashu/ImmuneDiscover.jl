@@ -82,12 +82,12 @@ immunediscover search exact <tsv> <fasta> <output> -g <gene> [options]
 
 **Count/Frequency Filters:**
 - `-c, --mincount` (default: 5): Minimum read count
-- `-f, --minratio` (default: 0.1): Minimum allelic ratio within gene
+- `-f, --minratio` (default: 0.1): Minimum per-donor major ratio (`donor_major_ratio` and `donor_full_major_ratio`)
 - `--min-allele-cohort-fold` (default: 0.05): Min fold of an allele's donor count vs its cohort median across donors
 - `--min-gene-cohort-fold` (default: 0.05): Min fold of a gene's donor count vs its cohort median across donors
 - `--min-recurrence` (default: 0, off): Require a candidate sequence in ≥ N donors (`n_donors`)
 - `--min-seqlen` (default: 0, off): Drop candidates whose matched sequence is shorter than N nt
-- `--min-peak-ratio` (default: 0.0, off): Require the peak per-donor allelic ratio (`max_full_ratio`)
+- `--min-peak-ratio` (default: 0.0, off): Require `peak_full_major_ratio` floor (best per-donor major ratio across donors). Complements `--minratio`.
 
 All of these annotate rather than drop: every candidate is kept with `reject_reason` / `reject_stage`,
 the run prints a per-filter kept/removed line at each stage, and two tables are written — the filtered
@@ -101,7 +101,8 @@ result and a full annotated table (`<output>.full.tsv.gz`).
 **Advanced:**
 - `-t, --top` (default: 1): Max flank variants per allele (1=collapsed mode)
 - `-r, --refgene`: Reference gene(s) for ratio computation (space-separated)
-- `-e, --expect`: TSV with gene-specific ratio thresholds (columns: name, ratio)
+- `--min-allelic-ratio` (default: 0.1): Primary filter on `donor_allelic_ratio` (allele fraction of gene reads per donor). Set 0 to disable.
+- `-e, --expect`: Optional TSV overriding `--min-allelic-ratio` per gene/allele (columns: name, ratio); listed entries also skip `--minratio` dominance check
 - `-d, --deletion`: TSV with gene_case_freq thresholds (columns: name, ratio)
 - `--locus` (default: "IG"): Locus prefix for frequency calculations
 - `--ref-fasta`: Reference FASTA to mark known vs novel (adds `isin_db` column)
@@ -115,16 +116,17 @@ result and a full annotated table (`<output>.full.tsv.gz`).
 
 **Output:** TSV with exact matches and flanks
 - **Core**: `well`, `case`, `gene`, `db_name`, `sequence`
-- **Counts**: `count`, `full_count`, `ratio`, `full_ratio`, `flank_index`
+- **Counts**: `count`, `full_count`, `gene_count`, `case_count`, `n_reads_total`, `n_donors`, `flank_index`
 - **Flanks** (schema follows the gene and mode searched — a V search carries no D columns):
   - RSS V: `prefix`, `sequence`, + selected `--rss` of `heptamer`/`spacer`/`nonamer`
   - RSS J: `suffix`, `sequence`, + selected `--rss` of `heptamer`/`spacer`/`nonamer`
   - RSS D: `pre_nonamer`/`pre_spacer`/`pre_heptamer` + `post_heptamer`/`post_spacer`/`post_nonamer`
   - Extension mode (any gene): `prefix`, `suffix`, `prefix_len`, `suffix_len`
-- **Frequencies**: `allelic_ratio` (within-gene allelic ratio — the key signal), `gene_case_freq` (gene-usage / deletion)
+- **Per-donor ratios**: `donor_major_ratio`, `donor_full_major_ratio`, `donor_allelic_ratio`, `peak_full_major_ratio`
+- **Frequencies**: `gene_case_freq` (gene-usage / deletion), `*_cohort_fold`, `*_cohort_median`
 - **Totals**: `gene_count`, `case_count`
 - **Cohort fold-change**: `allele_cohort_median`, `gene_cohort_median`, `allele_cohort_fold`, `gene_cohort_fold` (count vs cohort-median across donors)
-- **Quality metrics**: `n_donors` (cross-donor recurrence), `n_reads_total` (read support), `max_full_ratio` (peak per-donor allelic ratio)
+- **Other**: `chimera_score`, `reject_reason` / `reject_stage` (full table only)
 - **Transparency**: `reject_reason`, `reject_stage` (full table only)
 - **Markers**: `isin_db` (if --ref-fasta)
 - **Ratios**: `count_{refgene}_ratio`, `gene_count_{refgene}_ratio` (if --refgene)

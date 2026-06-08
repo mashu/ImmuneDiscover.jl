@@ -4,6 +4,7 @@ module immunediscover
 
     # --- Utils (no inter-module deps) ---
     include("utils/data.jl")
+    include("utils/ratio_columns.jl")
     include("utils/filters.jl")
     include("utils/seqstats.jl")
     include("utils/align.jl")
@@ -33,6 +34,7 @@ module immunediscover
 
     using .Cli
     using .Data
+    using .RatioColumns
     using .Filters
     using .SeqStats
     using .Mosaic

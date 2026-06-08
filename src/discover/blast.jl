@@ -15,6 +15,7 @@ module Blast
     using ..Mosaic: refs_by_gene, add_chimera_scores!
     using ..Data: load_fasta as data_load_fasta, unique_name, histogram_if_available
     using ..SeqStats: gc_content, max_homopolymer
+    using ..RatioColumns: ALLELIC_RATIO, FULL_ALLELIC_RATIO, PEAK_ALLELIC_RATIO
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
                      add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Report: stage_report, section, cluster_profile_heatmap, params_report, report_rejections
@@ -790,9 +791,21 @@ module Blast
         verbose && CSV.write(joinpath(run_dir, "clusters-mismatch.tsv"), clusters)
 
         transform!(clusters, :sseqid => ByRow(x -> split(x, "*")[1]) => :gene)
-        add_group_ratio!(clusters, :full_count, [:well, :case, :gene], :full_ratio)
 
         return sort(clusters, [:well, :case, :sseqid], rev=false)
+    end
+
+    """
+        add_blast_support_columns!(df) -> df
+
+    After trimming (`aln_qseq` set): `count` = sum of `full_count` per (donor, allele, core);
+    then per-donor allelic ratios on `count` and `full_count` separately.
+    """
+    function add_blast_support_columns!(df::DataFrame)
+        transform!(groupby(df, [:well, :case, :sseqid, :aln_qseq]), :full_count => sum => :count)
+        add_group_ratio!(df, :count, [:well, :case, :gene], ALLELIC_RATIO)
+        add_group_ratio!(df, :full_count, [:well, :case, :gene], FULL_ALLELIC_RATIO)
+        return df
     end
 
     """
@@ -992,6 +1005,8 @@ module Blast
             blast_clusters[:, :aln_mismatch] = blast_clusters[:, :mismatch]
         end
 
+        add_blast_support_columns!(blast_clusters)
+
         # Candidate-quality metrics (composition + cross-donor recurrence + support) — computed
         # before the output filters so they can also serve as optional filter criteria.
         #  - gc_content / max_homopolymer: composition of the trimmed core,
@@ -1004,19 +1019,20 @@ module Blast
         # Peak per-donor allelic ratio for the core: the highest fraction of its gene's reads
         # it reaches in any single donor. A germline allele is a major allele in ≥1 carrier;
         # artifacts stay minor everywhere — the most discriminative recall-safe separator.
-        transform!(groupby(blast_clusters, :aln_qseq), :full_ratio => maximum => :max_full_ratio)
+        transform!(groupby(blast_clusters, :aln_qseq), FULL_ALLELIC_RATIO => maximum => PEAK_ALLELIC_RATIO)
 
         # Apply output filters
-        min_fullcount = parsed_args["discover"]["blast"]["minfullcount"]
-        min_fullratio = parsed_args["discover"]["blast"]["minfullratio"]
+        min_count = parsed_args["discover"]["blast"]["min-count"]
+        min_fullcount = parsed_args["discover"]["blast"]["min-fullcount"]
+        min_allelic = parsed_args["discover"]["blast"]["min-allelic-ratio"]
+        min_full_allelic = parsed_args["discover"]["blast"]["min-full-allelic-ratio"]
+        min_peak_allelic = get(parsed_args["discover"]["blast"], "min-peak-allelic-ratio", 0.0)
         min_length = parsed_args["discover"]["blast"]["length"]
         min_recurrence = get(parsed_args["discover"]["blast"], "min-recurrence", 0)
         max_homop = get(parsed_args["discover"]["blast"], "max-homopolymer", 0)
         min_reads_total = get(parsed_args["discover"]["blast"], "min-reads-total", 0)
 
         criteria = FilterCriterion[
-            MinThreshold(:full_count, min_fullcount, "min cluster reads (--minfullcount $min_fullcount)"),
-            MinThreshold(:full_ratio, min_fullratio, "min allelic ratio (--minfullratio $min_fullratio)"),
             MinStringLength(:qseq, min_length, "min trimmed length (--length $min_length)"),
         ]
         if !keep_failed
@@ -1024,7 +1040,20 @@ module Blast
         end
         push!(criteria, MaxThreshold(:aln_mismatch, Float64(parsed_args["discover"]["blast"]["maxdist"]),
                                      "max edit distance (--maxdist $(parsed_args["discover"]["blast"]["maxdist"]))"))
-        # Optional quality-metric filters (off by default — 0 disables).
+        min_count > 0 && push!(criteria,
+            MinThreshold(:count, Float64(min_count), "min count (--min-count $min_count)"))
+        min_fullcount > 0 && push!(criteria,
+            MinThreshold(:full_count, min_fullcount,
+                         "min full count (--min-fullcount $min_fullcount)"))
+        min_allelic > 0 && push!(criteria,
+            MinThreshold(ALLELIC_RATIO, min_allelic,
+                         "min allelic ratio (--min-allelic-ratio $min_allelic)"))
+        min_full_allelic > 0 && push!(criteria,
+            MinThreshold(FULL_ALLELIC_RATIO, min_full_allelic,
+                         "min full allelic ratio (--min-full-allelic-ratio $min_full_allelic)"))
+        min_peak_allelic > 0 && push!(criteria,
+            MinThreshold(PEAK_ALLELIC_RATIO, min_peak_allelic,
+                         "min peak allelic ratio (--min-peak-allelic-ratio $min_peak_allelic)"))
         min_reads_total > 0 && push!(criteria,
             MinThreshold(:n_reads_total, Float64(min_reads_total), "min total reads (--min-reads-total $min_reads_total)"))
         min_recurrence > 0 && push!(criteria,

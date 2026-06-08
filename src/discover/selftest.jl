@@ -17,7 +17,7 @@ module Selftest
            recall_safe_filters
 
     # Metric columns worth scanning for separation (intersected with what the table actually has).
-    const DEFAULT_METRICS = ["max_full_ratio", "n_donors", "n_reads_total", "scov", "corecov",
+    const DEFAULT_METRICS = ["peak_allelic_ratio", "full_allelic_ratio", "n_donors", "n_reads_total", "scov", "corecov",
                              "aln_mismatch", "mismatch", "gc_content", "max_homopolymer",
                              "nn_dist", "parent_ratio", "satellite_score", "chimera_score",
                              "full_count"]

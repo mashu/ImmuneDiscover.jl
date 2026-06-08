@@ -168,53 +168,81 @@ function add_search_args!(s)
             range_tester = (x-> (x > 0.0) & (x <= 1.0))
         end
 
-        add_arg_group!(ex, "Count and ratio filters", "exact_filters")
+        add_arg_group!(ex, "Count and allelic-ratio filters (stage 1)", "exact_filters")
         @add_arg_table! ex begin
-        "-c", "--mincount"
-            help = "Minimum cluster size"
+        "-c", "--min-count"
+            help = "Filter count: reads per (donor, allele, sequence), collapsing flank variants. 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-fullcount"
+            help = "Filter full_count: identical rows (sequence + flanks) per donor. 0 = off. Default 5."
             default = 5
             arg_type = Int
-            range_tester = (x->x >= 1)
-        "-f", "--minratio"
-            help = "Minimum allelic ratio applied within each gene group"
+            range_tester = (x->x >= 0)
+        "--min-seqlen"
+            help = "Drop candidates whose matched sequence is shorter than this (nt). 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "-f", "--min-allelic-ratio"
+            help = "Filter allelic_ratio: count÷max(count in donor+gene). IgDiscover allele_ratio (÷max). 0 = off. Default 0.1."
             default = 0.1
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-e", "--expect"
+            help = "Optional TSV (columns: name, ratio): per-gene/allele floor for --min-allelic-ratio."
+            arg_type = String
+        "--min-full-allelic-ratio"
+            help = "Filter full_allelic_ratio: full_count÷max(full_count in donor+gene). 0 = off. Default 0.1."
+            default = 0.1
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--expect-full"
+            help = "Optional TSV (columns: name, ratio): per-gene/allele floor for --min-full-allelic-ratio."
+            arg_type = String
+        "--min-recurrence"
+            help = "Require candidate in at least this many donors (n_donors). 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-peak-allelic-ratio"
+            help = "Filter peak_allelic_ratio = max(full_allelic_ratio) across donors. 0 = off."
+            default = 0.0
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-reads-total"
+            help = "Filter n_reads_total: sum of full_count for this sequence across the run. 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        end
+
+        add_arg_group!(ex, "Gene-usage frequency filters (stage 2)", "exact_ref")
+        @add_arg_table! ex begin
+        "--min-gene-fraction"
+            help = "÷sum filter: gene_fraction = count÷sum(accepted count in donor+gene). Not IgDiscover allelic_ratio. 0 = off."
+            default = 0.0
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-d", "--deletion"
+            help = "Optional TSV (columns: name, ratio): per-gene/allele floor for --min-gene-case-freq."
+            arg_type = String
+        "--min-gene-case-freq"
+            help = "gene_case_freq = gene_count÷case_count in donor. Flags possible gene deletions. 0 = off."
+            default = 0.0
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--min-allele-cohort-fold"
-            help = "Drop an allele whose count in a donor is below this fraction of its cohort-median count across donors (robust fold-change vs typical abundance). Default 0.05; 0 disables."
+            help = "allele_cohort_fold vs cohort-median allele count. 0 disables."
             default = 0.05
             arg_type = Float64
             range_tester = (x-> (x >= 0.0))
         "--min-gene-cohort-fold"
-            help = "Drop a gene whose total count in a donor is below this fraction of its cohort-median across donors. Default 0.05; 0 disables."
+            help = "gene_cohort_fold vs cohort-median gene count. 0 disables."
             default = 0.05
             arg_type = Float64
             range_tester = (x-> (x >= 0.0))
-        "--min-recurrence"
-            help = "Quality filter: require a candidate sequence to appear in at least this many donors (n_donors). 0 = off."
-            default = 0
-            arg_type = Int
-            range_tester = (x->x >= 0)
-        "--min-seqlen"
-            help = "Quality filter: drop candidates whose matched sequence is shorter than this (nt). 0 = off."
-            default = 0
-            arg_type = Int
-            range_tester = (x->x >= 0)
-        "--min-peak-ratio"
-            help = "Quality filter: require the peak per-donor allelic ratio (max over donors of count/max-in-gene). 0 = off. Complements --minratio (per-group) with a cross-donor peak floor."
-            default = 0.0
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        end
-
-        add_arg_group!(ex, "Reference frequency thresholds", "exact_ref")
-        @add_arg_table! ex begin
-        "-e", "--expect"
-            help = "TSV file containing gene names and their corresponding allelic_ratio threshold, with two columns: name and ratio"
-            arg_type = String
-        "-d", "--deletion"
-            help = "TSV file containing gene names and their corresponding gene_case_freq threshold, with two columns: name and ratio"
-            arg_type = String
         "-r", "--refgene"
             help = "Space separated reference genes to use for computing ratio"
             nargs = '*'  # Accepts zero or more values

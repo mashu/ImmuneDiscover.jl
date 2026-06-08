@@ -10,8 +10,7 @@ module Cli
         "Gene preset"               => ["gene", "show-presets"],
         "Extension & trimming"      => ["forward", "reverse", "minquality", "min-corecov"],
         "BLAST search"              => ["args", "maxdist", "edge", "subjectcov", "min-read-length"],
-        "Cluster & output filters"  => ["minfullcount", "minfullratio", "min-reads-total", "length", "isin", "keep-failed"],
-        "Quality-metric filters"    => ["min-recurrence", "max-homopolymer"],
+        "Cluster & output filters"  => ["length", "min-count", "min-fullcount", "min-allelic-ratio", "min-full-allelic-ratio", "min-peak-allelic-ratio", "min-reads-total", "min-recurrence", "max-homopolymer", "isin", "keep-failed"],
         "Run control"               => ["overwrite", "verbose"],
     ]
     import ArgParse.parse_item
@@ -48,8 +47,11 @@ module Cli
         "edge"            => 0,
         "subjectcov"      => 0.1,
         "min-read-length" => 0,
-        "minfullcount"    => 5,
-        "minfullratio"    => 0.1,
+        "min-count"       => 0,
+        "min-fullcount"   => 5,
+        "min-allelic-ratio"       => 0.0,
+        "min-full-allelic-ratio"  => 0.1,
+        "min-peak-allelic-ratio"  => 0.0,
         "min-reads-total" => 0,
         "length"          => 290,
         "min-recurrence"  => 0,
@@ -61,13 +63,13 @@ module Cli
     blast_default(key::AbstractString) = BLAST_DEFAULTS[key]
 
     # Gene presets tuned on KI IGH self-tests (recovery of known-novel alleles; see selftest).
-    #   V: `minfullratio 0.08` is the key false-positive cut — a germline allele is a major
+    #   V: `min-peak-allelic-ratio 0.08` is the key false-positive cut — a germline allele is a major
     #      allele (peak per-donor allelic ratio ≥ 0.085) in at least one carrier, while PCR /
     #      sequencing artifacts never are. 0.08 keeps every truth-novel allele (recall 1.0)
     #      while removing ~60% of false novel calls vs the old 0.035.
     const BLAST_PRESETS = Dict(
         "V" => Dict{String,Any}(
-            "minfullratio" => 0.08,
+            "min-peak-allelic-ratio" => 0.08,
             "length"       => 283,
             "maxdist"      => 14,
             "minquality"   => 0.62,
@@ -76,9 +78,9 @@ module Cli
         "D" => Dict{String,Any}(
             "forward"      => 40,
             "reverse"      => 40,
-            "minfullratio" => 0.2,
+            "min-full-allelic-ratio" => 0.2,
             "length"       => 5,
-            "minfullcount" => 10,
+            "min-fullcount" => 10,
             "edge"         => 10,
             "subjectcov"   => 0.25,
             "minquality"   => 0.5,
@@ -89,7 +91,7 @@ module Cli
             "reverse"      => 12,
             "length"       => 10,
             "maxdist"      => 10,
-            "minfullcount" => 10,
+            "min-fullcount" => 10,
             "args"         => "-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 10",
         ),
     )

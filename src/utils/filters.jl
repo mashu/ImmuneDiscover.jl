@@ -51,7 +51,7 @@ dispatch-based criteria to a DataFrame, logging kept/total counts at each step.
 # Usage
 ```julia
 gf = GermlineFilter([
-    MinThreshold(:full_count, 5, "Min full cluster count (--minfullcount)"),
+    MinThreshold(:full_count, 5, "Min full count (--min-fullcount)"),
     MaxThreshold(:mismatch, 10, "Max edit distance"),
     MinStringLength(:qseq, 290, "Min read length"),
 ])
@@ -124,9 +124,9 @@ end
 """
     add_group_ratio!(df, value_col, group_cols, ratio_col)
 
-Add `ratio_col` = `value_col` divided by its per-group maximum (groups defined by
-`group_cols`). This is the standard "allelic ratio within gene" computed across the
-pipeline before applying a ratio threshold; factored here so every caller is consistent.
+Add `ratio_col` = `value_col` ÷ per-group maximum (`group_cols` define the group).
+For `allelic_ratio` / `full_allelic_ratio`, this is IgDiscover-style allelic ratio (÷max).
+See `RatioColumns` for vocabulary.
 Returns `df`.
 """
 function add_group_ratio!(df::DataFrame, value_col::Symbol, group_cols, ratio_col::Symbol)

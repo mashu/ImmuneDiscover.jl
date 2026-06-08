@@ -4,7 +4,7 @@ function add_discover_args!(s)
                 help = "BLAST-based candidate discovery with trimming, filtering, and identity clustering"
                 action = :command
             "hsmm"
-                help = "Detect D genes using an HSMM trained on RSS flanks (V/J masked)"
+                help = "Detect D genes using an HSMM fit from reference D RSS flanks (V/J masked)"
                 action = :command
             "selftest"
                 help = "Score recovery of known-novel alleles from a discovery full table (base vs truth FASTA)"
@@ -105,45 +105,57 @@ function add_discover_args!(s)
 
         add_arg_group!(bl, "Cluster and output filters", "blast_filters")
         @add_arg_table! bl begin
-        "-c", "--minfullcount"
-            help = "Minimum full cluster size (reads backing a candidate in one well+case)"
-            default = blast_default("minfullcount")
-            arg_type = Int
-        "-f", "--minfullratio"
-            help = "Minimum peak allelic ratio (count / max-in-gene) a candidate must reach in at least one donor. A germline allele is a major allele in at least one carrier; artifacts are not. This is the strongest recall-safe false-positive filter (see selftest metric separation)."
-            default = blast_default("minfullratio")
-            arg_type = Float64
-            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "--min-reads-total"
-            help = "Minimum total reads backing a candidate core across the whole run (n_reads_total). 0 = off. Complements --minfullcount (per-donor) with a cross-run abundance floor."
-            default = blast_default("min-reads-total")
-            arg_type = Int
-            range_tester = (x->x >= 0)
         "-l", "--length"
-            help = "Minimum length of the trimmed read"
+            help = "Minimum trimmed core length (nt)."
             default = blast_default("length")
             arg_type = Int
             range_tester = (x->x >= 1)
+        "-c", "--min-count"
+            help = "Filter count: reads per (donor, allele, trimmed core), summing cluster variants. 0 = off."
+            default = blast_default("min-count")
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-fullcount"
+            help = "Filter full_count: reads in one BLAST cluster (allele + raw hit). 0 = off."
+            default = blast_default("min-fullcount")
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-allelic-ratio"
+            help = "Filter allelic_ratio: count÷max(count in donor+gene). 0 = off."
+            default = blast_default("min-allelic-ratio")
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "-f", "--min-full-allelic-ratio"
+            help = "Filter full_allelic_ratio: full_count÷max(full_count in donor+gene). 0 = off."
+            default = blast_default("min-full-allelic-ratio")
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-peak-allelic-ratio"
+            help = "Filter peak_allelic_ratio = max(full_allelic_ratio) across donors. 0 = off."
+            default = blast_default("min-peak-allelic-ratio")
+            arg_type = Float64
+            range_tester = (x-> (x >= 0.0) & (x <= 1.0))
+        "--min-reads-total"
+            help = "Filter n_reads_total across the run. 0 = off."
+            default = blast_default("min-reads-total")
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-recurrence"
+            help = "Require candidate in at least this many donors (n_donors). 0 = off."
+            default = blast_default("min-recurrence")
+            arg_type = Int
+            range_tester = (x -> x >= 0)
+        "--max-homopolymer"
+            help = "Drop candidates with homopolymer run longer than this. 0 = off."
+            default = blast_default("max-homopolymer")
+            arg_type = Int
+            range_tester = (x -> x >= 0)
         "-i", "--isin"
             help = "On by default: a non-exact candidate whose trimmed sequence is an exact substring of a known allele is labelled with that allele. Pass -i/--isin to disable, always emitting a novel hashed name instead."
             action = :store_false
         "--keep-failed"
             help = "Keep rows where trimming failed (aln_qseq empty). By default such rows are dropped."
             action = :store_true
-        end
-
-        add_arg_group!(bl, "Quality-metric filters", "blast_qmetrics")
-        @add_arg_table! bl begin
-        "--min-recurrence"
-            help = "Quality filter: require a candidate to appear in at least this many donors (n_donors). 0 = off."
-            default = blast_default("min-recurrence")
-            arg_type = Int
-            range_tester = (x -> x >= 0)
-        "--max-homopolymer"
-            help = "Quality filter: drop candidates whose trimmed core has a homopolymer run longer than this. 0 = off."
-            default = blast_default("max-homopolymer")
-            arg_type = Int
-            range_tester = (x -> x >= 0)
         end
 
         add_arg_group!(bl, "Run control", "blast_run")
@@ -170,18 +182,23 @@ function add_discover_args!(s)
             required = true
         end
 
-        add_arg_group!(hs, "Training (known-D selection)", "hsmm_train")
+        add_arg_group!(hs, "Reference D selection", "hsmm_ref")
         @add_arg_table! hs begin
-        "-r", "--ratio"
-            help = "Allelic ratio threshold for known D selection per donor and gene"
+        "--select-min-count"
+            help = "Reference D selection: minimum count per exact match (collapsed per sequence). 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--select-min-fullcount"
+            help = "Reference D selection: minimum full_count per exact match row. 0 = off."
+            default = 10
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--select-min-allelic-ratio"
+            help = "Reference D selection: allelic_ratio ≥ T (count÷max in donor+gene). 0 = off."
             default = 0.2
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
-        "-c", "--mincount"
-            help = "Minimum count for a known D allele to be considered in training"
-            default = 10
-            arg_type = Int
-            range_tester = (x->x >= 1)
         "-l", "--limit"
             help = "Limit number of demultiplexed reads to process (0 means no limit)"
             default = 0
@@ -210,13 +227,18 @@ function add_discover_args!(s)
 
         add_arg_group!(hs, "Output filters", "hsmm_out")
         @add_arg_table! hs begin
-        "--out-mincount"
-            help = "Minimum count for an extracted D (after HSMM) to keep in output"
+        "--min-count"
+            help = "Output filter: count = HSMM detections clearing --min-posterior per (well, case, sequence). 0 = off."
             default = 10
             arg_type = Int
-            range_tester = (x->x >= 1)
-        "--out-minratio"
-            help = "Minimum allelic ratio within gene (per donor) for output filtering"
+            range_tester = (x->x >= 0)
+        "--min-fullcount"
+            help = "Output filter: full_count = all HSMM detections per (well, case, sequence). 0 = off."
+            default = 0
+            arg_type = Int
+            range_tester = (x->x >= 0)
+        "--min-allelic-ratio"
+            help = "Output filter: allelic_ratio = count÷max(count in donor+gene). 0 = off."
             default = 0.2
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))

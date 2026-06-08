@@ -60,9 +60,14 @@ decimal places.
 | `well`, `case`, `gene`, `db_name` | Identifiers |
 | `count` | Reads matching this allele sequence (collapsed) |
 | `full_count` | Reads matching sequence + flanks (uncollapsed) |
-| `allelic_ratio` | Within-gene allelic ratio: count / sum(accepted counts in gene) — the key allele-calling signal |
-| `ratio` | Allelic ratio relative to the gene's top allele (count / max in gene) |
-| `full_ratio` | As `ratio`, for the uncollapsed (sequence + flanks) records |
+| `gene_count` | Total accepted reads for this gene in this donor (well+case) |
+| `case_count` | Total accepted reads in this donor (well+case) |
+| `n_reads_total` | Total reads backing this sequence across all donors |
+| `n_donors` | Distinct donors sharing this exact sequence |
+| `allelic_ratio` | Per donor+gene: `count` ÷ max(`count` in gene) — IgDiscover `allele_ratio` |
+| `full_allelic_ratio` | Per donor+gene: `full_count` ÷ max(`full_count` in gene) |
+| `peak_allelic_ratio` | Across donors: max `full_allelic_ratio` for this sequence |
+| `gene_fraction` | Per donor+gene: `count` ÷ sum(accepted `count` in gene) — optional `--min-gene-fraction` |
 | `flank_index` | Flank variant number (1 to --top) |
 | `sequence` | Core allele sequence (placed last with the flank columns) |
 
@@ -72,9 +77,6 @@ A real allele recurs across donors with solid support; an artifact is sporadic o
 
 | Column | Description |
 |--------|-------------|
-| `n_donors` | Distinct donors sharing this exact sequence (cross-donor recurrence) |
-| `n_reads_total` | Total reads backing this sequence across the run |
-| `max_full_ratio` | Peak per-donor allelic ratio reached by this sequence (`--min-peak-ratio`) |
 | `chimera_score` | Mosaic/recombination score vs the gene's references (higher ⇒ more chimera-like) |
 
 ### Transparency columns (full table)
@@ -107,10 +109,8 @@ A real allele recurs across donors with solid support; an artifact is sporadic o
 
 | Column | Description |
 |--------|-------------|
-| `allelic_ratio` | **Within-gene allelic ratio** (per case): count / sum(accepted counts in gene). The standard allele-calling signal — a real allele is a major fraction of its gene. |
-| `gene_case_freq` | Gene-usage fraction in the case: gene_count / case_count. Low ⇒ possible gene deletion (see `--deletion`). |
-| `gene_count` | Total reads for this gene in this well/case |
-| `case_count` | Total reads in this well/case |
+| `donor_allelic_ratio` | **Per-donor within-gene fraction**: count / sum(accepted counts in gene). The standard allele-calling signal — a real allele is a major fraction of its gene. |
+| `gene_case_freq` | Per-donor gene-usage fraction: gene_count / case_count. Low ⇒ possible gene deletion (see `--deletion`). |
 
 ### Cohort (across-donor) comparison columns
 
@@ -160,7 +160,8 @@ full table.
 | `isin_db` | Whether `aln_qseq` is an exact substring of a known allele |
 | `allele_name` | Final name (the known allele if exact, else `{gene}_S{hash}` for a novel candidate) |
 | `full_count` | Reads in the (well, case, sseqid, qseq) cluster |
-| `full_ratio` | Allelic ratio within well/case/gene (full_count / max in gene) |
+| `donor_full_major_ratio` | Per donor+gene: `full_count` ÷ max(`full_count` in gene) — same vocabulary as exact search |
+| `peak_full_major_ratio` | Max `donor_full_major_ratio` across donors for this sequence |
 
 ### Transparency Columns
 
@@ -352,10 +353,27 @@ All original input columns preserved.
 
 ## Column Interpretation Guide
 
+### Ratio vocabulary (IgDiscover-aligned)
+
+Column names match CLI flags (hyphens → underscores). Shared across `search exact`, `discover blast`, and `discover hsmm`.
+
+| Column | Formula | CLI flag |
+|--------|---------|----------|
+| `allelic_ratio` | `count` ÷ max in donor+gene | `--min-allelic-ratio` |
+| `full_allelic_ratio` | `full_count` ÷ max in donor+gene | checked with `--min-allelic-ratio` (exact) |
+| `peak_allelic_ratio` | max `full_allelic_ratio` across donors | `--min-peak-allelic-ratio` |
+| `gene_fraction` | `count` ÷ sum(accepted) in donor+gene | `--min-gene-fraction` (exact only, default off) |
+
+**IgDiscover `allele_ratio`** drops the lower-count allele when minor÷major &lt; threshold — **÷max**, same as `allelic_ratio` here. The old ÷sum metric is `gene_fraction` (distinct name, distinct filter).
+
+TSV overrides: `--expect` (per-gene `allelic_ratio`), `--deletion` (per-gene `gene_case_freq`).
+
 ### Count vs Frequency
 
 - **count**: Absolute number of reads (integer)
-- **ratio**: Relative proportion within group (count / max in gene, 0-1)
+- **allelic_ratio** / **full_allelic_ratio**: IgDiscover-style, per donor+gene (÷max, 0–1)
+- **gene_fraction**: Per donor+gene fraction of gene reads (÷sum, 0–1)
+- **peak_allelic_ratio**: Across donors, best `full_allelic_ratio` this sequence reached
 - **full_count**: Includes flanks (more specific, lower counts)
 - **count**: Excludes flanks (collapsed, higher counts)
 
@@ -431,7 +449,7 @@ posterior = exp(best_path_logprob - total_logprob)
 - Lengths: `db_length`, `full_length`, `qlen`, `slen`
 
 ### Numeric Columns (Float)
-- Ratios/Frequencies: `ratio`, `full_ratio`, `allelic_ratio`, `gene_case_freq`, `*_cohort_fold`
+- Ratios/Frequencies: `allelic_ratio`, `full_allelic_ratio`, `peak_allelic_ratio`, `gene_fraction`, `gene_case_freq`, `*_cohort_fold`
 - Correlations: `r`, `r2`, `jaccard`, `similarity`
 - Probabilities: `posterior_prob`, `heptamer_prob_*`
 - Coverage: `corecov`, `pident`, `qcovs`, `qcovhsp`

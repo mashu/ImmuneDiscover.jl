@@ -196,21 +196,73 @@ test_outcomes = Dict(
             db_name = ["IGHV1-1*01", "IGHV1-1*01", "IGHV1-1*02", "CTRL1*01"],
             sequence = ["AAA", "AAA", "CCC", "GGG"],
             full_count = [10, 8, 2, 10], count = [10, 8, 2, 10],
-            full_ratio = [1.0, 1.0, 0.2, 1.0], ratio = [1.0, 1.0, 0.2, 1.0],
-            n_donors = [2, 2, 1, 1], max_full_ratio = [1.0, 1.0, 0.2, 1.0],
+            full_allelic_ratio = [1.0, 1.0, 0.2, 1.0], allelic_ratio = [1.0, 1.0, 0.2, 1.0],
+            n_donors = [2, 2, 1, 1], peak_allelic_ratio = [1.0, 1.0, 0.2, 1.0],
         )
         Filters.init_rejection_columns!(df)
-        crit = Exact.exact_filter_criteria(; mincount=5, minratio=0.1, expect_dict=Dict{String,Float64}())
+        crit = Exact.exact_filter_criteria(; min_fullcount=5, min_allelic_ratio=0.1, min_full_allelic_ratio=0.1,
+            expect_dict=Dict{String,Float64}(), expect_full_dict=Dict{String,Float64}())
         Exact.annotate_stage!(df, crit, "count and ratio filter")
-        # row 3 fails min count (full_count 2 < 5); the count term subsumes the redundant count check
-        @test df.reject_reason == ["", "", "min count (--mincount 5)", ""]
+        @test df.reject_reason == ["", "", "min full count (--min-fullcount 5)", ""]
 
         # explicit locus prefix scopes frequency denominators; control genes stay in table with zeroed stats
         Exact.add_frequency_columns!(df, "IGHV")
         # (1,D1,IGHV1-1): only row1 accepted (row3 rejected) → gene_count 10; (1,D2): row2 → 8;
         # CTRL1 is outside the locus → default 0.
         @test df.gene_count == [10, 8, 10, 0]
-        @test df.allelic_ratio[1] == 1.0        # row1 is its gene's only accepted read in (1,D1)
+        @test df.gene_fraction[1] == 1.0        # row1 is its gene's only accepted read in (1,D1)
+
+        # --min-gene-fraction (÷sum, distinct from IgDiscover allelic_ratio)
+        freq_df = DataFrame(
+            well=[1, 1], case=["D1", "D1"], gene=["G1", "G1"],
+            db_name=["G1*01", "G1*02"], count=[8, 2],
+            gene_fraction=[0.8, 0.2], gene_case_freq=[1.0, 1.0],
+            allele_cohort_fold=[1.0, 1.0], gene_cohort_fold=[1.0, 1.0],
+        )
+        Filters.init_rejection_columns!(freq_df)
+        freq_crit = Exact.exact_frequency_criteria(Data, Dict{String,Float64}(), 0.25, 0.0, 0.0, 0.0)
+        Exact.annotate_stage!(freq_df, freq_crit, "frequency filter")
+        @test freq_df.reject_reason == ["", "min gene fraction (--min-gene-fraction 0.25)"]
+
+        # --expect overrides --min-allelic-ratio (IgDiscover allele_ratio, ÷max)
+        ar_df = DataFrame(
+            well=[1, 1], case=["D1", "D1"], gene=["G1", "G1"],
+            db_name=["G1*01", "G1*02"], full_count=[8, 2], count=[8, 2],
+            allelic_ratio=[1.0, 0.2], full_allelic_ratio=[1.0, 0.2],
+        )
+        Filters.init_rejection_columns!(ar_df)
+        Exact.annotate_stage!(ar_df,
+            Exact.exact_filter_criteria(; min_fullcount=1, min_allelic_ratio=0.25, min_full_allelic_ratio=0.0,
+                expect_dict=Dict("G1" => 0.15), expect_full_dict=Dict{String,Float64}()),
+            "allelic filter")
+        @test ar_df.reject_reason == ["", ""]
+
+        # --min-full-allelic-ratio filters full_allelic_ratio independently of allelic_ratio
+        far_df = DataFrame(
+            well=[1, 1], case=["D1", "D1"], gene=["G1", "G1"],
+            db_name=["G1*01", "G1*02"], full_count=[8, 2], count=[8, 2],
+            allelic_ratio=[1.0, 1.0], full_allelic_ratio=[1.0, 0.2],
+        )
+        Filters.init_rejection_columns!(far_df)
+        Exact.annotate_stage!(far_df,
+            Exact.exact_filter_criteria(; min_fullcount=1, min_allelic_ratio=0.0, min_full_allelic_ratio=0.25,
+                expect_dict=Dict{String,Float64}(), expect_full_dict=Dict{String,Float64}()),
+            "full allelic filter")
+        @test far_df.reject_reason == ["", "min full allelic ratio (--min-full-allelic-ratio 0.25)"]
+
+        # --min-count filters count independently of full_count
+        cnt_df = DataFrame(
+            well=[1, 1], case=["D1", "D1"], gene=["G1", "G1"],
+            db_name=["G1*01", "G1*02"], full_count=[10, 10], count=[10, 3],
+            allelic_ratio=[1.0, 0.3], full_allelic_ratio=[1.0, 1.0],
+        )
+        Filters.init_rejection_columns!(cnt_df)
+        Exact.annotate_stage!(cnt_df,
+            Exact.exact_filter_criteria(; min_fullcount=0, min_count=5, min_allelic_ratio=0.0,
+                min_full_allelic_ratio=0.0, expect_dict=Dict{String,Float64}(),
+                expect_full_dict=Dict{String,Float64}()),
+            "min count filter")
+        @test cnt_df.reject_reason == ["", "min count (--min-count 5)"]
 
         # empty locus: TCR and control alleles participate in frequency totals like everything else
         mix = DataFrame(
@@ -228,19 +280,22 @@ test_outcomes = Dict(
         # optional recurrence filter drops a single-donor candidate
         df2 = DataFrame(db_name=["IGHV1-1*01", "IGHV1-1*02"], gene=["IGHV1-1", "IGHV1-1"],
                         sequence=["AAA", "CCC"], full_count=[9, 9], count=[9, 9],
-                        full_ratio=[1.0, 1.0], ratio=[1.0, 1.0], n_donors=[3, 1],
-                        max_full_ratio=[1.0, 1.0])
+                        full_allelic_ratio=[1.0, 1.0], allelic_ratio=[1.0, 1.0], n_donors=[3, 1],
+                        peak_allelic_ratio=[1.0, 1.0])
         Filters.init_rejection_columns!(df2)
         Exact.annotate_stage!(df2,
-            Exact.exact_filter_criteria(; mincount=5, minratio=0.1, expect_dict=Dict{String,Float64}(),
-                                        min_recurrence=2), "count and ratio filter")
+            Exact.exact_filter_criteria(; min_fullcount=5, min_allelic_ratio=0.1, min_full_allelic_ratio=0.1,
+                expect_dict=Dict{String,Float64}(), expect_full_dict=Dict{String,Float64}(),
+                min_recurrence=2), "count and ratio filter")
         @test df2.reject_reason == ["", "min donor recurrence (--min-recurrence 2)"]
     end
 
     @testset "exact column ordering + rounding" begin
         df = DataFrame(
             well=[1], case=["D1"], gene=["IGHV1-1"], db_name=["IGHV1-1*01"],
-            count=[10], allelic_ratio=[0.123456], heptamer=["CACAGTG"],
+            count=[10], full_count=[10], gene_count=[10], case_count=[20],
+            allelic_ratio=[1.0], full_allelic_ratio=[1.0],
+            gene_fraction=[0.123456], gene_case_freq=[0.5], heptamer=["CACAGTG"],
             sequence=["ACGTACGT"], prefix=["TTTT"], spacer=["GGG"], nonamer=["AAAAAAAAA"],
             reject_reason=[""], reject_stage=[""],
         )
@@ -248,16 +303,17 @@ test_outcomes = Dict(
         cols = names(o)
         # the long DNA columns are last, in genomic 5'→3' order for V (prefix, seq, 3' RSS)
         @test cols[end-4:end] == ["prefix", "sequence", "heptamer", "spacer", "nonamer"]
-        # identifiers/metrics precede the DNA block
-        @test findfirst(==("count"), cols) < findfirst(==("sequence"), cols)
-        @test findfirst(==("allelic_ratio"), cols) < findfirst(==("prefix"), cols)
+        # counts → ratios → frequencies → DNA
+        @test findfirst(==("count"), cols) < findfirst(==("allelic_ratio"), cols)
+        @test findfirst(==("allelic_ratio"), cols) < findfirst(==("gene_case_freq"), cols)
+        @test findfirst(==("gene_case_freq"), cols) < findfirst(==("prefix"), cols)
         # J places its 5' RSS before the sequence; extension mode just prefix/seq/suffix
         @test Exact.dna_layout(JGene(), nothing) == ["nonamer", "spacer", "heptamer", "sequence", "suffix"]
         @test Exact.dna_layout(VGene(), 20) == ["prefix", "sequence", "suffix"]
 
         # floats rounded to 4 dp; integer/string columns untouched
         Data.round_floats!(o)
-        @test o.allelic_ratio[1] ≈ 0.1235
+        @test o.gene_fraction[1] ≈ 0.1235
         @test o.count[1] === 10
         @test o.sequence[1] == "ACGTACGT"
     end
@@ -278,6 +334,7 @@ test_outcomes = Dict(
         c = HSMM.collapse_detections(res, 0.7)
         @test nrow(c) == 2
         aaa = c[c.sequence .== "AAA", :]
+        @test aaa[1, :full_count] == 3            # three raw detections for AAA
         @test aaa[1, :count] == 2                 # 0.9 and 0.8 clear 0.7; 0.4 does not
         @test aaa[1, :posterior_prob] == 0.9      # best detection represents the cluster
         @test aaa[1, :pre_nonamer] == "pn9"       # ...including its flanks
@@ -319,8 +376,8 @@ test_outcomes = Dict(
 
         # filter_quality_report prints and returns nothing; no error with mixed accept/reject
         qf = DataFrame(reject_reason=["", "x", ""], n_donors=[3, 1, 4],
-                       max_full_ratio=[1.0, 0.1, 0.9], full_count=[10, 2, 8])
-        @test Report.filter_quality_report(qf, [:n_donors, :max_full_ratio]) === nothing
+                       peak_allelic_ratio=[1.0, 0.1, 0.9], full_count=[10, 2, 8])
+        @test Report.filter_quality_report(qf, [:n_donors, :peak_allelic_ratio]) === nothing
         # all-accepted ⇒ nothing to compare ⇒ no-op
         qa = DataFrame(reject_reason=["", ""], n_donors=[3, 4])
         @test Report.filter_quality_report(qa, [:n_donors]) === nothing
@@ -518,7 +575,7 @@ test_outcomes = Dict(
             # exact_search now returns unfiltered candidates plus quality metrics.
             @test "n_donors" in names(counts_df)
             @test "n_reads_total" in names(counts_df)
-            @test "max_full_ratio" in names(counts_df)
+            @test "peak_allelic_ratio" in names(counts_df)
 
             # Test flanking extraction on simulated data
             read = first(table.genomic_sequence)
@@ -785,8 +842,10 @@ test_outcomes = Dict(
             @test parsed_args["discover"]["blast"]["input"] == "test_blast_input.tsv"
             @test parsed_args["discover"]["blast"]["fasta"] == "test_blast_db.fasta"
             @test parsed_args["discover"]["blast"]["output"] == "test_blast_output.tsv"
-            @test parsed_args["discover"]["blast"]["minfullcount"] == 5
-            @test parsed_args["discover"]["blast"]["minfullratio"] == 0.1
+            @test parsed_args["discover"]["blast"]["min-count"] == 0
+            @test parsed_args["discover"]["blast"]["min-fullcount"] == 5
+            @test parsed_args["discover"]["blast"]["min-allelic-ratio"] == 0.0
+            @test parsed_args["discover"]["blast"]["min-full-allelic-ratio"] == 0.1
             @test parsed_args["discover"]["blast"]["subjectcov"] == 0.1
             @test parsed_args["discover"]["blast"]["work-dir"] == ".immunediscover"
 
@@ -794,7 +853,7 @@ test_outcomes = Dict(
         empty!(ARGS)
         append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V"])
         pa_preset = Cli.apply_blast_presets!(Cli.parse_commandline(ARGS))
-        @test pa_preset["discover"]["blast"]["minfullratio"] ≈ 0.08    # V preset (recall-safe FP cut)
+        @test pa_preset["discover"]["blast"]["min-peak-allelic-ratio"] ≈ 0.08    # V preset (recall-safe FP cut)
         @test pa_preset["discover"]["blast"]["min-corecov"] == 0.50     # V preset (was default 0.6)
 
         empty!(ARGS)
@@ -846,6 +905,16 @@ test_outcomes = Dict(
         loaded_df = Blast.load_csv("test_blast_input.tsv")
         @test nrow(loaded_df) == 2
         @test "name" ∈ names(loaded_df)
+
+        # count sums full_count per (donor, allele, core); ratios use count vs full_count separately
+        sup = DataFrame(
+            well=[1, 1, 1], case=["D1", "D1", "D1"], sseqid=["V*01", "V*01", "V*01"],
+            aln_qseq=["ACGT", "ACGT", "ACGT"], gene=["V", "V", "V"], full_count=[3, 2, 5],
+        )
+        Blast.add_blast_support_columns!(sup)
+        @test sup.count == [10, 10, 10]
+        @test sup.allelic_ratio == [1.0, 1.0, 1.0]
+        @test sup.full_allelic_ratio == [0.6, 0.4, 1.0]
         
         # Clean up test files
         for file in ["test_blast_fasta.fasta", "test_blast_save.fasta", "test_blast_input.tsv"]
@@ -912,7 +981,7 @@ test_outcomes = Dict(
         clusters = DataFrame(
             sseqid = ["A*01", "B*01", "C*01", "D*01"],
             full_count = [10, 2, 10, 10],         # B fails Min count
-            full_ratio = [1.0, 1.0, 0.01, 1.0],   # C fails Min ratio
+            full_allelic_ratio = [1.0, 1.0, 0.01, 1.0],   # C fails min allelic ratio
             qseq = ["ACGTACGTAC", "ACGTACGTAC", "ACGTACGTAC", "AC"],  # D fails Min len
             aln_mismatch = [0, 0, 0, 0],
             corecov = [0.9, 0.9, 0.9, 0.9],
@@ -920,7 +989,7 @@ test_outcomes = Dict(
         Filters.mark_rejected!(clusters, clusters.corecov .< 0.5, "corecov < 0.5", "corecov")
         criteria = FilterCriterion[
             MinThreshold(:full_count, 5.0, "Min count"),
-            MinThreshold(:full_ratio, 0.1, "Min ratio"),
+            MinThreshold(:full_allelic_ratio, 0.1, "Min ratio"),
             MinStringLength(:qseq, 5, "Min len"),
             MaxThreshold(:aln_mismatch, 14.0, "Max dist"),
         ]
@@ -1092,19 +1161,19 @@ test_outcomes = Dict(
             reject_reason = ["", "", "", "min count"],   # REJECTZZ not accepted → ignored
             reject_stage  = ["", "", "", "output filter"],
             n_reads_total = [100, 5, 8, 999],
-            max_full_ratio= [0.5, 0.02, 0.03, 0.9],
+            peak_allelic_ratio= [0.5, 0.02, 0.03, 0.9],
         )
         bases = Set(String[])
         truths = [("V1", "GOODAAAA")]
         safe = Selftest.recall_safe_filters(discs, bases, truths; seq_col=:aln_qseq)
-        @test "max_full_ratio" in safe.metric
+        @test "peak_allelic_ratio" in safe.metric
         # n_reads_total: recovered allele's core has 100; both FP (5,8) drop below it → 2/2.
         nr = safe[safe.metric .== "n_reads_total", :]
         @test nr[1, :direction] == "keep ≥"
         @test nr[1, :threshold] ≈ 100.0
         @test nr[1, :fp_removed] == 2 && nr[1, :acc_fp] == 2
         # peak allelic ratio separates the same way (0.5 keeps the true allele, drops both FP).
-        mr = safe[safe.metric .== "max_full_ratio", :]
+        mr = safe[safe.metric .== "peak_allelic_ratio", :]
         @test mr[1, :fp_removed] == 2
 
         # No accepted false novel cores ⇒ empty (nothing to cut).
@@ -1465,11 +1534,13 @@ test_outcomes = Dict(
         @test parsed_args["discover"]["hsmm"]["tsv"] == "test.tsv"
         @test parsed_args["discover"]["hsmm"]["fasta"] == "test.fasta"
         @test parsed_args["discover"]["hsmm"]["output"] == "test_out.tsv.gz"
-        @test parsed_args["discover"]["hsmm"]["ratio"] == 0.2
-        @test parsed_args["discover"]["hsmm"]["mincount"] == 10
+        @test parsed_args["discover"]["hsmm"]["select-min-allelic-ratio"] == 0.2
+        @test parsed_args["discover"]["hsmm"]["select-min-count"] == 0
+        @test parsed_args["discover"]["hsmm"]["select-min-fullcount"] == 10
         @test parsed_args["discover"]["hsmm"]["min-posterior"] == 0.7
-        @test parsed_args["discover"]["hsmm"]["out-mincount"] == 10
-        @test parsed_args["discover"]["hsmm"]["out-minratio"] == 0.2
+        @test parsed_args["discover"]["hsmm"]["min-count"] == 10
+        @test parsed_args["discover"]["hsmm"]["min-fullcount"] == 0
+        @test parsed_args["discover"]["hsmm"]["min-allelic-ratio"] == 0.2
     end
 
     @testset "hsmm module" begin
@@ -1689,6 +1760,17 @@ test_outcomes = Dict(
             @test_throws ErrorException Data.validate_types(String[])
             @test Data.get_ratio_threshold(Dict("A*01" => 0.5), (db_name="A*01", gene="A")) == 0.5
             @test Data.get_ratio_threshold(Dict{String,Float64}(), (db_name="A*01", gene="A")) == 0.0
+            @test Data.get_ratio_threshold(Dict{String,Float64}(), (db_name="A*01", gene="A"),
+                                            default=0.1) == 0.1
+            @test Data.get_ratio_threshold(Dict("A" => 0.05), (db_name="A*01", gene="A"),
+                                            default=0.1) == 0.05
+
+            gdc = Data.gene_donor_counts(DataFrame(
+                gene=["IGHD2-2", "IGHD2-2", "IGHD1-1", "IGHD2-2"],
+                case=["D1", "D2", "D1", "D1"],
+            ))
+            @test gdc[gdc.gene .== "IGHD2-2", :donors][1] == 2
+            @test gdc[gdc.gene .== "IGHD1-1", :donors][1] == 1
 
             dup_name = "test_dup_name.fasta"
             open(FASTA.Writer, dup_name) do writer

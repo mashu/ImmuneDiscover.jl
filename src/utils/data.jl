@@ -8,7 +8,7 @@ module Data
     using MD5
     using UnicodePlots
 
-    export load_fasta, plotgenes, unique_name, sequence_hash, load_demultiplex
+    export load_fasta, plotgenes, gene_donor_counts, unique_name, sequence_hash, load_demultiplex
     export concatenate_columns, validate_types, get_ratio_threshold
     export barplot_if_available, histogram_if_available, heatmap_if_available, boxplot_if_available
     export round_floats!
@@ -201,10 +201,35 @@ module Data
         return nothing
     end
 
-    function plotgenes(df)
-        gene_counts = combine(groupby(df, :gene), nrow => :count)
-        sort!(gene_counts, :count, rev=true)
-        barplot_if_available(gene_counts.gene, gene_counts.count)
+    """
+        gene_donor_counts(df) -> DataFrame
+
+    Unique donors (`case`) per `gene` among the rows in `df`. Used by `plotgenes` so bar heights
+    never exceed the number of donors in the input table.
+    """
+    function gene_donor_counts(df::DataFrame)
+        (:gene in propertynames(df)) || error("plotgenes requires a :gene column")
+        (:case in propertynames(df)) || error("plotgenes requires a :case column")
+        out = combine(groupby(df, :gene), :case => (x -> length(unique(x))) => :donors)
+        sort!(out, :donors, rev=true)
+        return out
+    end
+
+    """
+        plotgenes(df; n_donors_in_input)
+
+    Terminal bar chart: distinct donors (`case`) per `gene` among accepted candidate rows.
+    Pass `n_donors_in_input` from the demultiplex/input table so the caption reflects the full
+    input cohort, not only donors that survived filtering.
+    """
+    function plotgenes(df::DataFrame; n_donors_in_input::Union{Int,Nothing}=nothing)
+        counts = gene_donor_counts(df)
+        n_input = n_donors_in_input === nothing ? length(unique(df.case)) : n_donors_in_input
+        title = "Donors with accepted candidates per gene"
+        caption = "$title ($n_input donors in input file)"
+        printstyled("  ", caption, "\n"; color=:light_black)
+        barplot_if_available(counts.gene, counts.donors; title=caption)
+        return nothing
     end
 
     """
@@ -234,22 +259,23 @@ module Data
     end
 
     """
-        get_ratio_threshold(expect_dict, row; type="allele_ratio")
+        get_ratio_threshold(expect_dict, row; type="allele_ratio", default=0.0)
 
-    Look up a per-allele or per-gene ratio threshold from expect_dict.
-    Returns the threshold value (as Float64) if found, otherwise 0.0.
+    Per-allele/per-gene threshold from `expect_dict` when the row's `db_name` or `gene` is listed;
+    otherwise `default` (typically the global CLI floor). Set `default` to 0 to disable a filter
+    when no override file is supplied.
     """
-    function get_ratio_threshold(expect_dict, row; type="allele_ratio")
+    function get_ratio_threshold(expect_dict, row; type="allele_ratio", default=0.0)
         val = get(expect_dict, row.db_name, nothing)
         if val !== nothing
-            @info "Applying $type >= $val for $(row.db_name)"
+            @info "Applying $type >= $val for $(row.db_name) (allele override)"
             return Float64(val)
         end
         val = get(expect_dict, row.gene, nothing)
         if val !== nothing
-            @info "Applying $type >= $val for $(row.db_name)"
+            @info "Applying $type >= $val for $(row.db_name) (gene override)"
             return Float64(val)
         end
-        return 0.0
+        return Float64(default)
     end
 end

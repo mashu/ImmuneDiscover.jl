@@ -11,6 +11,7 @@ using StringDistances
 # Shared modules — avoids duplicate type definitions from repeated include()
 using ..Data
 using ..Exact
+using ..RatioColumns: ALLELIC_RATIO
 using ..Filters: FilterCriterion, MinThreshold, add_group_ratio!,
                  init_rejection_columns!, mark_rejected!, accepted, passes
 using ..Report: section, stage_report, report_rejections
@@ -184,7 +185,8 @@ silently dropping detections, while `count` keeps meaning "confident detections"
 function collapse_detections(res_df::DataFrame, min_posterior::Real)
     combine(groupby(res_df, [:well, :case, :sequence])) do g
         bi = argmax(g.posterior_prob)
-        (count = Base.count(>=(min_posterior), g.posterior_prob),
+        (full_count = nrow(g),
+         count = Base.count(>=(min_posterior), g.posterior_prob),
          pre_nonamer = g.pre_nonamer[bi], pre_spacer = g.pre_spacer[bi], pre_heptamer = g.pre_heptamer[bi],
          post_heptamer = g.post_heptamer[bi], post_spacer = g.post_spacer[bi], post_nonamer = g.post_nonamer[bi],
          heptamer_logp_pre = g.heptamer_logp_pre[bi], heptamer_logp_post = g.heptamer_logp_post[bi],
@@ -196,8 +198,10 @@ function collapse_detections(res_df::DataFrame, min_posterior::Real)
 end
 
 function run_hsmm(tsv::String, fasta_path::String, output::String;
-    ratio::Float64=0.2, mincount::Int=5, min_gene_len::Int=0, max_gene_len::Int=0,
-    limit::Int=0, min_posterior::Float64=0.7, out_mincount::Int=10, out_minratio::Float64=0.2,
+    select_min_count::Int=0, select_min_allelic_ratio::Float64=0.2, select_min_fullcount::Int=10,
+    min_gene_len::Int=0, max_gene_len::Int=0,
+    limit::Int=0, min_posterior::Float64=0.7, min_count::Int=10, min_fullcount::Int=0,
+    min_allelic_ratio::Float64=0.2,
     min_heptamer_prob_pre::Float64=0.0, min_heptamer_prob_post::Float64=0.0)
     @info "Loading demultiplex: $tsv"
     tbl = limit>0 ? Data.load_demultiplex(tsv,limit=limit) : Data.load_demultiplex(tsv)
@@ -207,15 +211,16 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     db_seq_lookup = Dict{String,String}((seq=>name) for (name,seq) in db)
     db_names=first.(db); db_seqs=last.(db)
     @info "Searching known D alleles"
-    # exact_search returns the unfiltered candidate table; keep D alleles with enough read
-    # support for training (equivalent to the former mincount selection; no ratio filter here).
+    # exact_search returns the unfiltered candidate table; select reference D alleles for HSMM fit.
     known_df = Exact.exact_search(tbl, db, "D"; N=1000)
     nrow(known_df)==0 && (@warn "No exact D matches"; return DataFrame())
-    filter!(r -> r.full_count >= mincount, known_df)
-    nrow(known_df)==0 && (@warn "No D alleles passed mincount=$mincount"; return DataFrame())
+    select_min_count > 0 && filter!(r -> r.count >= select_min_count, known_df)
+    nrow(known_df)==0 && (@warn "No D alleles passed --select-min-count=$select_min_count"; return DataFrame())
+    select_min_fullcount > 0 && filter!(r -> r.full_count >= select_min_fullcount, known_df)
+    nrow(known_df)==0 && (@warn "No D alleles passed --select-min-fullcount=$select_min_fullcount"; return DataFrame())
     agg = combine(groupby(known_df, [:case,:gene,:sequence,:db_name]), :count=>sum=>:case_count)
     transform!(groupby(agg, [:case,:gene]), :case_count=>(x->x./maximum(x))=>:case_ratio)
-    filter!(x->x.case_ratio>=ratio, agg)
+    select_min_allelic_ratio > 0 && filter!(x->x.case_ratio>=select_min_allelic_ratio, agg)
     train_df = combine(groupby(agg, [:case,:gene])) do g
         sorted = sort(g, :case_count, rev=true); us = unique(sorted.sequence); kept = us[1:min(2,length(us))]
         filter(x->x.sequence in kept, sorted)
@@ -229,7 +234,7 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     tuples = [(String(r.pre_nonamer),String(r.pre_spacer),String(r.pre_heptamer),String(r.sequence),String(r.post_heptamer),String(r.post_spacer),String(r.post_nonamer)) for r in eachrow(train_df)]
     lengths = length.(train_df.sequence)
     minL = min_gene_len>0 ? min_gene_len : minimum(lengths); maxL = max_gene_len>0 ? max_gene_len : maximum(lengths)
-    @info "Training HSMM [$minL, $maxL] from $(length(tuples)) examples"
+    @info "Fitting HSMM [$minL, $maxL] from $(length(tuples)) reference D examples"
     model = fit_dgene_rss_hsmm(tuples, minL, maxL)
     pb=(n9=9,s12=12,h7=7); qb=(h7=7,s12=12,n9=9)
     @info "Scanning reads with HSMM"
@@ -290,11 +295,16 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
 
     # Always apply the count/ratio output filters. Grouping by gene handles an all-novel batch
     # (gene == "" collapses to one bucket) instead of silently skipping the filters.
-    add_group_ratio!(collapsed, :count, [:well,:case,:gene], :ratio)
-    out_criteria = FilterCriterion[
-        MinThreshold(:count, Float64(out_mincount), "min output count (--out-mincount $out_mincount)"),
-        MinThreshold(:ratio, out_minratio, "min output ratio (--out-minratio $out_minratio)"),
-    ]
+    add_group_ratio!(collapsed, :count, [:well,:case,:gene], ALLELIC_RATIO)
+    out_criteria = FilterCriterion[]
+    min_count > 0 && push!(out_criteria,
+        MinThreshold(:count, Float64(min_count), "min count (--min-count $min_count)"))
+    min_fullcount > 0 && push!(out_criteria,
+        MinThreshold(:full_count, Float64(min_fullcount),
+                     "min full count (--min-fullcount $min_fullcount)"))
+    min_allelic_ratio > 0 && push!(out_criteria,
+        MinThreshold(ALLELIC_RATIO, min_allelic_ratio,
+                     "min allelic ratio (--min-allelic-ratio $min_allelic_ratio)"))
     min_heptamer_prob_pre > 0 && push!(out_criteria, MinThreshold(:heptamer_prob_pre, min_heptamer_prob_pre, "min pre-heptamer prob (--min-heptamer-prob-pre $min_heptamer_prob_pre)"))
     min_heptamer_prob_post > 0 && push!(out_criteria, MinThreshold(:heptamer_prob_post, min_heptamer_prob_post, "min post-heptamer prob (--min-heptamer-prob-post $min_heptamer_prob_post)"))
     annotate!(out_criteria, "output filter")
@@ -316,9 +326,12 @@ end
 function handle_hsmm(parsed_args)
     @info "HSMM D detection"
     b = parsed_args["discover"]["hsmm"]
-    run_hsmm(b["tsv"], b["fasta"], b["output"]; ratio=b["ratio"], mincount=b["mincount"],
+    run_hsmm(b["tsv"], b["fasta"], b["output"];
+        select_min_count=b["select-min-count"], select_min_allelic_ratio=b["select-min-allelic-ratio"],
+        select_min_fullcount=b["select-min-fullcount"],
         min_gene_len=b["min-gene-len"], max_gene_len=b["max-gene-len"], limit=b["limit"],
-        min_posterior=b["min-posterior"], out_mincount=b["out-mincount"], out_minratio=b["out-minratio"],
+        min_posterior=b["min-posterior"], min_count=b["min-count"], min_fullcount=b["min-fullcount"],
+        min_allelic_ratio=b["min-allelic-ratio"],
         min_heptamer_prob_pre=b["min-heptamer-prob-pre"], min_heptamer_prob_post=b["min-heptamer-prob-post"])
 end
 

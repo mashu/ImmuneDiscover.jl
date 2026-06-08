@@ -22,11 +22,11 @@ Control minimum read support for alleles.
 
 Control allelic frequency within gene groups.
 
-| Population Type | --minratio / --minfullratio | --min-ratio (haplotype) |
-|-----------------|---------------------------|-------------------------|
-| **Homozygous-heavy** | 0.2 | 0.2 |
-| **Balanced** | 0.1 (default) | 0.1 (default) |
-| **Low-expression** | 0.05 | 0.05 |
+| Population Type | --min-allelic-ratio (exact) / --minratio (dominance) | --minfullratio (blast) | --min-ratio (haplotype) |
+|-----------------|------------------------------------------------------|------------------------|-------------------------|
+| **Homozygous-heavy** | 0.2 | 0.2 | 0.2 |
+| **Balanced** | 0.1 (default) | 0.1 (default) | 0.1 (default) |
+| **Low-expression** | 0.05 | 0.05 | 0.05 |
 
 **Interpretation:**
 - Ratio 0.5 = balanced heterozygous
