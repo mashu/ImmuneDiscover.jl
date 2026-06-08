@@ -9,4 +9,6 @@ else
   echo "Error: julia not found" >&2
   exit 1
 fi
-exec "$JULIA_BIN" --project="$PROJECT_DIR" -e "include(\"$PROJECT_DIR/src/immunediscover.jl\"); exit(immunediscover.julia_main())" -- "$@"
+# `using` loads the precompiled package image (@compile_workload in src/immunediscover.jl).
+# `include()` bypasses that cache and re-JITs the whole module on every invocation.
+exec "$JULIA_BIN" --project="$PROJECT_DIR" -e 'using immunediscover; exit(immunediscover.julia_main())' -- "$@"

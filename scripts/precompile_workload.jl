@@ -23,7 +23,7 @@ try
                     genomic_sequence = ["AAAAAAAAAAAAAAACACAGTGCCCCCCCCCC",
                                         "AAAAAAAAAAAAAAACACAGTGCCCCCCCCCC"])
     db = [("IGHV1-1*01", "AAAAAAAAAAAAAAA")]
-    immunediscover.Exact.exact_search(tbl, db, "V"; mincount=1, minratio=0.0, N=1)
+    immunediscover.Exact.exact_search(tbl, db, "V"; N=1)
 catch err
     @warn "precompile workload: exact_search exercise skipped" exception=err
 end

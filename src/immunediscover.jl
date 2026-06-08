@@ -130,6 +130,12 @@ module immunediscover
         seekstart(io)
         df = CSV.File(io, delim='\t') |> DataFrame
 
+        tbl = DataFrame(well = [1, 1], case = ["D1", "D1"], name = ["r1", "r2"],
+                        genomic_sequence = ["AAAAAAAAAAAAAAACACAGTGCCCCCCCCCC",
+                                            "AAAAAAAAAAAAAAACACAGTGCCCCCCCCCC"])
+        db = [("IGHV1-1*01", "AAAAAAAAAAAAAAA")]
+        Exact.exact_search(tbl, db, "V"; N=1)
+
         for args in [
             ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V"],
             ["discover", "hsmm", "i.tsv", "d.fa", "o.tsv.gz"],
