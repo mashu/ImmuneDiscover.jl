@@ -853,7 +853,8 @@ test_outcomes = Dict(
         empty!(ARGS)
         append!(ARGS, ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V"])
         pa_preset = Cli.apply_blast_presets!(Cli.parse_commandline(ARGS))
-        @test pa_preset["discover"]["blast"]["min-peak-allelic-ratio"] ≈ 0.08    # V preset (recall-safe FP cut)
+        @test pa_preset["discover"]["blast"]["min-full-allelic-ratio"] == 0.0   # V preset: per-donor off
+        @test pa_preset["discover"]["blast"]["min-peak-allelic-ratio"] ≈ 0.08  # V preset (recall-safe FP cut)
         @test pa_preset["discover"]["blast"]["min-corecov"] == 0.50     # V preset (was default 0.6)
 
         empty!(ARGS)
@@ -915,6 +916,19 @@ test_outcomes = Dict(
         @test sup.count == [10, 10, 10]
         @test sup.allelic_ratio == [1.0, 1.0, 1.0]
         @test sup.full_allelic_ratio == [0.6, 0.4, 1.0]
+
+        tsv = abspath("test_blast_input.tsv")
+        db_v = abspath("test_blast_db.fasta")
+        db_d = abspath("test_blast_db_d.fasta")
+        args_v = "-task megablast"
+        args_d = "-task blastn"
+        k_input = Blast.blast_cache_key(tsv)
+        k_db = Blast.blast_cache_key(tsv; db_fasta=db_v)
+        k_args = Blast.blast_cache_key(tsv; db_fasta=db_v, args=args_v)
+        @test k_input != k_db
+        @test k_db != Blast.blast_cache_key(tsv; db_fasta=db_d)
+        @test k_args != Blast.blast_cache_key(tsv; db_fasta=db_v, args=args_d)
+        @test k_args != Blast.blast_cache_key(tsv; db_fasta=db_v, args=args_v, min_read_length=100)
         
         # Clean up test files
         for file in ["test_blast_fasta.fasta", "test_blast_save.fasta", "test_blast_input.tsv"]
@@ -1086,11 +1100,13 @@ test_outcomes = Dict(
         # classify_allele
         acc_list = ["ACGTACGT"]
         acc_set = Set(acc_list)
-        rej = Dict("TTTTTTTT" => "output filter")
-        @test Selftest.classify_allele("ACGTACGT", acc_set, acc_list, rej) == ("recovered", "")
-        @test Selftest.classify_allele("ACGT", acc_set, acc_list, rej) == ("recovered", "")  # substring
-        @test Selftest.classify_allele("TTTTTTTT", acc_set, acc_list, rej) == ("rejected", "output filter")
-        @test Selftest.classify_allele("GGGGGGGG", acc_set, acc_list, rej) == ("missed", "")
+        rej_stage = Dict("TTTTTTTT" => "output filter")
+        rej_reason = Dict("TTTTTTTT" => "min count (--min-count 5)")
+        @test Selftest.classify_allele("ACGTACGT", acc_set, acc_list, rej_stage, rej_reason) == ("recovered", "", "")
+        @test Selftest.classify_allele("ACGT", acc_set, acc_list, rej_stage, rej_reason) == ("recovered", "", "")
+        @test Selftest.classify_allele("TTTTTTTT", acc_set, acc_list, rej_stage, rej_reason) ==
+              ("rejected", "output filter", "min count (--min-count 5)")
+        @test Selftest.classify_allele("GGGGGGGG", acc_set, acc_list, rej_stage, rej_reason) == ("missed", "", "")
         @test Selftest.is_novel("X", Set(["Y"]))
         @test !Selftest.is_novel("Y", Set(["Y"]))
 
@@ -1114,6 +1130,8 @@ test_outcomes = Dict(
         @test paa[paa.allele .== "V1", :status][1] == "recovered"
         @test paa[paa.allele .== "V2", :status][1] == "rejected"
         @test paa[paa.allele .== "V2", :reject_stage][1] == "output filter"
+        @test paa[paa.allele .== "V2", :reject_reason][1] == "min count"
+        @test "reject_reason" in names(paa)
         @test paa[paa.allele .== "V3", :status][1] == "missed"
 
         # CSV round-trip turns empty fields into `missing`: an accepted row has missing
@@ -1175,6 +1193,15 @@ test_outcomes = Dict(
         # peak allelic ratio separates the same way (0.5 keeps the true allele, drops both FP).
         mr = safe[safe.metric .== "peak_allelic_ratio", :]
         @test mr[1, :fp_removed] == 2
+        @test mr[1, :cli_suggestion] == "--min-peak-allelic-ratio 0.5"
+
+        @test Selftest.cli_threshold_suggestion("allelic_ratio", "keep ≥", 0.15) == "--min-allelic-ratio 0.15"
+        @test Selftest.cli_threshold_suggestion("count", "keep ≥", 12.0) == "--min-count 12"
+        @test Selftest.cli_threshold_suggestion("scov", "keep ≥", 0.95) == "--subjectcov 0.95"
+        @test Selftest.cli_threshold_suggestion("aln_mismatch", "keep ≤", 9.0) == "--maxdist 9"
+        @test "allelic_ratio" in Selftest.DEFAULT_METRICS
+        @test "count" in Selftest.DEFAULT_METRICS
+        @test "scov" in Selftest.DEFAULT_METRICS
 
         # No accepted false novel cores ⇒ empty (nothing to cut).
         safez = Selftest.recall_safe_filters(discz, Set(String[]), [("V1", "NOVELAAA")]; seq_col=:aln_qseq)

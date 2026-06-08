@@ -155,13 +155,15 @@ full table.
 | `qseq` | Query core sequence (gaps removed) |
 | `aln_qseq` | Trimmed core: the read segment left after removing the prefix/suffix affixes |
 | `aln_mismatch` | Edit distance of the trimmed core to the assigned reference (−1 if trimming failed) |
-| `scov` | Subject coverage = aligned subject span `(|send−sstart|+1)/slen`, bounded in (0, 1] |
+| `scov` | BLAST subject coverage = aligned subject span `(|send−sstart|+1)/slen`, bounded in (0, 1]; max per cluster. Rows below `--subjectcov` are dropped before the full table is built |
 | `corecov` | Core ÷ reference length = `length(aln_qseq)/length(db allele)`. **Can exceed 1.0** when the candidate is longer than the reference (an insertion) |
 | `isin_db` | Whether `aln_qseq` is an exact substring of a known allele |
 | `allele_name` | Final name (the known allele if exact, else `{gene}_S{hash}` for a novel candidate) |
 | `full_count` | Reads in the (well, case, sseqid, qseq) cluster |
-| `donor_full_major_ratio` | Per donor+gene: `full_count` ÷ max(`full_count` in gene) — same vocabulary as exact search |
-| `peak_full_major_ratio` | Max `donor_full_major_ratio` across donors for this sequence |
+| `count` | Sum of `full_count` per (donor, allele, trimmed core) |
+| `allelic_ratio` | Per donor+gene: `count` ÷ max(`count` in gene) |
+| `full_allelic_ratio` | Per donor+gene: `full_count` ÷ max(`full_count` in gene) |
+| `peak_allelic_ratio` | Max `full_allelic_ratio` across donors for this sequence |
 
 ### Transparency Columns
 
@@ -360,7 +362,7 @@ Column names match CLI flags (hyphens → underscores). Shared across `search ex
 | Column | Formula | CLI flag |
 |--------|---------|----------|
 | `allelic_ratio` | `count` ÷ max in donor+gene | `--min-allelic-ratio` |
-| `full_allelic_ratio` | `full_count` ÷ max in donor+gene | checked with `--min-allelic-ratio` (exact) |
+| `full_allelic_ratio` | `full_count` ÷ max in donor+gene | `--min-full-allelic-ratio` |
 | `peak_allelic_ratio` | max `full_allelic_ratio` across donors | `--min-peak-allelic-ratio` |
 | `gene_fraction` | `count` ÷ sum(accepted) in donor+gene | `--min-gene-fraction` (exact only, default off) |
 

@@ -22,10 +22,10 @@ Control minimum read support for alleles.
 
 Control allelic frequency within gene groups.
 
-| Population Type | --min-allelic-ratio (exact) / --minratio (dominance) | --minfullratio (blast) | --min-ratio (haplotype) |
-|-----------------|------------------------------------------------------|------------------------|-------------------------|
-| **Homozygous-heavy** | 0.2 | 0.2 | 0.2 |
-| **Balanced** | 0.1 (default) | 0.1 (default) | 0.1 (default) |
+| Population Type | --min-allelic-ratio (exact) | --min-full-allelic-ratio / --min-peak-allelic-ratio (blast) | --min-ratio (haplotype) |
+|-----------------|-----------------------------|-------------------------------------------------------------|-------------------------|
+| **Homozygous-heavy** | 0.2 | 0.2 per-donor or peak | 0.2 |
+| **Balanced** | 0.1 (default exact) | 0.1 per-donor; V preset uses peak 0.08 only | 0.1 (default) |
 | **Low-expression** | 0.05 | 0.05 | 0.05 |
 
 **Interpretation:**
@@ -196,7 +196,7 @@ immunediscover search exact demux.tsv.gz IGHV.fasta test.tsv.gz -g V --top 1
 
 ```bash
 immunediscover discover blast demux.tsv.gz IGHV.fasta blast.tsv.gz -g V \
-  --minfullcount 3 --minfullratio 0.05 --minquality 0.7 --min-corecov 0.5
+  --min-fullcount 3 --min-peak-allelic-ratio 0.05 --minquality 0.7 --min-corecov 0.5
 ```
 
 ### Genotyping (High Specificity)

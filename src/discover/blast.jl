@@ -173,17 +173,36 @@ module Blast
         return isabspath(ex) ? abspath(ex) : abspath(joinpath(pwd(), ex))
     end
 
-    """Stable subdirectory under `work_dir` for one demux input; used for BLAST cache and query
-    FASTA. `salt` distinguishes runs whose query differs (e.g. a read-length filter)."""
-    function blast_run_subdir(work_dir::AbstractString, input_tsv::AbstractString; salt::AbstractString="")::String
-        tag = bytes2hex(md5(codeunits(abspath(input_tsv) * salt)))[1:16]
+    """
+        blast_cache_key(input_tsv; db_fasta, args, min_read_length) -> String
+
+    Material hashed into `blast/<tag>/`. Must change when anything that affects raw BLASTn
+    output changes: query set, subject DB, blastn flags, or pre-BLAST read-length filter.
+    Gene preset / post-BLAST filters are intentionally excluded (they do not re-run blastn).
+    """
+    function blast_cache_key(input_tsv::AbstractString;
+                             db_fasta::AbstractString="",
+                             args::AbstractString="",
+                             min_read_length::Integer=0)
+        parts = String[abspath(input_tsv)]
+        !isempty(strip(String(db_fasta))) && push!(parts, "db=$(abspath(db_fasta))")
+        !isempty(strip(String(args))) && push!(parts, "args=$(String(args))")
+        min_read_length > 0 && push!(parts, "minlen=$min_read_length")
+        return join(parts, "\0")
+    end
+
+    """Stable subdirectory under `work_dir` for one BLAST cache key."""
+    function blast_run_subdir(work_dir::AbstractString, cache_key::AbstractString)::String
+        tag = bytes2hex(md5(codeunits(String(cache_key))))[1:16]
         return joinpath(work_dir, "blast", tag)
     end
 
-    """Path to gzipped raw BLAST table for this input, matching `blast_discover` layout."""
-    function blast_hits_gz_path(work_dir::AbstractString, input_tsv::AbstractString)::String
-        d = blast_run_subdir(work_dir, input_tsv)
-        return joinpath(d, "hits.blast.gz")
+    """Path to gzipped raw BLAST table, matching `blast_discover` layout."""
+    function blast_hits_gz_path(work_dir::AbstractString, input_tsv::AbstractString;
+                                db_fasta::AbstractString="", args::AbstractString="",
+                                min_read_length::Integer=0)::String
+        key = blast_cache_key(input_tsv; db_fasta=db_fasta, args=args, min_read_length=min_read_length)
+        return joinpath(blast_run_subdir(work_dir, key), "hits.blast.gz")
     end
 
 
@@ -696,9 +715,9 @@ module Blast
             error("Please install BLAST version $min_ver - $max_ver")
         end
 
-        # Fold the read-length threshold into the cache key so changing it doesn't reuse a
-        # BLAST run built from a differently-filtered query.
-        run_dir = blast_run_subdir(work_dir, tsv_path; salt = min_read_length > 0 ? "minlen=$min_read_length" : "")
+        cache_key = blast_cache_key(tsv_path; db_fasta=combined_db_fasta, args=args,
+                                    min_read_length=min_read_length)
+        run_dir = blast_run_subdir(work_dir, cache_key)
         isdir(run_dir) || mkpath(run_dir)
         query_fasta = joinpath(run_dir, "query.fasta")
         blast_file = joinpath(run_dir, "hits.blast.gz")
@@ -780,7 +799,9 @@ module Blast
         blast_df[:, :well] = [read_name[x.qseqid][1] for x in eachrow(blast_df)]
         blast_df[:, :case] = [read_name[x.qseqid][2] for x in eachrow(blast_df)]
 
-        clusters = combine(groupby(blast_df, [:well, :case, :sseqid, :qseq, :mismatch]), :qseqid => length => :full_count)
+        clusters = combine(groupby(blast_df, [:well, :case, :sseqid, :qseq, :mismatch]),
+                            :qseqid => length => :full_count,
+                            :scov => maximum => :scov)
         @info "Clusters after grouping: $(nrow(clusters)) rows"
         verbose && CSV.write(joinpath(run_dir, "clusters.tsv"), clusters)
 
@@ -808,6 +829,14 @@ module Blast
         return df
     end
 
+    function seq_to_name_lookup(db_seqs)
+        lookup = Dict{String, String}()
+        for (name, seq) in db_seqs
+            haskey(lookup, seq) || (lookup[seq] = name)
+        end
+        return lookup
+    end
+
     """
         name_candidate(core, sseqid, aln_mismatch, db_seqs, isin) -> String
 
@@ -826,10 +855,14 @@ module Blast
     `db_seqs` is the un-extended base reference as `(name, sequence)` pairs.
     """
     function name_candidate(core::AbstractString, sseqid, aln_mismatch, db_seqs, isin::Bool)
+        name_candidate(core, sseqid, aln_mismatch, seq_to_name_lookup(db_seqs), db_seqs, isin)
+    end
+
+    function name_candidate(core::AbstractString, sseqid, aln_mismatch,
+                            exact_lookup::Dict{String, String},
+                            db_seqs, isin::Bool)
         aln_mismatch == 0 && return String(sseqid)
-        for (name, seq) in db_seqs
-            core == seq && return name
-        end
+        haskey(exact_lookup, core) && return exact_lookup[core]
         if isin
             for (name, seq) in db_seqs
                 occursin(core, seq) && return name
@@ -1076,13 +1109,22 @@ module Blast
         # always a known call, never a hashed novel name. The match is judged on the trimmed
         # core (aln_qseq) against the un-extended base sequences (db_seqs).
         db_seqs = [(strip(String(n)), String(s)) for (n, s) in DB]
-        add_chimera_scores!(blast_clusters, refs_by_gene(db_seqs); seq_col=:aln_qseq, gene_col=:gene)
+        db_by_gene = refs_by_gene(db_seqs)
+        exact_lookup = seq_to_name_lookup(db_seqs)
+        n_accepted = count(isempty, blast_clusters.reject_reason)
+        @info "Post-filter analysis: $n_accepted accepted / $(nrow(blast_clusters)) candidates"
+        @info "Computing chimera scores (accepted candidates only)"
+        add_chimera_scores!(blast_clusters, db_by_gene; seq_col=:aln_qseq, gene_col=:gene,
+                            only_accepted=true)
+        @info "Naming candidates"
         blast_clusters[:, :allele_name] = map(r -> name_candidate(String(r.aln_qseq), r.sseqid,
-                                                                  r.aln_mismatch, db_seqs, isin),
+                                                                  r.aln_mismatch, exact_lookup,
+                                                                  db_seqs, isin),
                                               eachrow(blast_clusters))
 
         # Between-cluster separation (diagnostic): for each accepted core, the nearest
         # more-abundant core ("parent"). Small nn_dist + large parent_ratio = error satellite.
+        @info "Computing neighbor statistics"
         add_neighbor_stats!(blast_clusters)
 
         # Two outputs: the filtered table (candidates that passed every stage) and a full table

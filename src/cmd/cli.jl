@@ -63,12 +63,15 @@ module Cli
     blast_default(key::AbstractString) = BLAST_DEFAULTS[key]
 
     # Gene presets tuned on KI IGH self-tests (recovery of known-novel alleles; see selftest).
-    #   V: `min-peak-allelic-ratio 0.08` is the key false-positive cut — a germline allele is a major
-    #      allele (peak per-donor allelic ratio ≥ 0.085) in at least one carrier, while PCR /
-    #      sequencing artifacts never are. 0.08 keeps every truth-novel allele (recall 1.0)
-    #      while removing ~60% of false novel calls vs the old 0.035.
+    #   V: per-donor `--min-full-allelic-ratio` is off (0); the recall-safe cut is
+    #      `--min-peak-allelic-ratio 0.08` — a germline allele is a major allele (peak per-donor
+    #      allelic ratio ≥ 0.085) in at least one carrier, while PCR / sequencing artifacts never
+    #      are. 0.08 keeps every truth-novel allele (recall 1.0) while removing ~60% of false
+    #      novel calls vs the old 0.035. Leaving the global 0.1 per-donor floor on would drop
+    #      truth-novel alleles that peak above 0.08 in their best donor but sit below 0.1 there.
     const BLAST_PRESETS = Dict(
         "V" => Dict{String,Any}(
+            "min-full-allelic-ratio" => 0.0,
             "min-peak-allelic-ratio" => 0.08,
             "length"       => 283,
             "maxdist"      => 14,

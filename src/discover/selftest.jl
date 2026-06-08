@@ -14,13 +14,42 @@ module Selftest
     using ..Report: section, stage_report
 
     export handle_selftest, evaluate_recovery, classify_allele, is_novel, metric_separation,
-           recall_safe_filters
+           recall_safe_filters, cli_threshold_suggestion, DEFAULT_METRICS
 
-    # Metric columns worth scanning for separation (intersected with what the table actually has).
-    const DEFAULT_METRICS = ["peak_allelic_ratio", "full_allelic_ratio", "n_donors", "n_reads_total", "scov", "corecov",
-                             "aln_mismatch", "mismatch", "gc_content", "max_homopolymer",
-                             "nn_dist", "parent_ratio", "satellite_score", "chimera_score",
-                             "full_count"]
+    # Metric columns scanned for separation (intersected with what the table actually has).
+    # Order: ratio/count filters first, then support and quality metrics.
+    const DEFAULT_METRICS = [
+        "peak_allelic_ratio", "full_allelic_ratio", "allelic_ratio",
+        "full_count", "count",
+        "n_reads_total", "n_donors", "scov", "corecov",
+        "aln_mismatch", "mismatch",
+        "gc_content", "max_homopolymer",
+        "nn_dist", "parent_ratio", "satellite_score", "chimera_score",
+    ]
+
+    """
+        cli_threshold_suggestion(metric, direction, threshold) -> String
+
+    Map a metric column + keep-direction + cut value to the matching `discover blast` CLI flag,
+    when one exists. Diagnostic-only metrics fall back to `column direction value`.
+    """
+    function cli_threshold_suggestion(metric::AbstractString, direction::AbstractString, threshold::Real)
+        t4 = round(Float64(threshold); digits=4)
+        ti = round(Int, threshold)
+        metric == "peak_allelic_ratio" && direction == "keep ≥" && return "--min-peak-allelic-ratio $t4"
+        metric == "full_allelic_ratio" && direction == "keep ≥" && return "--min-full-allelic-ratio $t4"
+        metric == "allelic_ratio" && direction == "keep ≥" && return "--min-allelic-ratio $t4"
+        metric == "count" && direction == "keep ≥" && return "--min-count $ti"
+        metric == "full_count" && direction == "keep ≥" && return "--min-fullcount $ti"
+        metric == "corecov" && direction == "keep ≥" && return "--min-corecov $t4"
+        metric == "scov" && direction == "keep ≥" && return "--subjectcov $t4"
+        metric == "n_reads_total" && direction == "keep ≥" && return "--min-reads-total $ti"
+        metric == "n_donors" && direction == "keep ≥" && return "--min-recurrence $ti"
+        (metric == "aln_mismatch" || metric == "mismatch") && direction == "keep ≤" &&
+            return "--maxdist $ti"
+        metric == "max_homopolymer" && direction == "keep ≤" && return "--max-homopolymer $ti"
+        return "$metric $direction $t4"
+    end
 
     "True if `seq` is absent from the base (reference) set."
     is_novel(seq::AbstractString, base::AbstractSet) = !(seq in base)
@@ -33,23 +62,26 @@ module Selftest
     end
 
     """
-        classify_allele(seq, accepted_set, accepted_list, rejected; substring) -> (status, stage)
+        classify_allele(seq, accepted_set, accepted_list, rejected_stage, rejected_reason; substring)
+            -> (status, reject_stage, reject_reason)
 
     `status` ∈ ("recovered", "rejected", "missed"). Recovered if an accepted candidate core
-    matches `seq`; else "rejected" (with the stage) if a rejected candidate matches it exactly;
-    else "missed".
+    matches `seq`; else "rejected" if a rejected candidate matches; else "missed".
+  Candidates that failed early cluster filters (e.g. `--subjectcov`) never appear and count as missed.
     """
     function classify_allele(seq::AbstractString, accepted_set::AbstractSet,
                              accepted_list::AbstractVector{<:AbstractString},
-                             rejected::AbstractDict; substring::Bool=true)
-        seq in accepted_set && return ("recovered", "")
+                             rejected_stage::AbstractDict, rejected_reason::AbstractDict;
+                             substring::Bool=true)
+        seq in accepted_set && return ("recovered", "", "")
         if substring
             for c in accepted_list
-                seq_match(seq, c; substring=true) && return ("recovered", "")
+                seq_match(seq, c; substring=true) && return ("recovered", "", "")
             end
         end
-        haskey(rejected, seq) && return ("rejected", rejected[seq])
-        return ("missed", "")
+        haskey(rejected_stage, seq) &&
+            return ("rejected", rejected_stage[seq], get(rejected_reason, seq, ""))
+        return ("missed", "", "")
     end
 
     """
@@ -63,8 +95,6 @@ module Selftest
         cols = names(discovery)
         String(seq_col) in cols ||
             error("Discovery table has no '$seq_col' column — pass --seq-col, or use the full table (<output>.full.tsv.gz).")
-        # Empty fields round-trip through CSV as `missing`; coalesce so an accepted row's empty
-        # reject_reason isn't read as "missing" (which would look rejected), and drop empty cores.
         getcol(name) = name in cols ? [ismissing(x) ? "" : String(x) for x in discovery[!, name]] :
                                       fill("", nrow(discovery))
         reason = getcol("reject_reason")
@@ -74,25 +104,29 @@ module Selftest
         acc_mask = isempty.(reason)
         accepted_list = filter(!isempty, unique(seqs[acc_mask]))
         accepted_set = Set(accepted_list)
-        rejected = Dict{String,String}()
+        rejected_stage = Dict{String,String}()
+        rejected_reason = Dict{String,String}()
         for i in eachindex(seqs)
             (acc_mask[i] || isempty(seqs[i])) && continue
-            get!(rejected, seqs[i], stage[i])
+            get!(rejected_stage, seqs[i], stage[i])
+            get!(rejected_reason, seqs[i], reason[i])
         end
 
         truth_novel = [(String(n), String(s)) for (n, s) in truth if is_novel(s, base)]
-        Row = NamedTuple{(:allele, :length, :status, :reject_stage), Tuple{String,Int,String,String}}
+        Row = NamedTuple{(:allele, :length, :status, :reject_stage, :reject_reason),
+                         Tuple{String,Int,String,String,String}}
         rows = Row[]
         recovered = 0
         for (name, s) in truth_novel
-            status, stg = classify_allele(s, accepted_set, accepted_list, rejected; substring=substring)
+            status, stg, rsn = classify_allele(s, accepted_set, accepted_list,
+                                               rejected_stage, rejected_reason; substring=substring)
             status == "recovered" && (recovered += 1)
-            push!(rows, (allele=name, length=length(s), status=status, reject_stage=stg))
+            push!(rows, (allele=name, length=length(s), status=status, reject_stage=stg, reject_reason=rsn))
         end
-        per_allele = isempty(rows) ? DataFrame(allele=String[], length=Int[], status=String[], reject_stage=String[]) :
+        per_allele = isempty(rows) ? DataFrame(allele=String[], length=Int[], status=String[],
+                                               reject_stage=String[], reject_reason=String[]) :
                                      DataFrame(rows)
 
-        # Precision over accepted NOVEL candidate cores (cores not present in base).
         truth_set = Set(s for (_, s) in truth_novel)
         novel_cores = [c for c in accepted_list if is_novel(c, base)]
         tp = 0
@@ -126,13 +160,6 @@ module Selftest
         return out
     end
 
-    """
-        best_threshold(tp, fp) -> (direction, threshold, youden, tp_kept, fp_kept)
-
-    Over the observed cut points and both keep-directions, find the threshold that best
-    separates true (`tp`) from false (`fp`) values by Youden's J (= TP-rate − FP-rate).
-    `direction` is `:ge` (keep ≥ threshold) or `:le` (keep ≤ threshold).
-    """
     function best_threshold(tp::AbstractVector{<:Real}, fp::AbstractVector{<:Real})
         cuts = sort!(unique(vcat(collect(tp), collect(fp))))
         ntp, nfp = length(tp), length(fp)
@@ -146,14 +173,6 @@ module Selftest
         return best
     end
 
-    """
-        metric_separation(discovery, base, truth; seq_col, substring, metrics) -> DataFrame
-
-    Label every NOVEL candidate row (core absent from `base`) as true (`tp`, its core matches a
-    truth-novel allele) or false (`fp`). For each numeric `metric` column present, report how
-    well it separates true from false and the single threshold that does it best (Youden's J).
-    Sorted by `youden` descending — the top row is the most discriminative metric to filter on.
-    """
     function metric_separation(discovery::DataFrame, base::AbstractSet{String},
                                truth::AbstractVector{<:Tuple{<:AbstractString,<:AbstractString}};
                                seq_col::Symbol=:aln_qseq, substring::Bool=true,
@@ -175,8 +194,8 @@ module Selftest
         fp_idx = findall(==(:fp), labels)
 
         Row = NamedTuple{(:metric, :n_tp, :n_fp, :tp_median, :fp_median, :direction,
-                          :threshold, :youden, :tp_kept, :fp_removed),
-                         Tuple{String,Int,Int,Float64,Float64,String,Float64,Float64,Int,Int}}
+                          :threshold, :cli_suggestion, :youden, :tp_kept, :fp_removed),
+                         Tuple{String,Int,Int,Float64,Float64,String,Float64,String,Float64,Int,Int}}
         rows = Row[]
         for m in metrics
             m in cols || continue
@@ -185,27 +204,20 @@ module Selftest
             fp = filter(isfinite, vals[fp_idx])
             (isempty(tp) || isempty(fp)) && continue
             dir, thr, j, keep_tp, keep_fp = best_threshold(tp, fp)
+            direction = dir === :ge ? "keep ≥" : "keep ≤"
             push!(rows, (metric=m, n_tp=length(tp), n_fp=length(fp),
                          tp_median=median(tp), fp_median=median(fp),
-                         direction = dir === :ge ? "keep ≥" : "keep ≤",
-                         threshold=thr, youden=j, tp_kept=keep_tp, fp_removed=length(fp) - keep_fp))
+                         direction=direction, threshold=thr,
+                         cli_suggestion=cli_threshold_suggestion(m, direction, thr),
+                         youden=j, tp_kept=keep_tp, fp_removed=length(fp) - keep_fp))
         end
         df = DataFrame(metric=String[], n_tp=Int[], n_fp=Int[], tp_median=Float64[],
                        fp_median=Float64[], direction=String[], threshold=Float64[],
-                       youden=Float64[], tp_kept=Int[], fp_removed=Int[])
+                       cli_suggestion=String[], youden=Float64[], tp_kept=Int[], fp_removed=Int[])
         isempty(rows) || (df = sort!(DataFrame(rows), :youden, rev=true))
         return df
     end
 
-    """
-        recall_safe_filters(discovery, base, truth; seq_col, substring, metrics) -> DataFrame
-
-    The directly actionable companion to `metric_separation`. For each numeric metric, find the
-    most aggressive single-sided threshold that can be applied to the ACCEPTED candidates while
-    still recovering every truth-novel allele (recall stays 1.0), and report how many accepted
-    false-positive novel cores that cut removes. "Apply this blast threshold to delete false
-    positives at zero recall cost." Sorted by false positives removed, descending.
-    """
     function recall_safe_filters(discovery::DataFrame, base::AbstractSet{String},
                                  truth::AbstractVector{<:Tuple{<:AbstractString,<:AbstractString}};
                                  seq_col::Symbol=:aln_qseq, substring::Bool=true,
@@ -221,7 +233,6 @@ module Selftest
 
         truth_novel = [(String(n), String(s)) for (n, s) in truth if is_novel(s, base)]
 
-        # Accepted rows grouped by novel core; label each core true/false vs truth-novel.
         core_rows = Dict{String,Vector{Int}}()
         for i in eachindex(seqs)
             (acc[i] && !isempty(seqs[i]) && is_novel(seqs[i], base)) || continue
@@ -230,7 +241,6 @@ module Selftest
         isempty(core_rows) && return _empty_safe_df()
         cores = collect(keys(core_rows))
         is_tp = Dict(c => any(t -> seq_match(c, t[2]; substring=substring), truth_novel) for c in cores)
-        # truth allele -> accepted cores that recover it (only recovered alleles constrain the cut)
         allele_cores = Dict{String,Vector{String}}()
         for (name, s) in truth_novel
             matched = [c for c in cores if seq_match(c, s; substring=substring)]
@@ -238,13 +248,12 @@ module Selftest
         end
         fp_cores = [c for c in cores if !is_tp[c]]
 
-        Row = NamedTuple{(:metric, :acc_fp, :direction, :threshold, :fp_removed),
-                         Tuple{String,Int,String,Float64,Int}}
+        Row = NamedTuple{(:metric, :acc_fp, :direction, :threshold, :cli_suggestion, :fp_removed),
+                         Tuple{String,Int,String,Float64,String,Int}}
         rows = Row[]
         for m in metrics
             m in cols || continue
             vals = numeric_col(discovery, m)
-            # per-core favourable values: max keeps a core under "keep ≥", min under "keep ≤".
             cmax = Dict{String,Float64}(); cmin = Dict{String,Float64}()
             for (c, idx) in core_rows
                 fv = filter(isfinite, vals[idx])
@@ -252,17 +261,21 @@ module Selftest
                 cmax[c] = maximum(fv); cmin[c] = minimum(fv)
             end
             (isempty(allele_cores) || isempty(fp_cores)) && continue
-            # keep ≥ t: an allele survives if any of its cores has cmax ≥ t; safe t = min over
-            # alleles of the allele's best cmax. keep ≤ t: symmetric with cmin.
             allele_ge = [maximum(cmax[c] for c in cs if haskey(cmax, c); init=-Inf) for cs in values(allele_cores)]
             allele_le = [minimum(cmin[c] for c in cs if haskey(cmin, c); init=Inf)  for cs in values(allele_cores)]
             safe_ge = minimum(allele_ge); safe_le = maximum(allele_le)
             fp_ge = count(c -> haskey(cmax, c) && cmax[c] < safe_ge, fp_cores)
             fp_le = count(c -> haskey(cmin, c) && cmin[c] > safe_le, fp_cores)
             if fp_ge >= fp_le
-                push!(rows, (metric=m, acc_fp=length(fp_cores), direction="keep ≥", threshold=safe_ge, fp_removed=fp_ge))
+                direction = "keep ≥"
+                push!(rows, (metric=m, acc_fp=length(fp_cores), direction=direction, threshold=safe_ge,
+                             cli_suggestion=cli_threshold_suggestion(m, direction, safe_ge),
+                             fp_removed=fp_ge))
             else
-                push!(rows, (metric=m, acc_fp=length(fp_cores), direction="keep ≤", threshold=safe_le, fp_removed=fp_le))
+                direction = "keep ≤"
+                push!(rows, (metric=m, acc_fp=length(fp_cores), direction=direction, threshold=safe_le,
+                             cli_suggestion=cli_threshold_suggestion(m, direction, safe_le),
+                             fp_removed=fp_le))
             end
         end
         isempty(rows) && return _empty_safe_df()
@@ -270,48 +283,44 @@ module Selftest
     end
 
     _empty_safe_df() = DataFrame(metric=String[], acc_fp=Int[], direction=String[],
-                                 threshold=Float64[], fp_removed=Int[])
+                                 threshold=Float64[], cli_suggestion=String[], fp_removed=Int[])
 
-    "Print the recall-safe filter table: cuts that drop false positives without losing alleles."
     function report_recall_safe(safe::DataFrame)
         section("Recall-safe filters — drop false positives without losing any truth-novel allele")
         if nrow(safe) == 0
             @info "No recall-safe cut found (need both recovered truth alleles and accepted false novel cores)."
             return
         end
-        printstyled(rpad("metric", 16), rpad("safe rule", 18), "FP removed (recall stays 1.0)\n";
+        printstyled(rpad("metric", 16), rpad("blast flag", 28), "FP removed (recall stays 1.0)\n";
                     color=:cyan, bold=true)
         for r in eachrow(safe)
-            rule = "$(r.direction) $(round(r.threshold; digits=4))"
             col = r.fp_removed > 0 ? :green : :light_black
             printstyled("  ", rpad(r.metric, 14); color=col, bold=true)
-            println(rpad(rule, 18), "$(r.fp_removed)/$(r.acc_fp)")
+            println(rpad(r.cli_suggestion, 28), "$(r.fp_removed)/$(r.acc_fp)")
         end
-        println("  Apply the top rule as a blast threshold to cut false positives at zero recall cost.")
+        println("  Apply the top blast flag to cut false positives at zero recall cost.")
         return nothing
     end
 
-    "Print the metric-separation table with a colored header and per-metric rows."
     function report_separation(sep::DataFrame)
         section("Metric separation — threshold that best splits true from false novel candidates")
         if nrow(sep) == 0
             @info "Not enough labelled candidates (need both true and false novel rows with metric columns)."
             return
         end
-        printstyled(rpad("metric", 16), rpad("rule", 14), rpad("youden", 9),
+        printstyled(rpad("metric", 16), rpad("blast flag", 22), rpad("youden", 9),
                     rpad("true kept", 12), rpad("false dropped", 15), "median T | F\n";
                     color=:cyan, bold=true)
         for r in eachrow(sep)
-            rule = "$(r.direction) $(round(r.threshold; digits=3))"
             col = r.youden >= 0.5 ? :green : r.youden >= 0.25 ? :yellow : :light_black
             printstyled("  ", rpad(r.metric, 14); color=col, bold=true)
-            print(rpad(rule, 14),
+            print(rpad(r.cli_suggestion, 22),
                   rpad(round(r.youden; digits=3), 9),
                   rpad("$(r.tp_kept)/$(r.n_tp)", 12),
                   rpad("$(r.fp_removed)/$(r.n_fp)", 15),
                   "$(round(r.tp_median; digits=3)) | $(round(r.fp_median; digits=3))\n")
         end
-        println("  Higher youden ⇒ better separation; apply the matching blast threshold to keep true and drop false.")
+        println("  Higher youden ⇒ better separation; apply the blast flag on the top row to tune filters.")
     end
 
     function handle_selftest(parsed_args)
@@ -338,7 +347,6 @@ module Selftest
             ks = sort(collect(keys(tally)))
             println("  truth-novel alleles by outcome:")
             barplot_if_available(ks, [tally[k] for k in ks])
-            # which stage rejected the ones we saw but dropped
             rej = filter(r -> r.status == "rejected", res.per_allele)
             if nrow(rej) > 0
                 st = Dict{String,Int}()
@@ -346,7 +354,17 @@ module Selftest
                 println("  rejected truth-novel by stage (which filter to relax):")
                 rk = sort(collect(keys(st)))
                 barplot_if_available(rk, [st[k] for k in rk])
+                nonempty = filter(r -> !isempty(r.reject_reason), rej)
+                if nrow(nonempty) > 0
+                    println("  rejected truth-novel by filter (see per-allele reject_reason column):")
+                    rs = Dict{String,Int}()
+                    for r in eachrow(nonempty); rs[r.reject_reason] = get(rs, r.reject_reason, 0) + 1; end
+                    rk2 = sort(collect(keys(rs)))
+                    barplot_if_available(rk2, [rs[k] for k in rk2])
+                end
             end
+            missed = count(==( "missed"), res.per_allele.status)
+            missed > 0 && println("  missed: $missed truth-novel allele(s) never reached the full table (e.g. failed --subjectcov during BLAST clustering).")
         end
 
         safe = recall_safe_filters(discovery, base, truth; seq_col=seq_col, substring=substring)

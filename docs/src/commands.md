@@ -190,9 +190,12 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 - `-s, --subjectcov` (default: 0.1): Min subject coverage fraction
 
 **Filtering:**
-- `-c, --minfullcount` (default: 5): Minimum read count per (well, case, allele, sequence) cluster (`full_count` after BLAST grouping)
-- `-f, --minfullratio` (default: 0.1): Min allelic ratio within gene (count / max)
-- `-l, --length` (default: 290): Min aligned length
+- `--min-fullcount` (default: 5): Minimum `full_count` per cluster
+- `--min-count` (default: 0, off): Minimum collapsed `count` per (donor, allele, core)
+- `--min-allelic-ratio` (default: 0, off): Min `allelic_ratio` (`count` ÷ max in donor+gene)
+- `--min-full-allelic-ratio` (default: 0.1): Min `full_allelic_ratio` (`full_count` ÷ max in donor+gene). V preset sets 0 (off)
+- `--min-peak-allelic-ratio` (default: 0, off): Min `peak_allelic_ratio` (max per-donor full ratio). V preset: 0.08
+- `-l, --length` (default: 290): Min trimmed core length
 - `-q, --minquality` (default: 0.75): Min alignment quality (1 - mismatch/length)
 - `--min-corecov` (default: 0.6): Min ratio aligned_length/db_length
 - `-i, --isin`: Keep truncated substrings of known alleles (default: filter out)
@@ -212,17 +215,17 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 
 **V Gene:**
 - Extensions: forward=20, reverse=20
-- Filtering: minfullratio=0.035, length=283, maxdist=14, minfullcount=5, minquality=0.62, min-corecov=0.50
+- Filtering: min-peak-allelic-ratio=0.08, min-full-allelic-ratio=0 (off), length=283, maxdist=14, min-fullcount=5, minquality=0.62, min-corecov=0.50
 - BLAST: `-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 50`
 
 **D Gene:**
 - Extensions: forward=40, reverse=40
-- Filtering: minfullratio=0.2, length=5, maxdist=20, minfullcount=10, edge=10, subjectcov=0.25, minquality=0.5
+- Filtering: min-full-allelic-ratio=0.2, length=5, maxdist=20, min-fullcount=10, edge=10, subjectcov=0.25, minquality=0.5
 - BLAST: `-task blastn -word_size 7 -xdrop_ungap 40 -xdrop_gap 40 -subject_besthit -num_alignments 10 -qcov_hsp_perc 5`
 
 **J Gene:**
 - Extensions: forward=12, reverse=12
-- Filtering: minfullratio=0.1, length=10, maxdist=10, minfullcount=10
+- Filtering: length=10, maxdist=10, min-fullcount=10
 - BLAST: `-task megablast -subject_besthit -num_alignments 5 -qcov_hsp_perc 10`
 
 ### Inputs/Outputs
@@ -231,7 +234,7 @@ immunediscover discover blast <input> <fasta> <output> -g <gene> [options]
 
 **Outputs:**
 - **{output}.tsv.gz**: Discovered alleles with columns for BLAST results, aligned sequences, coverage metrics, and novel allele names
-- **`--work-dir`** (default: `.immunediscover` vs current working directory): all caches and intermediates — per-input BLAST under `work-dir/blast/<16-hex>/hits.blast.gz` (streamed gzip), combined/extended FASTA, `makeblastdb` files, and affix TSV
+- **`--work-dir`** (default: `.immunediscover` vs current working directory): all caches and intermediates — raw BLAST under `work-dir/blast/<16-hex>/hits.blast.gz` where `<16-hex>` hashes the **input TSV path + extended DB FASTA + `--args` + `--min-read-length`** (separate dirs per V/D input or DB/blastn settings; gene post-filters do not affect the key), plus combined/extended FASTA, `makeblastdb` files, and affix TSV
 - **{fasta}-combined.fasta**: Combined database (pseudo + regular)
 - **{fasta}-combined-extended.fasta**: Extended sequences (if extensions used)
 - **{fasta}.affixes**: TSV with `name`, `prefix`, `suffix`
@@ -409,10 +412,12 @@ immunediscover discover selftest <discovery> <base> <truth> <output> [options]
 plus the BASE and TRUTH FASTAs.
 
 **Output: {output}** — per truth-novel allele: `allele`, `length`, `status`
-(`recovered` / `rejected` / `missed`), and `reject_stage` (the filter that dropped it, if rejected).
+(`recovered` / `rejected` / `missed`), `reject_stage`, and `reject_reason` (the exact filter label
+from the full table, if rejected).
 
 **Output (optional): {metrics-output}** — per metric: `metric`, `n_tp`, `n_fp`, `tp_median`,
-`fp_median`, `direction` (`keep ≥` / `keep ≤`), `threshold`, `youden`, `tp_kept`, `fp_removed`.
+`fp_median`, `direction` (`keep ≥` / `keep ≤`), `threshold`, `cli_suggestion` (matching
+`discover blast` flag), `youden`, `tp_kept`, `fp_removed`.
 
 ### Algorithm
 

@@ -1,5 +1,6 @@
 module Mosaic
     using DataFrames
+    using Base.Threads: @threads
     using ..Align: core_edit_distance
 
     export chimera_score, refs_by_gene, add_chimera_scores!, gene_from_allele
@@ -9,6 +10,13 @@ module Mosaic
     "Gene prefix from an allele name (`IGHV1-2*01` → `IGHV1-2`)."
     gene_from_allele(name::AbstractString) = first(split(strip(String(name)), '*'))
 
+    "Hamming distance for equal-length strings; Levenshtein otherwise."
+    function core_mismatch_cost(a::AbstractString, b::AbstractString)
+        La, Lb = length(a), length(b)
+        La == Lb && return sum(ca != cb for (ca, cb) in zip(a, b); init=0)
+        return core_edit_distance(a, b)
+    end
+
     "Edit cost of `seg` anchored to the start (`:start`) or end (`:end`) of `ref`."
     function segment_anchor_cost(seg::AbstractString, ref::AbstractString, side::Symbol)
         Ls, Lr = length(seg), length(ref)
@@ -16,11 +24,13 @@ module Mosaic
         L = min(Ls, Lr)
         if side === :start
             tail = Ls - L
-            return core_edit_distance(seg[1:L], ref[1:L]) + tail
+            a, b = seg[1:L], ref[1:L]
+            return sum(ca != cb for (ca, cb) in zip(a, b); init=0) + tail
         end
         side === :end || error("side must be :start or :end")
         tail = Ls - L
-        return core_edit_distance(seg[Ls - L + 1:Ls], ref[Lr - L + 1:Lr]) + tail
+        a, b = seg[Ls - L + 1:Ls], ref[Lr - L + 1:Lr]
+        return sum(ca != cb for (ca, cb) in zip(a, b); init=0) + tail
     end
 
     """
@@ -34,7 +44,7 @@ module Mosaic
         L = length(seq)
         L < 2 * MIN_CHIMERA_SEGMENT && return 0.0
         length(refs) < 2 && return 0.0
-        single = minimum(core_edit_distance(seq, ref) for ref in refs)
+        single = minimum(core_mismatch_cost(seq, ref) for ref in refs)
         single == 0 && return 0.0
         best_mosaic = typemax(Int)
         for split in MIN_CHIMERA_SEGMENT:(L - MIN_CHIMERA_SEGMENT)
@@ -62,26 +72,44 @@ module Mosaic
         return d
     end
 
-    """
-        add_chimera_scores!(df, db_by_gene; seq_col, gene_col)
+    function chimera_score_for_key(gene::String, seq::String, db_by_gene::AbstractDict)
+        refs = get(db_by_gene, gene, nothing)
+        refs === nothing && return 0.0
+        length(refs) < 2 && return 0.0
+        return chimera_score(seq, refs)
+    end
 
-    Append `chimera_score` per row, caching by `(gene, sequence)`.
+    """
+        add_chimera_scores!(df, db_by_gene; seq_col, gene_col, only_accepted)
+
+    Append `chimera_score` per row, caching by `(gene, sequence)`. When `only_accepted` is true
+    and `reject_reason` is present, score only accepted rows (rejected rows stay at 0.0).
     """
     function add_chimera_scores!(df::DataFrame, db_by_gene::AbstractDict;
-                                 seq_col::Symbol, gene_col::Symbol)
+                                 seq_col::Symbol, gene_col::Symbol, only_accepted::Bool=false)
         df[!, :chimera_score] = zeros(Float64, nrow(df))
-        cache = Dict{Tuple{String, String}, Float64}()
+        skip_rejected = only_accepted && (:reject_reason in propertynames(df))
+        keys = Tuple{String, String}[]
+        key_set = Set{Tuple{String, String}}()
         @inbounds for i in 1:nrow(df)
+            skip_rejected && df.reject_reason[i] != "" && continue
             gene = String(df[i, gene_col])
             seq = String(df[i, seq_col])
             key = (gene, seq)
-            score = get(cache, key, nothing)
-            if score === nothing
-                refs = get(db_by_gene, gene, nothing)
-                score = refs === nothing || length(refs) < 2 ? 0.0 : chimera_score(seq, refs)
-                cache[key] = score
-            end
-            df.chimera_score[i] = score
+            key in key_set && continue
+            push!(key_set, key)
+            push!(keys, key)
+        end
+        scores = Vector{Float64}(undef, length(keys))
+        @threads for k in eachindex(keys)
+            gene, seq = keys[k]
+            scores[k] = chimera_score_for_key(gene, seq, db_by_gene)
+        end
+        cache = Dict(zip(keys, scores))
+        @inbounds for i in 1:nrow(df)
+            skip_rejected && df.reject_reason[i] != "" && continue
+            key = (String(df[i, gene_col]), String(df[i, seq_col]))
+            df.chimera_score[i] = cache[key]
         end
         return df
     end
