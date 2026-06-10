@@ -31,6 +31,7 @@ module immunediscover
     include("utils/fasta.jl")
     include("utils/merge.jl")
     include("utils/table.jl")
+    include("precompile_workload.jl")
 
     using .Cli
     using .Data
@@ -125,42 +126,6 @@ module immunediscover
     end
 
     @compile_workload begin
-        io = IOBuffer()
-        write(io, "well\tcase\tname\tgenomic_sequence\n1\tD1\tread1\tATCG\n")
-        seekstart(io)
-        df = CSV.File(io, delim='\t') |> DataFrame
-
-        tbl = DataFrame(well = [1, 1], case = ["D1", "D1"], name = ["r1", "r2"],
-                        genomic_sequence = ["AAAAAAAAAAAAAAACACAGTGCCCCCCCCCC",
-                                            "AAAAAAAAAAAAAAACACAGTGCCCCCCCCCC"])
-        db = [("IGHV1-1*01", "AAAAAAAAAAAAAAA")]
-        Exact.exact_search(tbl, db, "V"; N=1)
-
-        for args in [
-            ["discover", "blast", "i.tsv", "d.fa", "o.tsv", "-g", "V"],
-            ["discover", "hsmm", "i.tsv", "d.fa", "o.tsv.gz"],
-            ["search", "exact", "i.tsv.gz", "d.fa", "o.tsv.gz"],
-            ["search", "heptamer", "i.tsv.gz", "d.fa", "o.tsv.gz", "s.tsv"],
-            ["search", "bwa", "i.tsv", "o.tsv", "g.fa"],
-            ["analyze", "cooccurrence", "i.tsv"],
-            ["analyze", "haplotype", "i.tsv", "o.tsv"],
-            ["preprocess", "demultiplex", "i.fq", "idx.tsv", "o.tsv"],
-            ["table", "outerjoin", "l.tsv", "r.tsv", "o.tsv", "-k", "key"],
-            ["table", "leftjoin", "l.tsv", "r.tsv", "o.tsv", "-k", "key"],
-            ["table", "transform", "i.tsv", "o.tsv", "-c", "col", "-p", "(.*)", "-r", "\\1"],
-            ["table", "aggregate", "i.tsv", "o.tsv", "-g", "col"],
-            ["table", "unique", "i.tsv", "o.tsv", "-c", "col"],
-            ["table", "sort", "i.tsv", "o.tsv", "-c", "col"],
-            ["table", "filter", "i.tsv", "o.tsv", "-c", "col", "--pattern", "x"],
-            ["table", "select", "i.tsv", "o.tsv", "-c", "col"],
-            ["table", "fasta", "i.tsv", "o.fa"],
-            ["table", "collect", "*.tsv", "o.tsv"],
-            ["table", "exclude", "i.tsv", "o.tsv", "r.fa"],
-            ["fasta", "merge", "o.fa", "a.fa", "b.fa"],
-            ["fasta", "diff", "a.fa", "b.fa"],
-            ["fasta", "hash", "i.fa"],
-        ]
-            parse_commandline(args)
-        end
+        precompile_cli_workload!()
     end
 end

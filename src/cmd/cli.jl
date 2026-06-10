@@ -284,13 +284,14 @@ module Cli
 
     Handle command line
     """
-    function parse_commandline(args)
+    function parse_commandline(args; exit_after_help::Bool=!isinteractive())
         s = ArgParseSettings("Tool for processing immune NGS data",
                             commands_are_required = true,
                             version = "$(software_version()) (git $(software_git_hash()))",
                             add_version = true,
                             usage = "usage: immunediscover <command> [-h|--help]",
-                            epilog = "GKHLab, $(software_version()) (git $(software_git_hash()))")
+                            epilog = "GKHLab, $(software_version()) (git $(software_git_hash()))",
+                            exit_after_help = exit_after_help)
         add_command_groups!(s)
 
         add_preprocess_args!(s)

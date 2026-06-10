@@ -32,6 +32,8 @@ function main()
         executables = ["immunediscover" => "julia_main"],
         precompile_execution_file = precompile_file,
         incremental = false,
+        filter_stdlibs = true,
+        include_transitive_dependencies = false,
         force = true,
     )
     exe = joinpath(app_dir, "bin", "immunediscover")
