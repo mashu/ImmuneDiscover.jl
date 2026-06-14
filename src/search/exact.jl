@@ -859,6 +859,18 @@ module Exact
         gene = ex["gene"]
         locus = ex["locus"]
 
+        # Foot-gun guard: -g sets the RSS-extraction orientation (V/J extract one heptamer, D both
+        # sides). Warn early if the reference looks like a different gene than -g.
+        let ref_types = filter(!isnothing, [gene_type_from_name(string(n)) for (n, _) in db])
+            if !isempty(ref_types)
+                nv = count(t -> t isa VGene, ref_types)
+                nd = count(t -> t isa DGene, ref_types)
+                nj = count(t -> t isa JGene, ref_types)
+                majority = (nv >= nd && nv >= nj) ? "V" : (nd >= nj ? "D" : "J")
+                majority != gene && @warn "You passed -g $gene but the reference FASTA looks like $majority genes — RSS is extracted in $gene orientation (only the 3' heptamer for V, 5' for J; both sides for D). Pass -g $majority to extract the correct RSS."
+            end
+        end
+
         local rss
         if extension !== nothing
             @info "Using extension mode with length $extension"; rss = String[]
