@@ -310,14 +310,19 @@ One row per co-present allele pair (support > 0).
 | `p_value` | 0 to 1 | Hypergeometric enrichment p-value |
 | `q_value` | 0 to 1 | Benjamini–Hochberg adjusted p-value |
 
-### Clusters Output ({clusters}.tsv, only with `--clusters`)
+### Clusters Output ({input}_clusters.tsv)
+
+Always written alongside edges. Rows are sorted by `group_id` (partial-haplotype blocks first; `group_id=0` unclustered alleles last) then `allele`.
 
 | Column | Description |
 |--------|-------------|
-| `group_id` | Cluster number |
+| `group_id` | Partial-haplotype block id (1-based); `0` = not in any block |
+| `group_size` | Number of alleles in the block (`0` if unclustered) |
 | `allele` | Allele name |
 | `donors` | Comma-separated donor list |
 | `n_donors` | Number of donors with this allele |
+
+Override path with `--clusters`.
 
 ---
 

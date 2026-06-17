@@ -1708,7 +1708,8 @@ test_outcomes = Dict(
         @test parsed_args["analyze"]["cooccurrence"]["case-col"] == "case"
         @test parsed_args["analyze"]["cooccurrence"]["allele-col"] == "db_name"
         @test parsed_args["analyze"]["cooccurrence"]["min-donors"] == 2
-        @test parsed_args["analyze"]["cooccurrence"]["cluster-method"] == "components"
+        @test parsed_args["analyze"]["cooccurrence"]["cluster-method"] == "complete"
+        @test parsed_args["analyze"]["cooccurrence"]["cluster-threshold"] == 0.7
     end
 
     @testset "cooccurrence module" begin
@@ -1730,8 +1731,16 @@ test_outcomes = Dict(
         @test nrow(edges_m) > 0
         @test all(0.0 .<= edges_m.q_value .<= 1.0)
 
-        # Benjamini–Hochberg correction: monotone, in [0,1], empty-safe.
-        @test Cooccurrence.adjust_bh(Float64[]) == Float64[]
+        # build_clusters_dataframe: grouped rows first, unclustered (group_id=0) last.
+        comps = [["A*01", "B*01"], ["C*01", "D*01"]]
+        allele_to_donors = Dict(
+            "A*01" => Set(["D1"]), "B*01" => Set(["D1"]),
+            "C*01" => Set(["D2"]), "D*01" => Set(["D2"]),
+            "E*01" => Set(["D3"]))
+        detailed = Cooccurrence.build_clusters_dataframe(comps, allele_to_donors, sort(collect(keys(allele_to_donors))))
+        @test detailed.group_id == [1, 1, 2, 2, 0]
+        @test detailed.group_size == [2, 2, 2, 2, 0]
+        @test detailed.allele == ["A*01", "B*01", "C*01", "D*01", "E*01"]
         q = Cooccurrence.adjust_bh([0.01, 0.02, 0.03, 0.04])
         @test all(isapprox.(q, 0.04; atol=1e-12))
         @test all(0.0 .<= Cooccurrence.adjust_bh([0.5, 0.001, 0.9, 0.2]) .<= 1.0)

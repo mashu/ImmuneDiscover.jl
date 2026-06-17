@@ -39,13 +39,13 @@ function add_analyze_args!(s)
         add_arg_group!(co, "Clustering", "cooc_cluster")
         @add_arg_table! co begin
         "--cluster-method"
-            help = "Clustering method on rho: components, complete, average, or single"
-            default = "components"
+            help = "Clustering method on rho: complete (default), components, average, or single"
+            default = "complete"
             arg_type = String
             range_tester = (x-> (x ∈ ["components","complete","average","single"]))
         "--cluster-threshold"
-            help = "Similarity threshold for complete-linkage clustering on rho (0..1)"
-            default = 0.5
+            help = "Similarity (rho) cutoff for clustering; higher = tighter blocks (0..1)"
+            default = 0.7
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--min-cluster-size"
@@ -54,7 +54,7 @@ function add_analyze_args!(s)
             arg_type = Int
             range_tester = (x->x >= 1)
         "--clusters"
-            help = "Optional path to save clusters (TSV)"
+            help = "Path for partial-haplotype clusters TSV (default: <input>_clusters.tsv)"
             arg_type = String
         "--debug-triangles"
             help = "Print rho-based triangle diagnostics at cluster-threshold"

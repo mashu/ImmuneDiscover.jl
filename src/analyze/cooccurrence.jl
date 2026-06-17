@@ -269,16 +269,8 @@ module Cooccurrence
             case_col=case_col, allele_col=allele_col,
             min_support=min_support, min_jaccard=jaccard_threshold)
         clusters = find_cooccurrence_groups(edges; min_cluster_size=min_cluster_size)
-        # Typed accumulator for detailed cluster rows
-        ClusterRow = NamedTuple{(:group_id,:allele,:donors,:n_donors), Tuple{Int,String,String,Int}}
-        all_rows = ClusterRow[]
-        for (gid, comp) in enumerate(clusters)
-            for allele in comp
-                donors_list = sort(collect(get(allele_to_donors, allele, Set{String}())))
-                push!(all_rows, (group_id=gid, allele=allele, donors=join(donors_list, ","), n_donors=length(donors_list)))
-            end
-        end
-        clusters_detailed = DataFrame(all_rows)
+        alleles = sort(collect(keys(allele_to_donors)))
+        clusters_detailed = build_clusters_dataframe(clusters, allele_to_donors, alleles)
         return edges, clusters, clusters_detailed
     end
 
@@ -288,6 +280,62 @@ module Cooccurrence
     Convert rho/jaccard/support/pvalue matrices into an edges DataFrame, adding a
     Benjamini–Hochberg `q_value` for the enrichment p-values (multiple-testing control).
     """
+    function cooccurrence_sidecar_path(tsv::AbstractString, suffix::AbstractString)
+        out = replace(tsv, r"\.(tsv|tsv\.gz)$" => suffix)
+        return out == tsv ? string(tsv, suffix) : out
+    end
+
+    function compute_cluster_components(stats;
+                                        cluster_method::AbstractString="complete",
+                                        cluster_threshold::Float64=0.7,
+                                        min_cluster_size::Int=3)
+        S = max.(stats.R, 0.0)
+        alleles = String.(stats.alleles)
+        if cluster_method == "components"
+            return components_from_matrix(S, alleles; threshold=cluster_threshold, min_cluster_size=min_cluster_size)
+        end
+        link = cluster_method == "average" ? :average : (cluster_method == "single" ? :single : :complete)
+        return cluster_hierarchical_from_matrix(S, alleles;
+            min_cluster_size=min_cluster_size, threshold=cluster_threshold, linkage=link)
+    end
+
+    """
+        build_clusters_dataframe(comps, allele_to_donors, alleles)
+
+    One row per allele. Clustered alleles share `group_id` (1-based); unclustered alleles use 0.
+    Rows are sorted by group (blocks first, unclustered last) then allele name.
+    """
+    function build_clusters_dataframe(comps::Vector{Vector{String}},
+                                      allele_to_donors::Dict{String, Set{String}},
+                                      alleles::AbstractVector{<:AbstractString})
+        ClusterRow = NamedTuple{(:group_id,:group_size,:allele,:donors,:n_donors),
+                                Tuple{Int,Int,String,String,Int}}
+        rows = ClusterRow[]
+        assigned = Set{String}()
+        for (gid, comp) in enumerate(comps)
+            gsize = length(comp)
+            for allele in comp
+                push!(assigned, allele)
+                donors_list = sort(collect(get(allele_to_donors, allele, Set{String}())))
+                push!(rows, (group_id=gid, group_size=gsize, allele=allele,
+                             donors=join(donors_list, ","), n_donors=length(donors_list)))
+            end
+        end
+        for allele in alleles
+            a = String(allele)
+            a in assigned && continue
+            donors_list = sort(collect(get(allele_to_donors, a, Set{String}())))
+            push!(rows, (group_id=0, group_size=0, allele=a,
+                         donors=join(donors_list, ","), n_donors=length(donors_list)))
+        end
+        clusters_df = DataFrame(rows)
+        nrow(clusters_df) == 0 && return clusters_df
+        clusters_df[!, :_group_sort] = ifelse.(clusters_df.group_id .== 0, typemax(Int), clusters_df.group_id)
+        sort!(clusters_df, [:_group_sort, :allele])
+        select!(clusters_df, Not(:_group_sort))
+        return clusters_df
+    end
+
     function build_edges_from_matrices(R, J, SUP, P, alleles)
         n = length(alleles)
         EdgeRow = NamedTuple{(:allele_a,:allele_b,:rho,:jaccard,:support,:p_value), Tuple{String,String,Float64,Float64,Int,Float64}}
@@ -312,8 +360,8 @@ module Cooccurrence
         allele_col = block["allele-col"]
         min_donors = block["min-donors"]
         min_cluster_size = block["min-cluster-size"]
-        cluster_method = get(block, "cluster-method", "components")
-        cluster_threshold = get(block, "cluster-threshold", 0.5)
+        cluster_method = get(block, "cluster-method", "complete")
+        cluster_threshold = get(block, "cluster-threshold", 0.7)
         debug_triangles = get(block, "debug-triangles", false)
         clusters_path = get(block, "clusters", nothing)
 
@@ -323,10 +371,7 @@ module Cooccurrence
         stats = compute_full_stats(df; case_col=case_col, allele_col=allele_col, min_donors=min_donors)
 
         edges_df = build_edges_from_matrices(stats.R, stats.J, stats.SUP, stats.P, String.(stats.alleles))
-        edges_output = replace(tsv, r"\.(tsv|tsv\.gz)$" => "_edges.tsv")
-        if edges_output == tsv
-            edges_output = tsv * "_edges.tsv"
-        end
+        edges_output = cooccurrence_sidecar_path(tsv, "_edges.tsv")
         CSV.write(edges_output, edges_df, delim='\t')
         @info "Edges saved to $edges_output ($(nrow(edges_df)) edges from $(length(stats.alleles)) alleles)"
 
@@ -335,24 +380,14 @@ module Cooccurrence
             print_triangle_diagnostics_matrix(S, String.(stats.alleles); threshold=cluster_threshold, max_print=20)
         end
 
-        if clusters_path !== nothing
-            S = max.(stats.R, 0.0)
-            if cluster_method == "components"
-                comps = components_from_matrix(S, String.(stats.alleles); threshold=cluster_threshold, min_cluster_size=min_cluster_size)
-            else
-                link = cluster_method == "average" ? :average : (cluster_method == "single" ? :single : :complete)
-                comps = cluster_hierarchical_from_matrix(S, String.(stats.alleles); min_cluster_size=min_cluster_size, threshold=cluster_threshold, linkage=link)
-            end
-            ClusterRow = NamedTuple{(:group_id,:allele,:donors,:n_donors), Tuple{Int,String,String,Int}}
-            all_rows = ClusterRow[]
-            for (gid, comp) in enumerate(comps)
-                for allele in comp
-                    donors_list = sort(collect(get(stats.allele_to_donors, allele, Set{String}())))
-                    push!(all_rows, (group_id=gid, allele=allele, donors=join(donors_list, ","), n_donors=length(donors_list)))
-                end
-            end
-            CSV.write(clusters_path, DataFrame(all_rows), delim='\t')
-            @info "Clusters saved in $(clusters_path) ($(length(comps)) groups, $(length(all_rows)) alleles)"
-        end
+        comps = compute_cluster_components(stats;
+            cluster_method=cluster_method, cluster_threshold=cluster_threshold,
+            min_cluster_size=min_cluster_size)
+        clusters_df = build_clusters_dataframe(comps, stats.allele_to_donors, String.(stats.alleles))
+        clusters_output = clusters_path !== nothing ? clusters_path : cooccurrence_sidecar_path(tsv, "_clusters.tsv")
+        CSV.write(clusters_output, clusters_df, delim='\t')
+        n_blocks = length(comps)
+        n_block_alleles = count(>(0), clusters_df.group_id)
+        @info "Clusters saved to $clusters_output ($n_blocks partial-haplotype blocks, $n_block_alleles alleles in blocks, $(nrow(clusters_df)) alleles total)"
     end
 end

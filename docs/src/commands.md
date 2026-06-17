@@ -550,8 +550,8 @@ immunediscover analyze cooccurrence <input> [options]
 - `-m, --min-donors` (default: 2): Minimum distinct donors required to include an allele
 
 **Clustering:**
-- `--cluster-method` (default: "components"): `components`, `complete`, `average`, or `single`
-- `--cluster-threshold` (default: 0.5): Similarity (rho) cutoff for clustering
+- `--cluster-method` (default: "complete"): `complete`, `components`, `average`, or `single`
+- `--cluster-threshold` (default: 0.7): Similarity (rho) cutoff for clustering
 - `--min-cluster-size` (default: 3): Minimum cluster size to output
 - `--clusters`: Optional path to write clusters TSV
 - `--debug-triangles`: Print rho-based triangle diagnostics at the cluster threshold
@@ -568,9 +568,12 @@ immunediscover analyze cooccurrence <input> [options]
 - `p_value`: Hypergeometric enrichment p-value
 - `q_value`: Benjamini–Hochberg adjusted p-value
 
-**Output: {clusters}.tsv** (only with `--clusters`):
-- `group_id`: Cluster ID
+**Output: {input}_clusters.tsv** — partial-haplotype blocks (always written, sorted by `group_id`):
+- `group_id`: Block id (`0` = unclustered)
+- `group_size`: Alleles in the block
 - `allele`, `donors`, `n_donors`
+
+Override path with `--clusters`.
 
 ### Metrics
 

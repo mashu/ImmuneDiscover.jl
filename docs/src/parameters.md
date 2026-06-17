@@ -116,10 +116,11 @@ Benjamini–Hochberg `q_value`; filter downstream on whichever column you need.
 
 | Parameter | Value | Use Case |
 |-----------|-------|----------|
-| `--cluster-method components` | default | Connected components on rho ≥ threshold |
-| `--cluster-method complete/average/single` | | Hierarchical clustering on rho |
-| `--cluster-threshold` | 0.5 (default) | Moderate clustering |
-| `--cluster-threshold` | 0.7+ | Tight clusters (high confidence) |
+| `--cluster-method complete` | default | Hierarchical clustering on rho (limits chaining) |
+| `--cluster-method components` | | Connected components on rho ≥ threshold |
+| `--cluster-method average/single` | | Hierarchical clustering on rho |
+| `--cluster-threshold` | 0.7 (default) | Tight clusters (high confidence) |
+| `--cluster-threshold` | 0.5 | Moderate clustering |
 | `--cluster-threshold` | 0.3 | Loose clusters (exploratory) |
 | `--min-cluster-size` | 3 (default) | Minimum cluster size to output |
 
