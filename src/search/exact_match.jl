@@ -45,15 +45,17 @@ Scan every read for exact occurrences of each query allele and emit one match ro
 occurrence, in the gene/mode-appropriate schema. Dispatches to a type-stable per-mode kernel
 (RSS vs extension); `totals_all`/`accepted_all` hold border-filter tallies (extension only).
 """
-function collect_matches(table, query, gt::GeneType, affix::Int, rss, extension,
+function collect_matches(table, query, gt::GeneType, affix::Int, rss, ::Absent,
                          border::Int, adjust::Bool, per_gene_prefix, per_gene_suffix)
-    if extension === nothing
-        result_df = collect_rss(table, query, gt, affix)
-        isempty(result_df) || project_rss!(result_df, gt, rss)
-        empty = Dict{Tuple{String,String},Int}()
-        return result_df, empty, copy(empty)
-    end
-    return collect_extension(table, query, gt, affix, extension, border, adjust,
+    result_df = collect_rss(table, query, gt, affix)
+    isempty(result_df) || project_rss!(result_df, gt, rss)
+    empty = Dict{Tuple{String,String},Int}()
+    return result_df, empty, copy(empty)
+end
+
+function collect_matches(table, query, gt::GeneType, affix::Int, rss, e::Present,
+                         border::Int, adjust::Bool, per_gene_prefix, per_gene_suffix)
+    return collect_extension(table, query, gt, affix, e.value, border, adjust,
                              per_gene_prefix, per_gene_suffix)
 end
 
@@ -72,7 +74,7 @@ end
 function read_matches_rss(row, query, gt::G, affix::Int) where {G<:GeneType}
     well = string(row.well); case = string(row.case); gs = row.genomic_sequence
     return [merge((well=well, case=case, db_name=string(name)),
-                  extract_flanking(gs, (minimum(m), maximum(m)), gt, affix, nothing))
+                  extract_flanking(gs, (minimum(m), maximum(m)), gt, affix, absent))
             for (name, seq) in query for m in each_exact_span(seq, gs)]
 end
 

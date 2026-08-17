@@ -10,7 +10,8 @@ using CSV
 using Statistics
 using FASTX
 using ..Data: load_fasta
-using ..Gene: GeneType, VGene, DGene, JGene, gene_type_from_name
+using ..Gene: GeneType, VGene, DGene, JGene, Unsegmented, gene_type_from_name
+using ..Option: Absent, Present, absent, optional
 
 export infer_haplotypes, handle_haplotype
 
@@ -21,6 +22,13 @@ const HaplotypeRow = NamedTuple{
 function load_novel_alleles(fasta_path::String)::Set{String}
     isfile(fasta_path) || return Set{String}()
     return Set(name for (name, _) in load_fasta(fasta_path))
+end
+
+load_novel_set(::Absent) = Set{String}()
+function load_novel_set(p::Present)
+    alleles = load_novel_alleles(p.value)
+    @info "Loaded $(length(alleles)) novel alleles from FASTA"
+    return alleles
 end
 
 # Handle missing values safely — String(missing) throws before coalesce sees it.
@@ -67,6 +75,9 @@ function collect_post_flank(row, fc::FlankColumns, ::GeneType)
     fc.suffix ? safe_string(row, :suffix) : ""
 end
 
+collect_pre_flank(row, fc::FlankColumns, ::Unsegmented) = ""
+collect_post_flank(row, fc::FlankColumns, ::Unsegmented) = ""
+
 # V genes: post-flank is heptamer+spacer+nonamer (RSS after V segment)
 function collect_post_flank(row, fc::FlankColumns, ::VGene)
     fc.suffix && return safe_string(row, :suffix)
@@ -111,9 +122,7 @@ function compose_extended_sequence(row, gene_sym::Symbol, fc::FlankColumns)
     gene_id = safe_string(row, gene_sym)
     gt = gene_type_from_name(gene_id)
     seq = safe_string(row, :sequence)
-    pre = gt !== nothing ? collect_pre_flank(row, fc, gt) : ""
-    post = gt !== nothing ? collect_post_flank(row, fc, gt) : ""
-    return pre * seq * post
+    return collect_pre_flank(row, fc, gt) * seq * collect_post_flank(row, fc, gt)
 end
 
 function infer_haplotypes(input_file::String, output_file::String;
@@ -122,16 +131,12 @@ function infer_haplotypes(input_file::String, output_file::String;
                          gene_col::String="gene",
                          mincount::Int=5,
                          min_ratio::Float64=0.1,
-                         novel_fasta::Union{String, Nothing}=nothing)
+                         novel_fasta=absent)
 
     df = CSV.File(input_file, delim='\t') |> DataFrame
     @info "Loaded $(nrow(df)) rows from input file"
 
-    novel_alleles = Set{String}()
-    if novel_fasta !== nothing
-        novel_alleles = load_novel_alleles(novel_fasta)
-        @info "Loaded $(length(novel_alleles)) novel alleles from FASTA"
-    end
+    novel_alleles = load_novel_set(optional(novel_fasta))
 
     case_sym = Symbol(case_col)
     allele_sym = Symbol(allele_col)
@@ -229,8 +234,8 @@ function infer_haplotypes(input_file::String, output_file::String;
         # Always include novel_1/novel_2 for consistent NamedTuple shape (type stability)
         base1 = length(sorted_indices) >= 1 ? base_names[sorted_indices[1]] : ""
         base2 = length(sorted_indices) >= 2 ? base_names[sorted_indices[2]] : ""
-        is_novel_1 = novel_fasta !== nothing ? (base1 in novel_alleles) : false
-        is_novel_2 = novel_fasta !== nothing ? (base2 in novel_alleles) : false
+        is_novel_1 = base1 in novel_alleles
+        is_novel_2 = base2 in novel_alleles
 
         push!(results, (case=String(case_id), gene=String(gene_id), genotype=genotype_type,
                         allele_1=allele_1, allele_2=allele_2,
@@ -269,7 +274,7 @@ function handle_haplotype(parsed_args)
         case_col=block["case-col"], allele_col=block["allele-col"],
         gene_col=block["gene-col"], mincount=block["mincount"],
         min_ratio=block["min-ratio"],
-        novel_fasta=get(block, "novel-fasta", nothing))
+        novel_fasta=optional(get(block, "novel-fasta", nothing)))
 end
 
 end # module

@@ -1,5 +1,6 @@
 module immunediscover
-    # --- CLI scaffolding ---
+    # --- Utils needed by CLI (Option) then CLI scaffolding ---
+    include("utils/option.jl")
     include("cmd/cli.jl")
 
     # --- Utils (no inter-module deps) ---
@@ -37,6 +38,7 @@ module immunediscover
     include("precompile_workload.jl")
 
     using .Cli
+    using .Option
     using .Gene
     using .Spans
     using .DNA
@@ -106,15 +108,19 @@ module immunediscover
     """
     function real_main(args=[])
         parsed_args = parse_commandline(args)
-        parsed_args === nothing && return
-        cmd = Cli.command_for(parsed_args)
-        if cmd === nothing
-            @warn "Unknown or missing command: $(get(parsed_args, "%COMMAND%", ""))"
-            return
-        end
-        Cli.run_command(cmd, parsed_args)
+        run_parsed(optional(parsed_args))
         return
     end
+
+    run_parsed(::Absent) = nothing
+    function run_parsed(pa::Present)
+        run_resolved(Cli.command_for(pa.value), pa.value)
+        return
+    end
+
+    run_resolved(::Absent, parsed_args) =
+        (@warn "Unknown or missing command: $(get(parsed_args, "%COMMAND%", ""))"; nothing)
+    run_resolved(cmd::Present, parsed_args) = Cli.run_command(cmd.value, parsed_args)
 
     """
         julia_main()::Cint

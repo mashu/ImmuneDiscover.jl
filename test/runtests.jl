@@ -21,6 +21,7 @@ using immunediscover.Merge
 using immunediscover.Haplotype
 using immunediscover.Bwa
 using immunediscover.Filters
+using immunediscover.Option
 using immunediscover.Report
 using immunediscover.SeqStats
 using immunediscover.Mosaic
@@ -301,7 +302,7 @@ test_outcomes = Dict(
             sequence=["ACGTACGT"], prefix=["TTTT"], spacer=["GGG"], nonamer=["AAAAAAAAA"],
             reject_reason=[""], reject_stage=[""],
         )
-        o = Exact.order_exact_columns(df, VGene(), nothing)
+        o = Exact.order_exact_columns(df, VGene(), absent)
         cols = names(o)
         # the long DNA columns are last, in genomic 5'→3' order for V (prefix, seq, 3' RSS)
         @test cols[end-4:end] == ["prefix", "sequence", "heptamer", "spacer", "nonamer"]
@@ -310,7 +311,7 @@ test_outcomes = Dict(
         @test findfirst(==("allelic_ratio"), cols) < findfirst(==("gene_case_freq"), cols)
         @test findfirst(==("gene_case_freq"), cols) < findfirst(==("prefix"), cols)
         # J places its 5' RSS before the sequence; extension mode just prefix/seq/suffix
-        @test Exact.dna_layout(JGene(), nothing) == ["nonamer", "spacer", "heptamer", "sequence", "suffix"]
+        @test Exact.dna_layout(JGene(), absent) == ["nonamer", "spacer", "heptamer", "sequence", "suffix"]
         @test Exact.dna_layout(VGene(), 20) == ["prefix", "sequence", "suffix"]
 
         # floats rounded to 4 dp; integer/string columns untouched
@@ -414,7 +415,7 @@ test_outcomes = Dict(
         @test !Report.is_novel_name("IGHV1-2*01")
         row = Report.mismatch_row("ACGA", "ACGT", 1.0)
         @test row == [0.0, 0.0, 0.0, 1.0]
-        @test Report.matched_germline("IGHV1-2*01", Report.db_dict([("IGHV1-2*01", "ACGT")])) == "ACGT"
+        @test unwrap(Report.matched_germline("IGHV1-2*01", Report.db_dict([("IGHV1-2*01", "ACGT")]))) == "ACGT"
         db = [("IGHV1-2*01", "ACGT")]
         panels, suspicious = Report.gene_novel_diff_panels(
             ["IGHV1-2", "IGHV1-2", "IGHV1-2"],
@@ -1904,8 +1905,8 @@ test_outcomes = Dict(
             @test Gene.gene_type_from_name("IGHJ4") isa JGene
             @test Gene.gene_type_from_name("TRBV1-1") isa VGene
             @test Gene.gene_type_from_name("TRAV1-1") isa VGene
-            @test Gene.gene_type_from_name("GAPDH") === nothing
-            @test Gene.gene_type_from_name("XYZ") === nothing
+            @test Gene.gene_type_from_name("GAPDH") isa Unsegmented
+            @test Gene.gene_type_from_name("XYZ") isa Unsegmented
             @test Gene.parse_gene_type("V") isa VGene
             @test_throws ErrorException Gene.parse_gene_type("Q")
             @test Gene.gene_string(VGene()) == "V"

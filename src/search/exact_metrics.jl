@@ -9,13 +9,17 @@ function add_counts!(result_df::DataFrame, sequence_lookup)
     df = transform(groupby(result_df, names(result_df)), nrow => :full_count)
     transform!(groupby(df, [:well, :case, :db_name, :sequence]), nrow => :count)
     transform!(df, :db_name => ByRow(x -> first(split(x, '*'))) => :gene)
-    if sequence_lookup !== nothing
-        @info "Adding isin_db column based on reference FASTA"
-        df[!, :isin_db] = map(row -> get(sequence_lookup, row.sequence, false) ? "" : "Novel", eachrow(df))
-    end
+    mark_novel!(df, optional(sequence_lookup))
     add_group_ratio!(df, :full_count, [:well, :case, :gene], FULL_ALLELIC_RATIO)
     add_group_ratio!(df, :count, [:well, :case, :gene], ALLELIC_RATIO)
     return df
+end
+
+mark_novel!(_, ::Absent) = nothing
+function mark_novel!(df, lookup::Present)
+    @info "Adding isin_db column based on reference FASTA"
+    df[!, :isin_db] = map(row -> get(lookup.value, row.sequence, false) ? "" : "Novel", eachrow(df))
+    return nothing
 end
 
 """

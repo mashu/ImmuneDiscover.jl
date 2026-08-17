@@ -11,6 +11,7 @@ module Bwa
     using BioSequences
     using CodecZlib
     using ..Data: load_fasta
+    using ..Option: Absent, Present, absent, optional
 
     function description(aln::BurrowsWheelerAligner.LibBWA.mem_aln_t, aligner::BurrowsWheelerAligner.Aligner)
         anns = BurrowsWheelerAligner.LibBWA.unsafe_load(aligner.index.bns).anns
@@ -121,7 +122,7 @@ module Bwa
         return sum(c1 != c2 for (c1, c2) in zip(seq1, seq2))
     end
 
-    function bwa_sequences(genome_path, sequences, chromosome_name; tag="Primary Assembly", discarded_path::Union{Nothing,String}=nothing)
+    function bwa_sequences(genome_path, sequences, chromosome_name; tag="Primary Assembly", discarded_path=absent)
         result = zeros(Bool, length(sequences))
         aligners = create_aligner(genome_path)
         discard = Accumulator{Tuple{String,String,String}, Int}()
@@ -192,11 +193,15 @@ module Bwa
             @info "Discarded $name matching $chr in $genome_file (total $n)"
             push!(discarded, name)
         end
-        if discarded_path !== nothing
-            CSV.write(discarded_path, DataFrame(name=discarded), delim='\t')
-            @info "Discarded sequence names written to $discarded_path"
-        end
+        write_discarded(optional(discarded_path), discarded)
         return result, position, edit_distance, ref_sequence, orientation, cigar
+    end
+
+    write_discarded(::Absent, _) = nothing
+    function write_discarded(p::Present, discarded)
+        CSV.write(p.value, DataFrame(name=discarded), delim='\t')
+        @info "Discarded sequence names written to $(p.value)"
+        return nothing
     end
 
     function handle_bwa(parsed_args, immunediscover_module, always_gz)

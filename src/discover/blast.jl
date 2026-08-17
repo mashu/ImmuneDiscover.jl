@@ -15,7 +15,8 @@ module Blast
     using ..Mosaic: refs_by_gene, add_chimera_scores!
     using ..Data: load_fasta as data_load_fasta, unique_name, histogram_if_available
     using ..SeqStats: gc_content, max_homopolymer
-    using ..Spans: each_exact_span
+    using ..Spans: each_exact_span, flank_slice
+    using ..Option: Absent, Present, absent, optional
     using ..RatioColumns: ALLELIC_RATIO, FULL_ALLELIC_RATIO, PEAK_ALLELIC_RATIO
     using ..Filters: FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative,
                      add_group_ratio!, init_rejection_columns!, mark_rejected!, accepted, passes,
@@ -30,7 +31,11 @@ module Blast
     include("blast_io.jl")
     include("blast_process.jl")
     include("blast_affix.jl")
+    include("blast_affix_index.jl")
+    include("blast_affix_trim.jl")
     include("blast_neighbors.jl")
     include("blast_discover.jl")
-    include("blast_output.jl")
+    include("blast_metrics.jl")
+    include("blast_name.jl")
+    include("blast_handle.jl")
 end

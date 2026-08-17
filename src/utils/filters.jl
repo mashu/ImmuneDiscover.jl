@@ -5,7 +5,7 @@ using DataFrames
 export FilterCriterion, MinThreshold, MaxThreshold, MinStringLength, NonNegative, CustomFilter
 export GermlineFilter, passes, apply_filters!, add_group_ratio!
 export init_rejection_columns!, mark_rejected!, annotate_rejections!, accepted
-export criterion_column
+export criterion_column, MetricView, LengthView, NumericView, metric_view
 
 abstract type FilterCriterion end
 
@@ -49,6 +49,19 @@ criterion_column(f::MaxThreshold) = String(f.column)
 criterion_column(f::MinStringLength) = String(f.column)
 criterion_column(f::NonNegative) = String(f.column)
 criterion_column(::CustomFilter) = ""
+
+abstract type MetricView end
+struct LengthView <: MetricView
+    name::String
+end
+struct NumericView <: MetricView
+    name::String
+end
+
+metric_view(f::MinStringLength) = LengthView(String(f.column))
+metric_view(f::FilterCriterion) = NumericView(criterion_column(f))
+metric_view(name::AbstractString, seq_col::Symbol) =
+    name == String(seq_col) ? LengthView(String(name)) : NumericView(String(name))
 
 """
     GermlineFilter(criteria)

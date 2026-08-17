@@ -32,10 +32,12 @@ end
     load_ratio_dict(path) -> Dict{String,Float64}
 
 Load a per-allele/per-gene ratio threshold file (columns `name`, `ratio`) into a typed
-dict. Returns an empty typed dict when `path` is nothing (no throwaway DataFrame).
+dict. Returns an empty typed dict when the path is absent.
 """
-function load_ratio_dict(path)
-    path === nothing && return Dict{String,Float64}()
+load_ratio_dict(path) = load_ratio_dict(optional(path))
+load_ratio_dict(::Absent) = Dict{String,Float64}()
+function load_ratio_dict(p::Present)
+    path = p.value
     df = CSV.read(path, DataFrame, delim='\t')
     @assert all(n in names(df) for n in ["name", "ratio"]) "ratio file $path must have columns: name, ratio"
     @info "Using ratio file $path with $(nrow(df)) entries"
@@ -47,10 +49,11 @@ end
 # sequence) on the right in genomic 5'→3' order, so the wide values don't bury the metrics.
 
 dna_layout(gt::GeneType, ::Integer) = ["prefix", "sequence", "suffix"]   # extension mode
-dna_layout(::VGene, ::Nothing) = ["prefix", "sequence", "heptamer", "spacer", "nonamer"]
-dna_layout(::JGene, ::Nothing) = ["nonamer", "spacer", "heptamer", "sequence", "suffix"]
-dna_layout(::DGene, ::Nothing) = ["pre_nonamer", "pre_spacer", "pre_heptamer", "sequence",
-                                  "post_heptamer", "post_spacer", "post_nonamer"]
+dna_layout(gt::GeneType, e::Present) = dna_layout(gt, e.value)
+dna_layout(::VGene, ::Absent) = ["prefix", "sequence", "heptamer", "spacer", "nonamer"]
+dna_layout(::JGene, ::Absent) = ["nonamer", "spacer", "heptamer", "sequence", "suffix"]
+dna_layout(::DGene, ::Absent) = ["pre_nonamer", "pre_spacer", "pre_heptamer", "sequence",
+                                 "post_heptamer", "post_spacer", "post_nonamer"]
 
 const EXACT_LEFT_ORDER = ["well", "case", "gene", "db_name", "isin_db",
     "count", "full_count", "gene_count", "case_count", "n_reads_total", "n_donors",
@@ -67,7 +70,7 @@ then the long DNA columns (flanks + sequence) last, in genomic 5'→3' order. Pr
 """
 function order_exact_columns(df::DataFrame, gt::GeneType, extension)
     present = names(df)
-    dna = [c for c in dna_layout(gt, extension) if c in present]
+    dna = [c for c in dna_layout(gt, optional(extension)) if c in present]
     left = [c for c in EXACT_LEFT_ORDER if c in present && !(c in dna)]
     placed = Set(vcat(left, dna))
     middle = [c for c in present if !(c in placed)]
@@ -170,11 +173,15 @@ function report_exact_findings(counts_df::DataFrame, kept::DataFrame, db, gt::Ge
 
     report_rejections(counts_df.reject_reason)
     filter_quality_report(counts_df, [:n_donors, PEAK_ALLELIC_RATIO, :full_count])
+    report_rss_motifs(optional(extension), kept, gt)
+    return nothing
+end
 
-    if extension === nothing && nrow(kept) > 0
-        for (col, lbl, clr) in heptamer_panels(gt)
-            col in names(kept) && rss_consistency(kept[!, Symbol(col)]; label=lbl, color=clr)
-        end
+report_rss_motifs(::Present, _, _) = nothing
+function report_rss_motifs(::Absent, kept, gt)
+    nrow(kept) > 0 || return nothing
+    for (col, lbl, clr) in heptamer_panels(gt)
+        col in names(kept) && rss_consistency(kept[!, Symbol(col)]; label=lbl, color=clr)
     end
     return nothing
 end

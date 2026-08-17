@@ -26,8 +26,7 @@ function add_fasta_args!(s)
         @add_arg_table! mg begin
         "-c", "--cleanup"
             help = "Optional regex pattern to remove from sequence names (e.g., ' Novel')"
-            default = nothing
-            arg_type = Union{String, Nothing}
+            arg_type = String
         "--add-source-prefix"
             help = "Add source filename as prefix to sequence names"
             action = :store_true

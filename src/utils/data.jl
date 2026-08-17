@@ -7,6 +7,7 @@ module Data
     using CSV
     using MD5
     using UnicodePlots
+    using ..Option: Absent, Present, optional
 
     export load_fasta, plotgenes, gene_donor_counts, unique_name, sequence_hash, load_demultiplex
     export concatenate_columns, validate_types, get_ratio_threshold
@@ -21,11 +22,14 @@ module Data
     left untouched; `Inf`/`NaN` pass through. Suitable for ratio/frequency columns (0–1 range);
     do not use on tables with tiny/huge floats like BLAST evalue/bitscore.
     """
+    round_col!(col::AbstractVector{<:AbstractFloat}; digits::Int) = round.(col; digits=digits)
+    round_col!(col::AbstractVector{Union{Missing,T}}; digits::Int) where {T<:AbstractFloat} =
+        round.(col; digits=digits)
+    round_col!(col::AbstractVector; digits::Int) = col
+
     function round_floats!(df::DataFrame; digits::Int=4)
         for c in propertynames(df)
-            col = df[!, c]
-            eltype(col) <: AbstractFloat || continue
-            df[!, c] = round.(col; digits=digits)
+            df[!, c] = round_col!(df[!, c]; digits=digits)
         end
         return df
     end
@@ -216,17 +220,18 @@ module Data
     end
 
     """
-        plotgenes(df; n_donors_in_input)
+        plotgenes(df)
+        plotgenes(df, n_donors_in_input)
 
     Terminal bar chart: distinct donors (`case`) per `gene` among accepted candidate rows.
     Pass `n_donors_in_input` from the demultiplex/input table so the caption reflects the full
     input cohort, not only donors that survived filtering.
     """
-    function plotgenes(df::DataFrame; n_donors_in_input::Union{Int,Nothing}=nothing)
+    plotgenes(df::DataFrame) = plotgenes(df, length(unique(df.case)))
+    function plotgenes(df::DataFrame, n_donors_in_input::Integer)
         counts = gene_donor_counts(df)
-        n_input = n_donors_in_input === nothing ? length(unique(df.case)) : n_donors_in_input
         title = "Donors with accepted candidates per gene"
-        caption = "$title ($n_input donors in input file)"
+        caption = "$title ($n_donors_in_input donors in input file)"
         printstyled("  ", caption, "\n"; color=:light_black)
         barplot_if_available(counts.gene, counts.donors; title=caption)
         return nothing
@@ -266,16 +271,18 @@ module Data
     when no override file is supplied.
     """
     function get_ratio_threshold(expect_dict, row; type="allele_ratio", default=0.0)
-        val = get(expect_dict, row.db_name, nothing)
-        if val !== nothing
-            @info "Applying $type >= $val for $(row.db_name) (allele override)"
-            return Float64(val)
-        end
-        val = get(expect_dict, row.gene, nothing)
-        if val !== nothing
-            @info "Applying $type >= $val for $(row.db_name) (gene override)"
-            return Float64(val)
-        end
-        return Float64(default)
+        return ratio_override(optional(get(expect_dict, row.db_name, nothing)),
+                              optional(get(expect_dict, row.gene, nothing)),
+                              type, row, default)
     end
+
+    ratio_override(a::Present, _, type, row, _) = begin
+        @info "Applying $type >= $(a.value) for $(row.db_name) (allele override)"
+        Float64(a.value)
+    end
+    ratio_override(::Absent, g::Present, type, row, _) = begin
+        @info "Applying $type >= $(g.value) for $(row.db_name) (gene override)"
+        Float64(g.value)
+    end
+    ratio_override(::Absent, ::Absent, _, _, default) = Float64(default)
 end

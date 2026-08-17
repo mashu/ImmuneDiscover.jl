@@ -53,9 +53,9 @@ end
 # ========================== extract_flanking — RSS mode (dispatch) ==========================
 
 extract_flanking(gs::String, range::Tuple{Int,Int}, gt::GeneType, n::Int) =
-    extract_flanking(gs, range, gt, n, nothing)
+    extract_flanking(gs, range, gt, n, absent)
 
-function extract_flanking(gs::String, range::Tuple{Int,Int}, ::VGene, n::Int, ::Nothing)
+function extract_flanking(gs::String, range::Tuple{Int,Int}, ::VGene, n::Int, ::Absent)
     sp, ep = range; validate_range(sp, ep, length(gs))
     seq = gs[sp:ep]
     prefix = sp > n ? gs[(sp-n):(sp-1)] : gs[1:(sp-1)]
@@ -65,7 +65,7 @@ function extract_flanking(gs::String, range::Tuple{Int,Int}, ::VGene, n::Int, ::
             nonamer=flank_slice(gs, ep+31, ep+39))
 end
 
-function extract_flanking(gs::String, range::Tuple{Int,Int}, ::JGene, n::Int, ::Nothing)
+function extract_flanking(gs::String, range::Tuple{Int,Int}, ::JGene, n::Int, ::Absent)
     sp, ep = range; validate_range(sp, ep, length(gs))
     seq = gs[sp:ep]
     return (nonamer=flank_slice(gs, sp-39, sp-31),
@@ -75,7 +75,7 @@ function extract_flanking(gs::String, range::Tuple{Int,Int}, ::JGene, n::Int, ::
             sequence=seq)
 end
 
-function extract_flanking(gs::String, range::Tuple{Int,Int}, ::DGene, n::Int, ::Nothing)
+function extract_flanking(gs::String, range::Tuple{Int,Int}, ::DGene, n::Int, ::Absent)
     sp, ep = range; validate_range(sp, ep, length(gs))
     seq = gs[sp:ep]
     return (pre_nonamer=flank_slice(gs, sp-28, sp-20),

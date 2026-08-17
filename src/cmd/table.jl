@@ -235,24 +235,20 @@ function add_table_args!(s)
             arg_type = String
         "-d", "--coldesc"
             help = "Optional column with descriptions appended to FASTA headers"
-            default = nothing
-            arg_type = Union{String, Nothing}
+            arg_type = String
         end
 
         add_arg_group!(tf, "Name and description filtering", "tfasta_filter")
         @add_arg_table! tf begin
         "-f", "--filter"
             help = "Regex to filter sequence names (e.g., 'Novel')"
-            default = nothing
-            arg_type = Union{String, Nothing}
+            arg_type = String
         "-c", "--cleanup"
             help = "Regex to remove from sequence names (e.g., ' Novel')"
-            default = nothing
-            arg_type = Union{String, Nothing}
+            arg_type = String
         "--desc-filter"
             help = "Regex to filter description column; capture group 1 (if present) is appended"
-            default = nothing
-            arg_type = Union{String, Nothing}
+            arg_type = String
         end
 
         add_arg_group!(tf, "Case filtering", "tfasta_case")

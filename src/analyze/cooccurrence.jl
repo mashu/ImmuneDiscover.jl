@@ -6,6 +6,7 @@ module Cooccurrence
     using Logging
     using Printf
     using Clustering
+    using ..Option: Absent, Present, absent, optional, or_default
 
     export compute_cooccurrence_edges, find_cooccurrence_groups, handle_cooccurrence
     export classify_cases, BareCase, PopCase, PooledCohort, StratifiedCohort
@@ -14,50 +15,8 @@ module Cooccurrence
 
     include("cohort.jl")
     include("cluster_method.jl")
-
-    function compute_presence_maps(df::DataFrame, case_col::Symbol, allele_col::Symbol)
-        donors = sort(unique(df[!, case_col]))
-        alleles = sort(unique(df[!, allele_col]))
-        allele_to_donors = Dict{String, Set{String}}()
-        for a in alleles
-            allele_to_donors[String(a)] = Set{String}(String.(df[df[!, allele_col] .== a, case_col]))
-        end
-        return donors, alleles, allele_to_donors
-    end
-
-    function compute_rho_stats(alleles::Vector, allele_to_donors::Dict{String, Set{String}}, N::Int)
-        n = length(alleles)
-        R = zeros(Float64, n, n)
-        J = zeros(Float64, n, n)
-        SUP = zeros(Int, n, n)
-        P = ones(Float64, n, n)
-        for i in 1:n
-            R[i, i] = 1.0; J[i, i] = 1.0; SUP[i, i] = 0; P[i, i] = 0.0
-        end
-        for i in 1:(n-1)
-            ai = String(alleles[i])
-            donors_a = allele_to_donors[ai]
-            n_a = length(donors_a)
-            for j in (i+1):n
-                bj = String(alleles[j])
-                donors_b = allele_to_donors[bj]
-                n_b = length(donors_b)
-                n11 = length(intersect(donors_a, donors_b))
-                n10 = length(setdiff(donors_a, donors_b))
-                n01 = length(setdiff(donors_b, donors_a))
-                n00 = N - (n11 + n10 + n01)
-                ρ = phi_coefficient(n11, n10, n01, n00)
-                denom = (n11 + n10 + n01)
-                jac = denom == 0 ? 0.0 : n11 / denom
-                p = hypergeom_p_enrichment(N, n_a, n_b, n11)
-                R[i, j] = ρ; R[j, i] = ρ
-                J[i, j] = jac; J[j, i] = jac
-                SUP[i, j] = n11; SUP[j, i] = n11
-                P[i, j] = p; P[j, i] = p
-            end
-        end
-        return R, J, SUP, P
-    end
+    include("cooccurrence_stats.jl")
+    include("cooccurrence_cluster.jl")
 
     function print_triangle_diagnostics_matrix(S::AbstractMatrix{<:Real}, alleles::AbstractVector{<:AbstractString}; threshold::Float64=0.5, max_print::Int=20)
         n = length(alleles)
@@ -73,190 +32,6 @@ module Cooccurrence
         @info "Total edges above threshold $threshold: $count"
     end
 
-    function adjust_bh(pvals::AbstractVector{<:Real})
-        m = length(pvals)
-        m == 0 && return Float64[]
-        order = sortperm(pvals)
-        sorted_p = pvals[order]
-        q_sorted = similar(sorted_p)
-        min_so_far = 1.0
-        for i in reverse(1:m)
-            q = min((sorted_p[i] * m) / i, 1.0)
-            min_so_far = min(q, min_so_far)
-            q_sorted[i] = min_so_far
-        end
-        qvals = similar(pvals)
-        for i in 1:m
-            qvals[order[i]] = q_sorted[i]
-        end
-        return qvals
-    end
-
-    @inline function jaccard_index(a::Set{String}, b::Set{String})
-        inter = length(intersect(a, b))
-        union_len = length(Base.union(a, b))
-        return union_len == 0 ? 0.0 : inter / union_len, inter
-    end
-
-    @inline function phi_coefficient(n11::Int, n10::Int, n01::Int, n00::Int)
-        denom = (n11 + n10) * (n11 + n01) * (n10 + n00) * (n01 + n00)
-        denom <= 0 && return 0.0
-        return (n11 * n00 - n10 * n01) / sqrt(denom)
-    end
-
-    function hypergeom_p_enrichment(N::Int, Ka::Int, Kb::Int, n11::Int)
-        (N <= 0 || Ka <= 0 || Kb <= 0 || n11 <= 0) && return 1.0
-        n11 > min(Ka, Kb) && return 0.0
-        d = Hypergeometric(N, Ka, Kb)
-        return ccdf(d, n11 - 1)
-    end
-
-    """
-        compute_full_stats(df; case_col, allele_col, min_donors)
-
-    Shared computation: filter alleles by donor count, build presence maps,
-    compute rho/jaccard/support/pvalue matrices. Returns everything downstream
-    code needs (matrices, alleles, allele_to_donors, donor count).
-    """
-    function compute_full_stats(df::DataFrame;
-                                case_col::AbstractString="case",
-                                allele_col::AbstractString="db_name",
-                                min_donors::Int=1)
-        case_sym = Symbol(case_col)
-        allele_sym = Symbol(allele_col)
-        # min_donors is a donor threshold: count DISTINCT donors per allele, not rows
-        # (input may carry several rows per donor/allele, e.g. exact-search output).
-        donor_counts = combine(groupby(df, allele_sym), case_sym => (x -> length(unique(x))) => :n_donors)
-        valid_alleles = Set(donor_counts[donor_counts.n_donors .>= min_donors, allele_sym])
-        filtered_df = filter(x -> x[allele_sym] in valid_alleles, df)
-        donors, alleles, allele_to_donors = compute_presence_maps(filtered_df, case_sym, allele_sym)
-        N = length(donors)
-        R, J, SUP, P = compute_rho_stats(alleles, allele_to_donors, N)
-        return (; alleles, allele_to_donors, N, R, J, SUP, P)
-    end
-
-    function compute_cooccurrence_edges(df::DataFrame;
-                                        case_col::AbstractString="case",
-                                        allele_col::AbstractString="db_name",
-                                        min_donors::Int=1,
-                                        min_support::Int=3,
-                                        min_jaccard::Float64=0.2)
-        # Reuse the single matrix computation (rho/jaccard/support/p) instead of
-        # recomputing phi/jaccard/hypergeometric per pair.
-        stats = compute_full_stats(df; case_col=case_col, allele_col=allele_col, min_donors=min_donors)
-        alleles = stats.alleles
-        allele_to_donors = stats.allele_to_donors
-        R, J, SUP, P = stats.R, stats.J, stats.SUP, stats.P
-        rows = NamedTuple{(:allele_a,:allele_b,:n_a,:n_b,:n_shared,:jaccard,:rho,:p_enrich), Tuple{String,String,Int,Int,Int,Float64,Float64,Float64}}[]
-        for i in 1:(length(alleles)-1)
-            ai = String(alleles[i])
-            n_a = length(allele_to_donors[ai])
-            for j in (i+1):length(alleles)
-                n11 = SUP[i, j]
-                jac = J[i, j]
-                if (n11 >= min_support) && (jac >= min_jaccard)
-                    bj = String(alleles[j])
-                    push!(rows, (allele_a=ai, allele_b=bj, n_a=n_a, n_b=length(allele_to_donors[bj]),
-                                 n_shared=n11, jaccard=jac, rho=R[i, j], p_enrich=P[i, j]))
-                end
-            end
-        end
-        edges = DataFrame(rows)
-        if nrow(edges) > 0
-            edges[:, :q_enrich] = adjust_bh(Vector{Float64}(edges[:, :p_enrich]))
-        else
-            edges[:, :q_enrich] = Float64[]
-        end
-        return edges, allele_to_donors
-    end
-
-    function find_cooccurrence_groups(edges::DataFrame; min_cluster_size::Int=3)
-        nrow(edges) == 0 && return Vector{Vector{String}}()
-        adj = Dict{String, Set{String}}()
-        for row in eachrow(edges)
-            u, v = String(row.allele_a), String(row.allele_b)
-            u == v && continue
-            push!(get!(adj, u, Set{String}()), v)
-            push!(get!(adj, v, Set{String}()), u)
-        end
-        nodes = Set{String}()
-        for row in eachrow(edges)
-            push!(nodes, String(row.allele_a))
-            push!(nodes, String(row.allele_b))
-        end
-        visited = Set{String}()
-        components = Vector{Vector{String}}()
-        for start in nodes
-            start in visited && continue
-            comp = String[]
-            queue = [start]
-            push!(visited, start)
-            while !isempty(queue)
-                u = popfirst!(queue)
-                push!(comp, u)
-                for v in get(adj, u, Set{String}())
-                    if !(v in visited)
-                        push!(visited, v)
-                        push!(queue, v)
-                    end
-                end
-            end
-            length(comp) >= min_cluster_size && push!(components, sort(comp))
-        end
-        return components
-    end
-
-    function cluster_hierarchical_from_matrix(S::AbstractMatrix{<:Real}, alleles::AbstractVector{<:AbstractString};
-                                              min_cluster_size::Int=3, threshold::Float64=0.5,
-                                              linkage::Symbol=:complete)
-        n = length(alleles)
-        n == 0 && return Vector{Vector{String}}()
-        D = 1.0 .- S
-        hc = Clustering.hclust(Float64.(D), linkage=linkage)
-        labels = Clustering.cutree(hc, h=1.0 - threshold)
-        groups = Dict{Int, Vector{String}}()
-        for (i, lab) in enumerate(labels)
-            push!(get!(groups, lab, String[]), alleles[i])
-        end
-        comps = Vector{Vector{String}}()
-        for g in values(groups)
-            length(g) >= min_cluster_size && push!(comps, sort(g))
-        end
-        return comps
-    end
-
-    function components_from_matrix(S::AbstractMatrix{<:Real}, alleles::AbstractVector{<:AbstractString}; threshold::Float64=0.5, min_cluster_size::Int=3)
-        n = length(alleles)
-        n == 0 && return Vector{Vector{String}}()
-        adj = Dict{String, Set{String}}()
-        for i in 1:n, j in (i+1):n
-            if S[i, j] >= threshold
-                push!(get!(adj, alleles[i], Set{String}()), alleles[j])
-                push!(get!(adj, alleles[j], Set{String}()), alleles[i])
-            end
-        end
-        visited = Set{String}()
-        components = Vector{Vector{String}}()
-        for start in alleles
-            (start in visited || !haskey(adj, start)) && continue
-            comp = String[]
-            queue = [start]
-            push!(visited, start)
-            while !isempty(queue)
-                u = popfirst!(queue)
-                push!(comp, u)
-                for v in get(adj, u, Set{String}())
-                    if !(v in visited)
-                        push!(visited, v)
-                        push!(queue, v)
-                    end
-                end
-            end
-            length(comp) >= min_cluster_size && push!(components, sort(comp))
-        end
-        return components
-    end
-
     function cooccurrence_sidecar_path(tsv::AbstractString, suffix::AbstractString)
         out = replace(tsv, r"\.(tsv|tsv\.gz)$" => suffix)
         return out == tsv ? string(tsv, suffix) : out
@@ -269,7 +44,6 @@ module Cooccurrence
         build_clusters_dataframe(comps, allele_to_donors, alleles, cohort; analysis_scope)
 
     One row per allele. Clustered alleles share `group_id` (1-based); unclustered alleles use 0.
-    Rows are sorted by group (blocks first, unclustered last) then allele name.
     """
     function build_clusters_dataframe(comps::Vector{Vector{String}},
                                       allele_to_donors::Dict{String, Set{String}},
@@ -329,22 +103,6 @@ module Cooccurrence
         return clusters_df
     end
 
-    function build_edges_from_matrices(R, J, SUP, P, alleles)
-        n = length(alleles)
-        EdgeRow = NamedTuple{(:allele_a,:allele_b,:rho,:jaccard,:support,:p_value), Tuple{String,String,Float64,Float64,Int,Float64}}
-        rows = EdgeRow[]
-        for i in 1:(n-1)
-            for j in (i+1):n
-                SUP[i,j] > 0 || continue
-                push!(rows, (allele_a=String(alleles[i]), allele_b=String(alleles[j]),
-                             rho=R[i,j], jaccard=J[i,j], support=SUP[i,j], p_value=P[i,j]))
-            end
-        end
-        edges = DataFrame(rows)
-        edges[:, :q_value] = nrow(edges) > 0 ? adjust_bh(Vector{Float64}(edges[:, :p_value])) : Float64[]
-        return edges
-    end
-
     function write_edges_and_clusters!(df::DataFrame, tsv::AbstractString, case_col::AbstractString,
                                        allele_col::AbstractString, min_donors::Int, method::ClusterMethod,
                                        cluster_threshold::Float64, min_cluster_size::Int,
@@ -402,12 +160,12 @@ module Cooccurrence
         method = cluster_method(get(block, "cluster-method", "complete"))
         cluster_threshold = get(block, "cluster-threshold", 0.7)
         debug_triangles = get(block, "debug-triangles", false)
-        clusters_path = get(block, "clusters", nothing)
         stratify_population = get(block, "stratify-population", false)
 
         df = CSV.File(tsv, delim='\t') |> DataFrame
         @info "Loaded $(nrow(df)) rows from input file"
-        clusters_output = clusters_path !== nothing ? clusters_path : cooccurrence_sidecar_path(tsv, "_clusters.tsv")
+        clusters_output = or_default(optional(get(block, "clusters", nothing)),
+                                     cooccurrence_sidecar_path(tsv, "_clusters.tsv"))
 
         if stratify_population
             cohort, labeled, _unlabeled = stratified_cohort(df[!, Symbol(case_col)])

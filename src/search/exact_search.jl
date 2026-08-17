@@ -9,24 +9,21 @@ allelic ratios and quality metrics. Callers annotate/filter as needed (`handle_e
 full transparency cascade; `hsmm` keeps `full_count ≥ select_min_fullcount`).
 """
 function exact_search(table, query, gt::GeneType; affix=13, rss=["heptamer", "spacer", "nonamer"],
-                      extension=nothing, N=10, raw=nothing, sequence_lookup=nothing,
+                      extension=absent, N=10, raw=absent, sequence_lookup=absent,
                       border::Int=0, adjust_per_gene_extension::Bool=false, adjust_percent::Float64=1.0)
     @assert all([name in names(table) for name in ["well","case","name","genomic_sequence"]]) "File must contain following columns: well, case, name, genomic_sequence"
 
-    per_gene_prefix = Dict{String,Int}()
-    per_gene_suffix = Dict{String,Int}()
-    if extension !== nothing && border > 0 && adjust_per_gene_extension
-        per_gene_prefix, per_gene_suffix = calibrate_extension(table, query, gt, extension, border, adjust_percent)
-    end
-
-    result_df, totals_all, accepted_all = collect_matches(table, query, gt, affix, rss, extension,
+    ext = optional(extension)
+    per_gene_prefix, per_gene_suffix = calibrated_extensions(ext, table, query, gt, border,
+                                                            adjust_per_gene_extension, adjust_percent)
+    result_df, totals_all, accepted_all = collect_matches(table, query, gt, affix, rss, ext,
         border, adjust_per_gene_extension, per_gene_prefix, per_gene_suffix)
-    summarize_border_stats!(totals_all, accepted_all, extension !== nothing && border > 0)
+    summarize_border_stats!(totals_all, accepted_all, border_filter_active(ext, border))
 
     isempty(result_df) && return result_df
-    raw !== nothing && CSV.write(raw*".gz", result_df, delim='\t', compress=true)
+    write_raw_matches!(optional(raw), result_df)
 
-    df = add_counts!(result_df, sequence_lookup)
+    df = add_counts!(result_df, optional(sequence_lookup))
     sort!(df, [:full_count, :count], rev=[true, true])
     udf = sort(unique(df), [:well, :case, :gene, :db_name, :sequence])
     add_quality_metrics!(udf)
@@ -42,3 +39,15 @@ end
 
 exact_search(table, query, gene::AbstractString; kwargs...) =
     exact_search(table, query, parse_gene_type(gene); kwargs...)
+
+calibrated_extensions(::Absent, _, _, _, _, _, _) = (Dict{String,Int}(), Dict{String,Int}())
+function calibrated_extensions(e::Present, table, query, gt, border, adjust, pct)
+    (border > 0 && adjust) || return (Dict{String,Int}(), Dict{String,Int}())
+    return calibrate_extension(table, query, gt, e.value, border, pct)
+end
+
+border_filter_active(::Absent, _) = false
+border_filter_active(::Present, border::Int) = border > 0
+
+write_raw_matches!(::Absent, _) = nothing
+write_raw_matches!(p::Present, df) = CSV.write(p.value * ".gz", df, delim='\t', compress=true)

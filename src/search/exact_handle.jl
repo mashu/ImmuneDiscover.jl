@@ -3,7 +3,7 @@
 function handle_exact(parsed_args, immunediscover_module, always_gz)
     @info "Exact search"
     ex = parsed_args["search"]["exact"]
-    extension = ex["extension"]
+    extension = optional(ex["extension"])
     border = get(ex, "border", 0)
     adjust_per_gene_extension = get(ex, "adjust-per-gene-extension", false)
     adjust_percent = get(ex, "adjust-percent", 1.0)
@@ -26,22 +26,14 @@ function handle_exact(parsed_args, immunediscover_module, always_gz)
     # sides). Warn early if the reference looks like a different gene than -g.
         ref_types = GeneType[]
         for (n, _) in db
-            t = gene_type_from_name(string(n))
-            t === nothing || push!(ref_types, t)
+            append_if_segmented!(ref_types, gene_type_from_name(string(n)))
         end
         if !isempty(ref_types)
             majority = gene_string(majority_gene(ref_types))
             majority != gene && @warn "You passed -g $gene but the reference FASTA looks like $majority genes — RSS is extracted in $gene orientation (only the 3' heptamer for V, 5' for J; both sides for D). Pass -g $majority to extract the correct RSS."
         end
 
-    local rss
-    if extension !== nothing
-        @info "Using extension mode with length $extension"; rss = String[]
-    else
-        rss = split(ex["rss"], ',')
-        immunediscover_module.validate_types(rss)
-        @info "Extract RSS: $(join(rss,','))"
-    end
+    rss = rss_for_search(extension, ex["rss"], immunediscover_module)
     top != 1 && @info "Uncollapsed mode; at most $top full records returned."
 
     # `expect`/`deletion` control-gene threshold files serve two distinct, name-keyed roles:
@@ -51,8 +43,8 @@ function handle_exact(parsed_args, immunediscover_module, always_gz)
     expect_full_dict = load_ratio_dict(ex["expect-full"])
     deletion_dict = load_ratio_dict(ex["deletion"])
 
-    raw = ex["raw"]
-    sequence_lookup = ex["ref-fasta"] !== nothing ? build_sequence_lookup(ex["ref-fasta"]) : nothing
+    raw = optional(ex["raw"])
+    sequence_lookup = ref_lookup(optional(ex["ref-fasta"]))
 
     counts_df = exact_search(table, db, gene; affix=affix, rss=rss, extension=extension, N=top,
         raw=raw, sequence_lookup=sequence_lookup, border=border,
@@ -82,7 +74,7 @@ function handle_exact(parsed_args, immunediscover_module, always_gz)
     if !ex["noplot"]
         plotdf = accepted(counts_df)
         n_donors_input = length(unique(table.case))
-        nrow(plotdf) > 0 ? immunediscover_module.plotgenes(plotdf; n_donors_in_input=n_donors_input) :
+        nrow(plotdf) > 0 ? immunediscover_module.plotgenes(plotdf, n_donors_input) :
             @warn "No exact matches to plot"
     end
 
@@ -123,3 +115,14 @@ function handle_exact(parsed_args, immunediscover_module, always_gz)
     printstyled("  ✓ "; color=:green, bold=true); println("full     → $full_output  ($(nrow(counts_df)) candidates + reject_reason)")
     return
 end
+
+rss_for_search(e::Present, _, _) = (@info "Using extension mode with length $(e.value)"; String[])
+function rss_for_search(::Absent, rss_str, immunediscover_module)
+    rss = split(rss_str, ',')
+    immunediscover_module.validate_types(rss)
+    @info "Extract RSS: $(join(rss,','))"
+    return rss
+end
+
+ref_lookup(::Absent) = absent
+ref_lookup(p::Present) = Present(build_sequence_lookup(p.value))

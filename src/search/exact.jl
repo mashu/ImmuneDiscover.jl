@@ -6,13 +6,14 @@ module Exact
     using FASTX
     using Statistics
     using ..Gene: GeneType, VGene, DGene, JGene, parse_gene_type, gene_type_from_name,
-                  gene_string, majority_gene
+                  gene_string, majority_gene, append_if_segmented!
     using ..Spans: each_exact_span, flank_slice
     using ..RatioColumns: ALLELIC_RATIO, FULL_ALLELIC_RATIO, PEAK_ALLELIC_RATIO, GENE_FRACTION
     using ..Filters: FilterCriterion, MinThreshold, MinStringLength, CustomFilter, add_group_ratio!,
                      init_rejection_columns!, mark_rejected!, accepted, passes
     using ..Mosaic: refs_by_gene, add_chimera_scores!
     using ..Data: barplot_if_available, boxplot_if_available, round_floats!, load_fasta, get_ratio_threshold
+    using ..Option: Absent, Present, absent, optional
     using ..Report: section, stage_report, report_rejections,
                     filter_quality_report, rss_consistency
 
