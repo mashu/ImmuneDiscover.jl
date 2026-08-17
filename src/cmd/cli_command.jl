@@ -74,9 +74,14 @@ Resolve the parsed top-level group and its `%COMMAND%` subcommand to the matchin
 Command singleton (the single run-time mapping; dispatch is static thereafter).
 """
 function command_for(parsed_args)
-    group = get(parsed_args, "%COMMAND%", "")
+    group = String(get(parsed_args, "%COMMAND%", ""))
     isempty(group) && return absent
-    sub = get(get(parsed_args, group, Dict{String,Any}()), "%COMMAND%", "")
+    return command_in_group(optional(get(parsed_args, group, nothing)), group)
+end
+
+command_in_group(::Absent, _) = absent
+function command_in_group(block::Present, group)
+    sub = String(get(block.value, "%COMMAND%", ""))
     for c in COMMANDS
         cli_path(c) == (group, sub) && return Present(c)
     end

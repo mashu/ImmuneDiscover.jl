@@ -1,7 +1,6 @@
 module Cli
     using ArgParse
     using ArgParse: @add_arg_table!
-    using Logging
     using Dates
     using ..Option: Absent, Present, absent, optional
 
@@ -41,11 +40,47 @@ module Cli
         logpath = "immunediscover.log"
         isdir(dirname(abspath(logpath))) || return nothing
         open(logpath, "a") do io
-            with_logger(ConsoleLogger(io)) do
-                @info "$(software_version()) $(Dates.now()) - Parsing command line arguments: $args"
-            end
+            println(io, software_version(), " ", Dates.now(),
+                    " - Parsing command line arguments: ", args)
         end
         return nothing
+    end
+
+    "Build the ArgParse schema once. Version strings are stamped at parse time (no git at const-init)."
+    function build_argparse_settings()
+        s = ArgParseSettings("Tool for processing immune NGS data",
+                            commands_are_required = true,
+                            version = "",
+                            add_version = true,
+                            usage = "usage: immunediscover <command> [-h|--help]",
+                            epilog = "",
+                            exit_after_help = true)
+        add_command_groups!(s)
+        add_preprocess_args!(s)
+        add_discover_args!(s)
+        add_search_args!(s)
+        add_analyze_args!(s)
+        add_table_args!(s)
+        add_fasta_args!(s)
+        return s
+    end
+
+    const CLI_SETTINGS = Ref{Any}()
+
+    function stamp_cli_identity!(s)
+        label = "$(software_version()) (git $(software_git_hash()))"
+        s.version = label
+        s.epilog = "GKHLab, $label"
+        return s
+    end
+
+    function argparse_settings!(; exit_after_help::Bool)
+        if !isassigned(CLI_SETTINGS)
+            CLI_SETTINGS[] = build_argparse_settings()
+        end
+        s = CLI_SETTINGS[]
+        s.exit_after_help = exit_after_help
+        return stamp_cli_identity!(s)
     end
 
     "Register the top-level command groups on the settings object."
@@ -76,25 +111,13 @@ module Cli
     """
         parse_commandline(args)
 
-    Handle command line
+    Handle command line. The ArgParse schema is built once per process and reused.
     """
-    function parse_commandline(args; exit_after_help::Bool=!isinteractive())
-        s = ArgParseSettings("Tool for processing immune NGS data",
-                            commands_are_required = true,
-                            version = "$(software_version()) (git $(software_git_hash()))",
-                            add_version = true,
-                            usage = "usage: immunediscover <command> [-h|--help]",
-                            epilog = "GKHLab, $(software_version()) (git $(software_git_hash()))",
-                            exit_after_help = exit_after_help)
-        add_command_groups!(s)
+    parse_commandline(args::AbstractVector{<:AbstractString}; kwargs...) =
+        parse_commandline(String[a for a in args]; kwargs...)
 
-        add_preprocess_args!(s)
-        add_discover_args!(s)
-        add_search_args!(s)
-        add_analyze_args!(s)
-        add_table_args!(s)
-        add_fasta_args!(s)
-
+    function parse_commandline(args::Vector{String}; exit_after_help::Bool=!isinteractive())
+        s = argparse_settings!(; exit_after_help=exit_after_help)
         log_invocation(args)
 
         # CLI-boundary catch: ArgParse throws ArgParseError by design for invalid user input.

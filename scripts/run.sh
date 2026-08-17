@@ -11,4 +11,6 @@ else
 fi
 # `using` loads the precompiled package image (@compile_workload in src/immunediscover.jl).
 # `include()` bypasses that cache and re-JITs the whole module on every invocation.
-exec "$JULIA_BIN" --project="$PROJECT_DIR" -e 'using immunediscover; exit(immunediscover.julia_main())' -- "$@"
+# --startup-file=no skips ~/.julia/config/startup.jl (often the largest extra JIT cost).
+exec "$JULIA_BIN" --startup-file=no --quiet --project="$PROJECT_DIR" \
+  -e 'using immunediscover; exit(immunediscover.julia_main())' -- "$@"

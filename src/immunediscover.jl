@@ -70,7 +70,7 @@ module immunediscover
     using Statistics
     using DataStructures
     using FASTX
-    using PrecompileTools
+    using PrecompileTools: @setup_workload, @compile_workload
 
     export load_fasta, blast_discover
 
@@ -102,15 +102,17 @@ module immunediscover
     Cli.run_command(::Cli.FastaHash, pa)            = Fasta.handle_fasta_hash(pa, immunediscover)
 
     """
-        real_main(args=[])
+        real_main(args=String[])
 
     Main entry point — parse the command line, resolve the Command, and run it.
     """
-    function real_main(args=[])
+    real_main() = real_main(String[])
+    function real_main(args::Vector{String})
         parsed_args = parse_commandline(args)
         run_parsed(optional(parsed_args))
         return
     end
+    real_main(args::AbstractVector{<:AbstractString}) = real_main(String[a for a in args])
 
     run_parsed(::Absent) = nothing
     function run_parsed(pa::Present)
@@ -137,7 +139,10 @@ module immunediscover
         return 0
     end
 
-    @compile_workload begin
-        precompile_cli_workload!()
+    @setup_workload begin
+        root = precompile_fixture_dir()
+        @compile_workload begin
+            precompile_cli_workload!(root)
+        end
     end
 end
