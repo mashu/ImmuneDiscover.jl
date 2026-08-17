@@ -7,6 +7,7 @@ module Heptamer
     using JSON
     using CSV
     using ..Data
+    using ..Spans: each_exact_span
     using ..Filters: add_group_ratio!
 
     export extract_heptamers, summarize, load_heptamers, handle_heptamer
@@ -37,8 +38,7 @@ module Heptamer
             short = Vector{Tuple{String, String, String, Int, Int, String, String}}()
             @inbounds for row in eachrow(subtable)
                 genomic_sequence = row[:genomic_sequence]
-                interval = findfirst(query, genomic_sequence)
-                if interval !== nothing
+                for interval in each_exact_span(query, genomic_sequence)
                     suffix = genomic_sequence[maximum(interval)+1:end]
                     loc = find_heptamer(suffix, heptamers, max_dist=max_dist)
                     if loc > 0

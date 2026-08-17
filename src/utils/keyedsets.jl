@@ -20,7 +20,7 @@ module KeyedSets
         return ks
     end
 
-    function _register_sequence_name!(data::Dict{String,String}, sequence::String, name::String; strict::Bool=true)
+    function register_sequence_name!(data::Dict{String,String}, sequence::String, name::String; strict::Bool=true)
         if haskey(data, sequence)
             existing = data[sequence]
             existing != name && throw(ArgumentError(
@@ -33,7 +33,7 @@ module KeyedSets
     end
 
     function Base.push!(ks::KeyedSet, pair::KeyedPair)
-        _register_sequence_name!(ks.data, pair.key, pair.value)
+        register_sequence_name!(ks.data, pair.key, pair.value)
         return ks
     end
 
@@ -49,7 +49,7 @@ module KeyedSets
     function Base.union(ks1::KeyedSet, ks2::KeyedSet)
         result = KeyedSet(copy(ks1.data))
         for (sequence, name) in ks2.data
-            _register_sequence_name!(result.data, sequence, name; strict=false)
+            register_sequence_name!(result.data, sequence, name; strict=false)
         end
         return result
     end

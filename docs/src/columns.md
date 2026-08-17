@@ -318,11 +318,16 @@ Always written alongside edges. Rows are sorted by `group_id` (partial-haplotype
 |--------|-------------|
 | `group_id` | Partial-haplotype block id (1-based); `0` = not in any block |
 | `group_size` | Number of alleles in the block (`0` if unclustered) |
+| `analysis_scope` | `all` for pooled cohort, or population name for `--stratify-population` outputs |
+| `populations` | Comma-separated populations represented among carriers of this allele |
+| `population_counts` | Donor counts per population (e.g. `EUR=45,AFR=3`) |
 | `allele` | Allele name |
 | `donors` | Comma-separated donor list |
 | `n_donors` | Number of donors with this allele |
 
-Override path with `--clusters`.
+Population is parsed from the `case` column only when `--stratify-population` is set: the last `_`-separated segment (e.g. `KI_10_EUR` → `EUR`). Cases without a suffix are dropped with a warning. Without `--stratify-population`, all cases are one cohort (`populations=all`).
+
+Override pooled path with `--clusters`.
 
 ---
 

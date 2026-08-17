@@ -3,16 +3,16 @@
 
 using Logging: NullLogger, with_logger
 
-const _DEMUX_HEADER = "well\tcase\tname\tgenomic_sequence\n"
+const DEMUX_HEADER = "well\tcase\tname\tgenomic_sequence\n"
 
-function _write_line(path::AbstractString, content::AbstractString)
+function write_line(path::AbstractString, content::AbstractString)
     open(path, "w") do io
         print(io, content)
     end
     return path
 end
 
-function _write_tsv(path::AbstractString, header::AbstractString, rows::AbstractVector{<:AbstractString})
+function write_tsv(path::AbstractString, header::AbstractString, rows::AbstractVector{<:AbstractString})
     open(path, "w") do io
         print(io, header)
         for row in rows
@@ -22,8 +22,8 @@ function _write_tsv(path::AbstractString, header::AbstractString, rows::Abstract
     return path
 end
 
-function _write_fasta(path::AbstractString)
-    return _write_line(path, ">ref\nATCGATCG\n")
+function write_fasta(path::AbstractString)
+    return write_line(path, ">ref\nATCGATCG\n")
 end
 
 """
@@ -35,21 +35,21 @@ function precompile_fixture_dir()
     root = mktempdir(; cleanup=true)
     p(name) = joinpath(root, name)
 
-    _write_tsv(p("demux.tsv"), _DEMUX_HEADER, ["1\tD1\tr1\tATCGATCGATCG"])
-    _write_tsv(p("i.tsv"), "col\n", ["1"])
-    _write_tsv(p("l.tsv"), "key\n", ["1"])
-    _write_tsv(p("r.tsv"), "key\n", ["1"])
-    _write_tsv(p("part1.tsv"), "col\n", ["1"])
-    _write_tsv(p("part2.tsv"), "col\n", ["2"])
-    _write_tsv(p("idx.tsv"), "forward_index\treverse_index\tcase\n", ["ATCGATCGAT\tGCTAGCTAGC\tD1"])
-    _write_line(p("i.fq"), "@r1\nATCGATCGATCGATCGATCG\n+\nIIIIIIIIIIIIIIIIIIII\n")
+    write_tsv(p("demux.tsv"), DEMUX_HEADER, ["1\tD1\tr1\tATCGATCGATCG"])
+    write_tsv(p("i.tsv"), "col\n", ["1"])
+    write_tsv(p("l.tsv"), "key\n", ["1"])
+    write_tsv(p("r.tsv"), "key\n", ["1"])
+    write_tsv(p("part1.tsv"), "col\n", ["1"])
+    write_tsv(p("part2.tsv"), "col\n", ["2"])
+    write_tsv(p("idx.tsv"), "forward_index\treverse_index\tcase\n", ["ATCGATCGAT\tGCTAGCTAGC\tD1"])
+    write_line(p("i.fq"), "@r1\nATCGATCGATCGATCGATCG\n+\nIIIIIIIIIIIIIIIIIIII\n")
     for fa in ("d.fa", "base.fa", "truth.fa", "a.fa", "b.fa", "i.fa", "r.fa", "g.fa")
-        _write_fasta(p(fa))
+        write_fasta(p(fa))
     end
     return root
 end
 
-function _cli_parse_args(root::AbstractString)
+function cli_parse_args(root::AbstractString)
     p(name) = joinpath(root, name)
     return [
         ["discover", "blast", p("demux.tsv"), p("d.fa"), p("out-blast.tsv"), "-g", "V"],
@@ -78,7 +78,7 @@ function _cli_parse_args(root::AbstractString)
     ]
 end
 
-function _cli_dispatch_args(root::AbstractString)
+function cli_dispatch_args(root::AbstractString)
     p(name) = joinpath(root, name)
     return [
         ["discover", "blast", "-G", p("demux.tsv"), p("d.fa"), p("out-blast.tsv")],
@@ -107,7 +107,7 @@ function _cli_dispatch_args(root::AbstractString)
     ]
 end
 
-function _with_cli_args(f, args)
+function with_cli_args(f, args)
     saved = copy(ARGS)
     empty!(ARGS)
     append!(ARGS, args)
@@ -118,10 +118,10 @@ function _with_cli_args(f, args)
 end
 
 # Build-time only: route through julia_main (catches errors) with output discarded.
-function _precompile_run!(args)
+function precompile_run!(args)
     redirect_stderr(devnull) do
         redirect_stdout(devnull) do
-            _with_cli_args(() -> julia_main(), args)
+            with_cli_args(() -> julia_main(), args)
         end
     end
     return nothing
@@ -135,7 +135,7 @@ Exercise CSV/DataFrame kernels, ArgParse, and every command handler so native co
 """
 function precompile_cli_workload!()
     io = IOBuffer()
-    write(io, _DEMUX_HEADER, "1\tD1\tread1\tATCG\n")
+    write(io, DEMUX_HEADER, "1\tD1\tread1\tATCG\n")
     seekstart(io)
     CSV.File(io, delim='\t') |> DataFrame
 
@@ -148,15 +148,15 @@ function precompile_cli_workload!()
     root = precompile_fixture_dir()
 
     with_logger(NullLogger()) do
-        for args in _cli_parse_args(root)
+        for args in cli_parse_args(root)
             parse_commandline(args)
         end
         redirect_stdout(devnull) do
             parse_commandline(["--help"]; exit_after_help=false)
             parse_commandline(["--version"]; exit_after_help=false)
         end
-        for args in _cli_dispatch_args(root)
-            _precompile_run!(args)
+        for args in cli_dispatch_args(root)
+            precompile_run!(args)
         end
         saved = copy(ARGS)
         try

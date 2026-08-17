@@ -11,16 +11,13 @@ using StringDistances
 # Shared modules — avoids duplicate type definitions from repeated include()
 using ..Data
 using ..Exact
+using ..Gene: DGene
+using ..DNA: dna_index, encode_dna
 using ..RatioColumns: ALLELIC_RATIO
 using ..Filters: FilterCriterion, MinThreshold, add_group_ratio!,
                  init_rejection_columns!, mark_rejected!, accepted, passes
 using ..Report: section, stage_report, report_rejections
 import ..Data: unique_name
-
-@inline function dna_index(c::Char)::Int
-    c == 'A' && return 1; c == 'C' && return 2; c == 'G' && return 3; c == 'T' && return 4; return 0
-end
-encode_dna(xs::AbstractString) = [dna_index(c) for c in xs]
 
 abstract type AbstractEmissionModel end
 struct IIDLogEmission <: AbstractEmissionModel; logp::NTuple{4,Float64}; end
@@ -212,7 +209,7 @@ function run_hsmm(tsv::String, fasta_path::String, output::String;
     db_names=first.(db); db_seqs=last.(db)
     @info "Searching known D alleles"
     # exact_search returns the unfiltered candidate table; select reference D alleles for HSMM fit.
-    known_df = Exact.exact_search(tbl, db, "D"; N=1000)
+    known_df = Exact.exact_search(tbl, db, DGene(); N=1000)
     nrow(known_df)==0 && (@warn "No exact D matches"; return DataFrame())
     select_min_count > 0 && filter!(r -> r.count >= select_min_count, known_df)
     nrow(known_df)==0 && (@warn "No D alleles passed --select-min-count=$select_min_count"; return DataFrame())

@@ -36,12 +36,14 @@ module SeqStats
         return count(c -> c == 'N' || c == 'n', seq) / length(seq)
     end
 
-    _require_equal_length(seqs::AbstractVector{<:AbstractString}) =
+    function require_equal_length(seqs::AbstractVector{<:AbstractString})
         all(s -> length(s) == length(first(seqs)), seqs) ||
             throw(ArgumentError("sequences must be equal length"))
+        return nothing
+    end
 
     "Shannon entropy in bits from per-base counts at one alignment column."
-    function _entropy_bits(n::Int, counts::AbstractDict{Char,Int})
+    function entropy_bits(n::Int, counts::AbstractDict{Char,Int})
         n == 0 && return 0.0
         h = 0.0
         inv_n = 1 / n
@@ -74,7 +76,7 @@ module SeqStats
                 counts[c] = get(counts, c, 0) + 1
                 n += 1
             end
-            out[j] = _entropy_bits(n, counts)
+            out[j] = entropy_bits(n, counts)
         end
         return out
     end
@@ -87,7 +89,7 @@ module SeqStats
     """
     function shannon_entropy(seqs::AbstractVector{<:AbstractString})
         isempty(seqs) && return 0.0
-        _require_equal_length(seqs)
+        require_equal_length(seqs)
         L = length(first(seqs))
         L == 0 && return 0.0
         return sum(positional_entropy(seqs)) / L
@@ -100,7 +102,7 @@ module SeqStats
     """
     function consensus_fraction(seqs::AbstractVector{<:AbstractString})
         isempty(seqs) && return 1.0
-        _require_equal_length(seqs)
+        require_equal_length(seqs)
         L = length(first(seqs))
         L == 0 && return 1.0
         n = length(seqs)

@@ -17,7 +17,7 @@ module Selftest
     using ..Report: section, stage_report
 
     export handle_selftest, evaluate_recovery, classify_allele, is_novel, metric_separation,
-           recall_safe_filters, discover_metrics, marginal_filter_shadowing, selftest_blast_block
+           recall_safe_filters, blast_discoverable_metrics, marginal_filter_shadowing, selftest_blast_block
 
     """
         selftest_blast_block(parsed_args) -> Dict
@@ -38,8 +38,6 @@ module Selftest
     end
 
     "Metric columns to scan: every blast-tunable column present in `df` (single source in Blast)."
-    discover_metrics(df::DataFrame, blast_block::Union{AbstractDict,Nothing}=nothing) =
-        blast_discoverable_metrics(df; blast_block=blast_block)
 
     "True if `seq` is absent from the base (reference) set."
     is_novel(seq::AbstractString, base::AbstractSet) = !(seq in base)
@@ -179,7 +177,7 @@ module Selftest
                                seq_col::Symbol=:aln_qseq, substring::Bool=true,
                                metrics::Union{Nothing,AbstractVector{<:AbstractString}}=nothing,
                                blast_block::Union{AbstractDict,Nothing}=nothing)
-        metrics === nothing && (metrics = discover_metrics(discovery, blast_block))
+        metrics === nothing && (metrics = blast_discoverable_metrics(discovery, blast_block))
         cols = names(discovery)
         String(seq_col) in cols ||
             error("Discovery table has no '$seq_col' column — pass --seq-col, or use the full table (<output>.full.tsv.gz).")
@@ -226,7 +224,7 @@ module Selftest
                                  seq_col::Symbol=:aln_qseq, substring::Bool=true,
                                  metrics::Union{Nothing,AbstractVector{<:AbstractString}}=nothing,
                                  blast_block::Union{AbstractDict,Nothing}=nothing)
-        metrics === nothing && (metrics = discover_metrics(discovery, blast_block))
+        metrics === nothing && (metrics = blast_discoverable_metrics(discovery, blast_block))
         cols = names(discovery)
         String(seq_col) in cols ||
             error("Discovery table has no '$seq_col' column — pass --seq-col, or use the full table (<output>.full.tsv.gz).")
@@ -243,7 +241,7 @@ module Selftest
             (acc[i] && !isempty(seqs[i]) && is_novel(seqs[i], base)) || continue
             push!(get!(core_rows, seqs[i], Int[]), i)
         end
-        isempty(core_rows) && return _empty_safe_df()
+        isempty(core_rows) && return empty_safe_df()
         cores = collect(keys(core_rows))
         is_tp = Dict(c => any(t -> seq_match(c, t[2]; substring=substring), truth_novel) for c in cores)
         allele_cores = Dict{String,Vector{String}}()
@@ -283,11 +281,11 @@ module Selftest
                              fp_removed=fp_le))
             end
         end
-        isempty(rows) && return _empty_safe_df()
+        isempty(rows) && return empty_safe_df()
         return sort!(DataFrame(rows), :fp_removed, rev=true)
     end
 
-    _empty_safe_df() = DataFrame(metric=String[], acc_fp=Int[], direction=String[],
+    empty_safe_df() = DataFrame(metric=String[], acc_fp=Int[], direction=String[],
                                  threshold=Float64[], cli_suggestion=String[], fp_removed=Int[])
 
     function report_recall_safe(safe::DataFrame)
@@ -385,7 +383,7 @@ module Selftest
         substring = !get(b, "no-substring", false)
         blast_block = selftest_blast_block(parsed_args)
         gene = get(b, "gene", "")
-        n_metrics = length(discover_metrics(discovery, blast_block))
+        n_metrics = length(blast_discoverable_metrics(discovery, blast_block))
         @info "Scanning $n_metrics blast metric column(s)$(isempty(gene) ? "" : " (gene preset $gene for marginal audit)")"
 
         res = evaluate_recovery(discovery, base, truth; seq_col=seq_col, substring=substring)

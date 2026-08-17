@@ -117,13 +117,13 @@ module Data
         return nothing
     end
 
-    function _fasta_reader(path::AbstractString)
+    function fasta_reader(path::AbstractString)
         io = open(path, "r")
         stream = endswith(path, ".gz") ? GzipDecompressorStream(io) : io
         return FASTA.Reader(stream), stream, io
     end
 
-    function _close_fasta_reader!(reader, stream, io, path::AbstractString)
+    function close_fasta_reader!(reader, stream, io, path::AbstractString)
         close(reader)
         endswith(path, ".gz") && close(stream)
         close(io)
@@ -144,7 +144,7 @@ module Data
         records = Vector{Tuple{String,String}}()
         name_to_seq = Dict{String,String}()
         seq_to_name = Dict{String,String}()
-        reader, stream, io = _fasta_reader(path)
+        reader, stream, io = fasta_reader(path)
         for record in reader
             name = String(FASTA.description(record))
             seq = String(FASTA.sequence(record))
@@ -156,7 +156,7 @@ module Data
             unique && register_fasta_entry!(name, seq, path, name_to_seq, seq_to_name)
             push!(records, (name, seq))
         end
-        _close_fasta_reader!(reader, stream, io, path)
+        close_fasta_reader!(reader, stream, io, path)
         return records
     end
 

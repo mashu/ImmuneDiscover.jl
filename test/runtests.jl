@@ -10,6 +10,8 @@ using immunediscover.Simulate
 using immunediscover.Data
 using immunediscover.Profile
 using immunediscover.Exact
+using immunediscover.Gene
+using immunediscover.Spans
 using immunediscover.Heptamer
 using immunediscover.KeyedSets
 using immunediscover.Blast
@@ -581,7 +583,7 @@ test_outcomes = Dict(
             read = first(table.genomic_sequence)
             sequence = read[50:60]  # Take a sample from middle
             location = findfirst(sequence, read)
-            flanking = Exact.extract_flanking(read, (minimum(location),maximum(location)), "V", 5)
+            flanking = Exact.extract_flanking(read, (minimum(location),maximum(location)), VGene(), 5)
             @test length(flanking.prefix) == 5
             @test length(flanking.sequence) == length(sequence)
         end
@@ -646,10 +648,11 @@ test_outcomes = Dict(
     @testset "cooccurrence.jl" begin
         using immunediscover.Cooccurrence
         df = DataFrame(
-            case = ["D1", "D1", "D2", "D2", "D3", "D3", "D4", "D4", "D5", "D6", "D7", "D8"],
+            case = ["D1_EUR", "D1_EUR", "D2_EUR", "D2_EUR", "D3_EAS", "D3_EAS", "D4_EUR", "D4_EUR", "D5_EUR", "D6_EAS", "D7_AFR", "D8_AFR"],
             db_name = ["A*01", "B*01", "A*01", "B*01", "A*01", "C*01", "B*01", "C*01", "B*01", "C*01", "X*01", "Y*01"]
         )
-        edges_df, clusters, clusters_detailed = Cooccurrence.compute_edges_and_clusters(df; min_support=1, jaccard_threshold=0.0, similarity_threshold=0.0)
+        edges_df, allele_to_donors = Cooccurrence.compute_cooccurrence_edges(df; min_support=1, min_jaccard=0.0)
+        clusters = Cooccurrence.find_cooccurrence_groups(edges_df; min_cluster_size=1)
         @test nrow(edges_df) > 0
         # In toy data, A*01 and B*01 co-occur in D1 and D2 (n_shared=2)
         row = first(filter(r -> (r.allele_a == "A*01" && r.allele_b == "B*01") || (r.allele_a == "B*01" && r.allele_b == "A*01"), edges_df))
@@ -1084,6 +1087,12 @@ test_outcomes = Dict(
         # --isin governs only partial coverage (core ⊂ known): on → known, off → novel
         @test Blast.name_candidate("TATAACTGG", "IGHD1-7*01", 3, db, true)  == "IGHD1-7*01"
         @test occursin(r"_S\d+$", Blast.name_candidate("TATAACTGG", "IGHD1-7*01", 3, db, false))
+        # empty core must not be named as the first reference via occursin("", seq)
+        empty_name = Blast.name_candidate("", "IGHD1-7*01", -1, db, true)
+        @test empty_name != "IGHD1-7*01"
+        @test empty_name != "IGHD1-7*02"
+        crit = Blast.build_blast_output_criteria(Dict("length"=>5); keep_failed=true)
+        @test any(c -> c isa MinStringLength && c.column == :aln_qseq, crit)
     end
 
     @testset "selftest recovery" begin
@@ -1159,7 +1168,7 @@ test_outcomes = Dict(
         basem = Set(["KNOWNAAA"])
         truthm = [("V1", "NOVELAAA"), ("K", "KNOWNAAA")]
         sep = Selftest.metric_separation(discm, basem, truthm; seq_col=:aln_qseq)
-        @test nrow(sep) == 2                       # KNOWNAAA excluded (in base), both metrics scanned
+        @test Set(sep.metric) == Set(["n_donors", "parent_ratio", "aln_qseq"])
         @test sep[1, :youden] ≈ 1.0                # sorted by youden desc
         nd = sep[sep.metric .== "n_donors", :]
         @test nd[1, :direction] == "keep ≥"        # true cores have more donors
@@ -1206,7 +1215,7 @@ test_outcomes = Dict(
             peak_allelic_ratio=[0.1], full_allelic_ratio=[0.1], allelic_ratio=[0.1],
             count=[1], full_count=[1], scov=[1.0], corecov=[1.0], aln_qseq=["ACGT"],
             reject_reason=[""], reject_stage=[""])
-        dm = Selftest.discover_metrics(discm2)
+        dm = Selftest.blast_discoverable_metrics(discm2)
         @test "peak_allelic_ratio" in dm
         @test "allelic_ratio" in dm
         @test "scov" in dm
@@ -1710,14 +1719,16 @@ test_outcomes = Dict(
         @test parsed_args["analyze"]["cooccurrence"]["min-donors"] == 2
         @test parsed_args["analyze"]["cooccurrence"]["cluster-method"] == "complete"
         @test parsed_args["analyze"]["cooccurrence"]["cluster-threshold"] == 0.7
+        @test parsed_args["analyze"]["cooccurrence"]["stratify-population"] == false
     end
 
     @testset "cooccurrence module" begin
         df = DataFrame(
-            case = ["D1","D1","D1","D2","D2","D2","D3","D3","D3","D4","D4","D4"],
+            case = ["D1_EUR","D1_EUR","D1_EUR","D2_EUR","D2_EUR","D2_EUR","D3_EAS","D3_EAS","D3_EAS","D4_EUR","D4_EUR","D4_EUR"],
             db_name = ["A*01","B*01","C*01","A*01","B*01","C*01","A*01","B*01","D*01","A*01","C*01","D*01"]
         )
-        edges, clusters, detailed = Cooccurrence.compute_edges_and_clusters(df; min_support=1, jaccard_threshold=0.0, similarity_threshold=0.0)
+        edges, allele_to_donors = Cooccurrence.compute_cooccurrence_edges(df; min_support=1, min_jaccard=0.0)
+        clusters = Cooccurrence.find_cooccurrence_groups(edges; min_cluster_size=1)
         @test nrow(edges) > 0
 
         stats = Cooccurrence.compute_full_stats(df; case_col="case", allele_col="db_name", min_donors=1)
@@ -1734,13 +1745,30 @@ test_outcomes = Dict(
         # build_clusters_dataframe: grouped rows first, unclustered (group_id=0) last.
         comps = [["A*01", "B*01"], ["C*01", "D*01"]]
         allele_to_donors = Dict(
-            "A*01" => Set(["D1"]), "B*01" => Set(["D1"]),
-            "C*01" => Set(["D2"]), "D*01" => Set(["D2"]),
-            "E*01" => Set(["D3"]))
-        detailed = Cooccurrence.build_clusters_dataframe(comps, allele_to_donors, sort(collect(keys(allele_to_donors))))
+            "A*01" => Set(["D1_EUR"]), "B*01" => Set(["D1_EUR"]),
+            "C*01" => Set(["D2_AFR"]), "D*01" => Set(["D2_AFR"]),
+            "E*01" => Set(["D3_EUR"]))
+        detailed = Cooccurrence.build_clusters_dataframe(comps, allele_to_donors, sort(collect(keys(allele_to_donors))), Cooccurrence.PooledCohort())
         @test detailed.group_id == [1, 1, 2, 2, 0]
         @test detailed.group_size == [2, 2, 2, 2, 0]
         @test detailed.allele == ["A*01", "B*01", "C*01", "D*01", "E*01"]
+        @test all(detailed.analysis_scope .== "all")
+        @test all(detailed.populations .== "all")
+
+        cohort = Cooccurrence.StratifiedCohort(Dict(
+            "D1_EUR" => "EUR", "D2_AFR" => "AFR", "D3_EUR" => "EUR"))
+        detailed_pop = Cooccurrence.build_clusters_dataframe(
+            comps, allele_to_donors, sort(collect(keys(allele_to_donors))), cohort)
+        row_e = first(filter(r -> r.allele == "E*01", detailed_pop))
+        @test row_e.populations == "EUR"
+        @test row_e.population_counts == "EUR=1"
+
+        labeled, unlabeled = Cooccurrence.classify_cases(["KI_10_EUR", "CONTROL", "VC", "DONOR_AFR"])
+        @test [c.population for c in labeled] == ["AFR", "EUR"]
+        @test [c.id for c in unlabeled] == ["CONTROL", "VC"]
+        @test only(filter(c -> c.id == "KI_10_EUR", labeled)).population == "EUR"
+
+        @test Cooccurrence.adjust_bh(Float64[]) == Float64[]
         q = Cooccurrence.adjust_bh([0.01, 0.02, 0.03, 0.04])
         @test all(isapprox.(q, 0.04; atol=1e-12))
         @test all(0.0 .<= Cooccurrence.adjust_bh([0.5, 0.001, 0.9, 0.2]) .<= 1.0)
@@ -1871,21 +1899,28 @@ test_outcomes = Dict(
         end
 
         @testset "exact gene-type dispatch" begin
-            @test Exact.gene_type_from_name("IGHV1-2") isa VGene
-            @test Exact.gene_type_from_name("IGHD3") isa DGene
-            @test Exact.gene_type_from_name("IGHJ4") isa JGene
-            @test Exact.gene_type_from_name("TRBV1-1") isa VGene
-            @test Exact.gene_type_from_name("TRAV1-1") isa VGene
-            @test Exact.gene_type_from_name("GAPDH") === nothing
-            @test Exact.gene_type_from_name("XYZ") === nothing
-            @test Exact.parse_gene_type("V") isa VGene
-            @test_throws ErrorException Exact.parse_gene_type("Q")
-            @test Exact.gene_string(VGene()) == "V"
-            @test Exact.gene_string(DGene()) == "D"
-            @test Exact.gene_string(JGene()) == "J"
+            @test Gene.gene_type_from_name("IGHV1-2") isa VGene
+            @test Gene.gene_type_from_name("IGHD3") isa DGene
+            @test Gene.gene_type_from_name("IGHJ4") isa JGene
+            @test Gene.gene_type_from_name("TRBV1-1") isa VGene
+            @test Gene.gene_type_from_name("TRAV1-1") isa VGene
+            @test Gene.gene_type_from_name("GAPDH") === nothing
+            @test Gene.gene_type_from_name("XYZ") === nothing
+            @test Gene.parse_gene_type("V") isa VGene
+            @test_throws ErrorException Gene.parse_gene_type("Q")
+            @test Gene.gene_string(VGene()) == "V"
+            @test Gene.gene_string(DGene()) == "D"
+            @test Gene.gene_string(JGene()) == "J"
             # V extension reaches the 3' border -> reject; short extension -> keep
-            @test Exact.extension_overlaps_border(5, 10, 20, "V", 15, 3)
-            @test !Exact.extension_overlaps_border(5, 10, 20, "V", 2, 3)
+            @test Exact.extension_overlaps_border(5, 10, 20, VGene(), 15, 3)
+            @test !Exact.extension_overlaps_border(5, 10, 20, VGene(), 2, 3)
+            gs = "ACGTACGTAC"
+            # J RSS near the start must not clamp both ends to 1 (overlapping garbage).
+            fl = Exact.extract_flanking(gs, (3, 5), JGene(), 2)
+            @test fl.nonamer == ""
+            @test fl.heptamer == gs[1:2]
+            @test Spans.each_exact_span("AC", "ACACAC") == [1:2, 3:4, 5:6]
+            @test isempty(Spans.each_exact_span("", "ACGT"))
         end
 
         @testset "cooccurrence math" begin

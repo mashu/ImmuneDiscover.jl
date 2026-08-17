@@ -6,7 +6,7 @@ module Simulate
     using MD5
 
     using ..Data: unique_name, sequence_hash
-    using ..Exact: GeneType, VGene, DGene, JGene
+    using ..Gene: GeneType, VGene, DGene, JGene
 
     const NUCLEOTIDES = ['A', 'C', 'G', 'T']
     const RSS_SIGNAL = "CACAGTG"

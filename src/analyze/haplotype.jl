@@ -10,7 +10,7 @@ using CSV
 using Statistics
 using FASTX
 using ..Data: load_fasta
-using ..Exact: GeneType, VGene, DGene, JGene, gene_type_from_name
+using ..Gene: GeneType, VGene, DGene, JGene, gene_type_from_name
 
 export infer_haplotypes, handle_haplotype
 

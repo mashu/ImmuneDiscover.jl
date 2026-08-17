@@ -3,6 +3,9 @@ module immunediscover
     include("cmd/cli.jl")
 
     # --- Utils (no inter-module deps) ---
+    include("utils/gene.jl")
+    include("utils/spans.jl")
+    include("utils/dna.jl")
     include("utils/data.jl")
     include("utils/ratio_columns.jl")
     include("utils/filters.jl")
@@ -34,6 +37,9 @@ module immunediscover
     include("precompile_workload.jl")
 
     using .Cli
+    using .Gene
+    using .Spans
+    using .DNA
     using .Data
     using .RatioColumns
     using .Filters

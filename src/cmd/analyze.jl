@@ -61,6 +61,13 @@ function add_analyze_args!(s)
             action = :store_true
         end
 
+        add_arg_group!(co, "Population", "cooc_pop")
+        @add_arg_table! co begin
+        "--stratify-population"
+            help = "Per-population cluster files; case ids must end with _POP (e.g. DONOR_EUR). Unsuffixed cases are dropped with a warning. Without this flag all cases are one cohort."
+            action = :store_true
+        end
+
         hp = s["analyze"]["haplotype"]
         @add_arg_table! hp begin
         "input"

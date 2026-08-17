@@ -553,8 +553,11 @@ immunediscover analyze cooccurrence <input> [options]
 - `--cluster-method` (default: "complete"): `complete`, `components`, `average`, or `single`
 - `--cluster-threshold` (default: 0.7): Similarity (rho) cutoff for clustering
 - `--min-cluster-size` (default: 3): Minimum cluster size to output
-- `--clusters`: Optional path to write clusters TSV
+- `--clusters`: Path for pooled partial-haplotype clusters TSV (default: `<input>_clusters.tsv`)
 - `--debug-triangles`: Print rho-based triangle diagnostics at the cluster threshold
+
+**Population (optional):**
+- `--stratify-population`: Per-population cluster files (`<input>_clusters_<pop>.tsv`). Requires `case` ids ending with `_POPULATION` (e.g. `DONOR_EUR`). Cases without a suffix are dropped with a warning. Without this flag, the full input is one cohort (`all`).
 
 ### Inputs/Outputs
 
@@ -571,9 +574,12 @@ immunediscover analyze cooccurrence <input> [options]
 **Output: {input}_clusters.tsv** — partial-haplotype blocks (always written, sorted by `group_id`):
 - `group_id`: Block id (`0` = unclustered)
 - `group_size`: Alleles in the block
-- `allele`, `donors`, `n_donors`
+- `analysis_scope`: `all` (pooled) or population name (stratified outputs)
+- `populations`, `population_counts`: `all` by default; per-population breakdown when `--stratify-population` is used
 
-Override path with `--clusters`.
+Use `--stratify-population` for per-population cluster files (`<input>_clusters_<pop>.tsv`).
+
+Override pooled path with `--clusters`.
 
 ### Metrics
 
