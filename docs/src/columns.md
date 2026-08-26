@@ -49,35 +49,25 @@ These appear in multiple command outputs:
 
 `search exact` writes **two** tables: the filtered results (`<output>`) and the **full annotated
 table** (`<output>.full.tsv.gz`) with every candidate plus its `reject_reason` / `reject_stage`.
-Columns are ordered for reading — identifiers and metrics (most impactful first) on the left, the
-long flank/sequence columns last (in genomic 5'→3' order) — and float values are rounded to 4
-decimal places.
+Columns are ordered for reading — identifiers and metrics on the left, the long flank/sequence
+columns last (in genomic 5'→3' order) — and float values are rounded to 4 decimal places.
 
-### Main Columns
+By default both files are **slim** (identifiers, counts, allelic ratios, sequence/flanks).
+Pass `--diagnostic` to write intermediate statistics (cohort folds, denominators,
+`chimera_score`, …). Filters still run on those values when the columns are omitted;
+`reject_reason` on the full table is the usual way to see why a row dropped.
+`--raw PATH` is a different file: uncollapsed per-match rows **before** filtering.
+
+### Default columns
 
 | Column | Description |
 |--------|-------------|
 | `well`, `case`, `gene`, `db_name` | Identifiers |
 | `count` | Reads matching this allele sequence (collapsed) |
 | `full_count` | Reads matching sequence + flanks (uncollapsed) |
-| `gene_count` | Total accepted reads for this gene in this donor (well+case) |
-| `case_count` | Total accepted reads in this donor (well+case) |
-| `n_reads_total` | Total reads backing this sequence across all donors |
-| `n_donors` | Distinct donors sharing this exact sequence |
 | `allelic_ratio` | Per donor+gene: `count` ÷ max(`count` in gene) — IgDiscover `allele_ratio` |
 | `full_allelic_ratio` | Per donor+gene: `full_count` ÷ max(`full_count` in gene) |
-| `peak_allelic_ratio` | Across donors: max `full_allelic_ratio` for this sequence |
-| `gene_fraction` | Per donor+gene: `count` ÷ sum(accepted `count` in gene) — optional `--min-gene-fraction` |
-| `flank_index` | Flank variant number (1 to --top) |
 | `sequence` | Core allele sequence (placed last with the flank columns) |
-
-### Quality / discriminative metrics
-
-A real allele recurs across donors with solid support; an artifact is sporadic or composition-odd.
-
-| Column | Description |
-|--------|-------------|
-| `chimera_score` | Mosaic/recombination score vs the gene's references (higher ⇒ more chimera-like) |
 
 ### Transparency columns (full table)
 
@@ -85,6 +75,32 @@ A real allele recurs across donors with solid support; an artifact is sporadic o
 |--------|-------------|
 | `reject_reason` | Label of the first filter the candidate failed; empty if accepted |
 | `reject_stage` | Stage that rejected it (`count and ratio filter`, `frequency filter`); empty if accepted |
+
+### `--diagnostic` columns
+
+Intermediate statistics. Always computed for filters; written only with `--diagnostic`.
+`chimera_score` is computed only when `--diagnostic` is set.
+
+| Column | Description |
+|--------|-------------|
+| `gene_count` | Total accepted reads for this gene in this donor (well+case) |
+| `case_count` | Total accepted reads in this donor (well+case) |
+| `n_reads_total` | Total reads backing this sequence across all donors |
+| `n_donors` | Distinct donors sharing this exact sequence |
+| `peak_allelic_ratio` | Across donors: max `full_allelic_ratio` for this sequence |
+| `gene_fraction` | Per donor+gene: `count` ÷ sum(accepted `count` in gene) — optional `--min-gene-fraction` |
+| `gene_case_freq` | Per-donor gene-usage fraction: gene_count / case_count. Low ⇒ possible gene deletion (see `--deletion`) |
+| `allele_cohort_median` | Median count for this allele across donors |
+| `gene_cohort_median` | Median `gene_count` across donors |
+| `allele_cohort_fold` | count / `allele_cohort_median` — this donor's allele support vs typical |
+| `gene_cohort_fold` | `gene_count` / `gene_cohort_median` — this donor's gene support vs typical |
+| `chimera_score` | Mosaic/recombination score vs the gene's references (higher ⇒ more chimera-like) |
+| `flank_index` | Flank variant number (1 to `--top`). Kept without `--diagnostic` when `--top` > 1 |
+| `prefix_len`, `suffix_len` | Extension-mode flank lengths |
+| `ref_gene_count` | Intermediate denominator for `--refgene` ratios |
+
+**Use of cohort fold:** a fold ≪ 1 flags a sporadic low-support observation relative to the
+cohort (`--min-allele-cohort-fold` / `--min-gene-cohort-fold`, default 0.05).
 
 ### Flank Columns (gene-dependent)
 
@@ -103,30 +119,7 @@ A real allele recurs across donors with solid support; an artifact is sporadic o
 **D genes (both sides):**
 - `pre_nonamer`, `pre_spacer`, `pre_heptamer`: 5' RSS (9+12+7 bp)
 - `post_heptamer`, `post_spacer`, `post_nonamer`: 3' RSS (7+12+9 bp)
-- Or `prefix`, `suffix` if --extension used
-
-### Frequency Columns
-
-| Column | Description |
-|--------|-------------|
-| `donor_allelic_ratio` | **Per-donor within-gene fraction**: count / sum(accepted counts in gene). The standard allele-calling signal — a real allele is a major fraction of its gene. |
-| `gene_case_freq` | Per-donor gene-usage fraction: gene_count / case_count. Low ⇒ possible gene deletion (see `--deletion`). |
-
-### Cohort (across-donor) comparison columns
-
-These compare a donor's observation against the **cohort median** (the typical value across all
-donors), as a robust fold-change. They back the optional `--min-allele-cohort-fold` /
-`--min-gene-cohort-fold` filters (default 0.05). They are a secondary abundance-consistency
-heuristic — not the same as the discriminative metrics (`chimera_score`, etc.).
-
-| Column | Description |
-|--------|-------------|
-| `allele_cohort_median` | Median count for this allele across donors (robust central tendency) |
-| `gene_cohort_median` | Median `gene_count` across donors |
-| `allele_cohort_fold` | count / `allele_cohort_median` — this donor's allele support vs typical |
-| `gene_cohort_fold` | `gene_count` / `gene_cohort_median` — this donor's gene support vs typical |
-
-**Use**: a fold ≪ 1 flags a sporadic low-support observation relative to the cohort.
+- Or `prefix`, `suffix` if `--extension` used (`prefix_len` / `suffix_len` only with `--diagnostic`)
 
 ### Optional Columns
 
@@ -380,6 +373,9 @@ Column names match CLI flags (hyphens → underscores). Shared across `search ex
 **IgDiscover `allele_ratio`** drops the lower-count allele when minor÷major &lt; threshold — **÷max**, same as `allelic_ratio` here. The old ÷sum metric is `gene_fraction` (distinct name, distinct filter).
 
 TSV overrides: `--expect` (per-gene `allelic_ratio`), `--deletion` (per-gene `gene_case_freq`).
+
+On `search exact`, `peak_allelic_ratio`, `gene_fraction`, and the cohort-fold columns below are
+written only with `--diagnostic`.
 
 ### Count vs Frequency
 

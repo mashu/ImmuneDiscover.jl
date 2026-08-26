@@ -44,6 +44,7 @@ function handle_exact(parsed_args, immunediscover_module, always_gz)
     deletion_dict = load_ratio_dict(ex["deletion"])
 
     raw = optional(ex["raw"])
+    diagnostic = get(ex, "diagnostic", false)
     sequence_lookup = ref_lookup(optional(ex["ref-fasta"]))
 
     counts_df = exact_search(table, db, gene; affix=affix, rss=rss, extension=extension, N=top,
@@ -53,7 +54,7 @@ function handle_exact(parsed_args, immunediscover_module, always_gz)
         @warn "No exact matches"
         return
     end
-    add_chimera_scores!(counts_df, refs_by_gene(db); seq_col=:sequence, gene_col=:gene)
+    add_chimera_if_diagnostic!(counts_df, db, diagnostic)
     sort!(counts_df, [:case, :db_name])
 
     # Count/ratio filters — annotate (don't drop) so the full table records every candidate.
@@ -105,10 +106,11 @@ function handle_exact(parsed_args, immunediscover_module, always_gz)
     full_output = always_gz(replace(replace(output, r"\.gz$" => ""), r"\.tsv$" => "") * ".full.tsv")
     gt = parse_gene_type(gene)
     report_exact_findings(counts_df, kept, db, gt, extension, table)
+    log_exact_column_mode(diagnostic)
     # Readable output: metrics left, long sequence/flank columns right (genomic order); round
     # float columns to 4 dp instead of full Float64 precision.
-    kept = round_floats!(order_exact_columns(kept, gt, extension))
-    counts_df = round_floats!(order_exact_columns(counts_df, gt, extension))
+    kept = round_floats!(select_exact_output_columns(kept, gt, extension; diagnostic=diagnostic))
+    counts_df = round_floats!(select_exact_output_columns(counts_df, gt, extension; diagnostic=diagnostic))
     CSV.write(output, select(kept, Not(reason_cols)), compress=true, delim='\t')
     printstyled("  ✓ "; color=:green, bold=true); println("filtered → $output  ($(nrow(kept)) rows)")
     CSV.write(full_output, counts_df, compress=true, delim='\t')

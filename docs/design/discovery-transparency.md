@@ -19,6 +19,11 @@ run therefore produces two tables:
 - `<output>.full.tsv.gz` (or `--full-output PATH`) — every candidate plus `reject_reason` /
   `reject_stage`, so you can inspect each assignment and the reason it was dropped.
 
+`search exact` writes a **slim** TSV by default (identifiers, counts, allelic ratios, flanks).
+Pass `--diagnostic` to include intermediate statistics (cohort folds, `chimera_score`,
+denominators). Filters still use those values when the columns are omitted. `--raw PATH` is a
+separate uncollapsed match dump from before filtering.
+
 Each stage prints a colored summary line (kept/before, removed), and the per-criterion output
 filters are reported separately, so it is clear how many candidates each filter removes.
 `subject coverage`, `BLAST mismatch`, and `core coverage` also draw a unicode histogram of their

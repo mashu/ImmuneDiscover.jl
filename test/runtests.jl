@@ -317,6 +317,26 @@ test_outcomes = Dict(
         # floats rounded to 4 dp; integer/string columns untouched
         Data.round_floats!(o)
         @test o.gene_fraction[1] ≈ 0.1235
+
+        slim = Exact.select_exact_output_columns(df, VGene(), absent; diagnostic=false)
+        @test "count" in names(slim)
+        @test "allelic_ratio" in names(slim)
+        @test "sequence" in names(slim)
+        @test "heptamer" in names(slim)
+        @test !("gene_count" in names(slim))
+        @test !("gene_case_freq" in names(slim))
+        @test !("chimera_score" in names(slim))
+        wide = Exact.select_exact_output_columns(df, VGene(), absent; diagnostic=true)
+        @test "gene_count" in names(wide)
+        @test "gene_case_freq" in names(wide)
+        # flank_index stays when --top produced more than one variant
+        multi = copy(df)
+        multi[!, :flank_index] = [1]
+        extra = copy(multi)
+        extra.flank_index = [2]
+        both = vcat(multi, extra)
+        @test "flank_index" in names(Exact.select_exact_output_columns(both, VGene(), absent; diagnostic=false))
+        @test !("flank_index" in names(Exact.select_exact_output_columns(multi, VGene(), absent; diagnostic=false)))
         @test o.count[1] === 10
         @test o.sequence[1] == "ACGTACGT"
     end
@@ -567,6 +587,12 @@ test_outcomes = Dict(
             @test parsed_args["search"]["exact"]["fasta"] == "novel.fasta"
             @test parsed_args["search"]["exact"]["output"] == "test_exact.tsv.gz"
             @test parsed_args["search"]["exact"]["gene"] == "V"
+            @test parsed_args["search"]["exact"]["diagnostic"] == false
+
+            empty!(ARGS)
+            append!(ARGS, ["search", "exact", "test.tsv.gz", "novel.fasta", "test_exact.tsv.gz", "--diagnostic"])
+            parsed_diag = Cli.parse_commandline(ARGS)
+            @test parsed_diag["search"]["exact"]["diagnostic"] == true
 
             # Module
             table = CSV.File("test.tsv.gz", delim='\t') |> DataFrame

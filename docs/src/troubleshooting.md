@@ -51,7 +51,9 @@ Common issues and solutions.
 - ✓ Verify `--locus` prefix includes target genes
 - ✓ Review demux length distribution
 - ✓ Check database FASTA format (GENE*ALLELE)
-- ✓ Examine raw exact search output (`--raw`)
+- ✓ Examine the full annotated table (`<output>.full.tsv.gz`) for `reject_reason`
+- ✓ Pass `--diagnostic` to write cohort folds, `n_donors`, and other intermediate columns
+- ✓ Examine raw exact search matches (`--raw PATH`) — uncollapsed, before filters
 
 ### Low BLAST Coverage
 

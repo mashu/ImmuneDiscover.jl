@@ -65,77 +65,91 @@ done
 
 ## search exact
 
-**Purpose:** Exact match search against known alleles with RSS extraction and robust filtering.
+**Purpose:** Exact match of demultiplexed reads to known alleles, with RSS (or extension)
+flanks and a two-stage filter. The default TSV is **slim**; intermediate statistics are
+written only with `--diagnostic`.
 
 ### Synopsis
 ```bash
 immunediscover search exact <tsv> <fasta> <output> -g <gene> [options]
 ```
 
+See `immunediscover search exact --help` for the full flag list (including the epilog that
+lists default columns).
+
 ### Arguments
 
 **Required:**
 - `tsv`: Demultiplexed TSV with `well`, `case`, `name`, `genomic_sequence`
 - `fasta`: Reference allele database (FASTA format: GENE*ALLELE)
-- `output`: Output TSV
-- `-g, --gene`: Gene type - V, D, or J
+- `output`: Filtered TSV. A sibling `<output>.full.tsv.gz` lists every candidate plus
+  `reject_reason` / `reject_stage`.
+- `-g, --gene`: Gene type — V, D, or J (sets RSS orientation)
 
-**Count/Frequency Filters:**
-- `-c, --mincount` (default: 5): Minimum read count
-- `-f, --minratio` (default: 0.1): Minimum per-donor major ratio (`donor_major_ratio` and `donor_full_major_ratio`)
-- `--min-allele-cohort-fold` (default: 0.05): Min fold of an allele's donor count vs its cohort median across donors
-- `--min-gene-cohort-fold` (default: 0.05): Min fold of a gene's donor count vs its cohort median across donors
-- `--min-recurrence` (default: 0, off): Require a candidate sequence in ≥ N donors (`n_donors`)
-- `--min-seqlen` (default: 0, off): Drop candidates whose matched sequence is shorter than N nt
-- `--min-peak-ratio` (default: 0.0, off): Require `peak_full_major_ratio` floor (best per-donor major ratio across donors). Complements `--minratio`.
+**Count and allelic-ratio filters (stage 1):**
+- `-c, --min-count` (default: 0, off): Minimum collapsed `count`
+- `--min-fullcount` (default: 5): Minimum `full_count` (sequence + flanks)
+- `-f, --min-allelic-ratio` (default: 0.1): `count` ÷ max(`count` in donor+gene). IgDiscover `allele_ratio`. 0 = off
+- `--min-full-allelic-ratio` (default: 0.1): Same using `full_count`. 0 = off
+- `-e, --expect` / `--expect-full`: Optional TSV (`name`, `ratio`) overriding those floors per gene/allele
+- `--min-seqlen` (default: 0, off): Minimum matched sequence length
+- `--min-recurrence` / `--min-peak-allelic-ratio` / `--min-reads-total` (default: off): Optional recurrence filters. Their columns are written only with `--diagnostic`
 
-All of these annotate rather than drop: every candidate is kept with `reject_reason` / `reject_stage`,
-the run prints a per-filter kept/removed line at each stage, and two tables are written — the filtered
-result and a full annotated table (`<output>.full.tsv.gz`).
+**Gene-usage frequency filters (stage 2):**
+- `--min-allele-cohort-fold` (default: 0.05): This donor's allele count vs the allele's cohort median. 0 = off
+- `--min-gene-cohort-fold` (default: 0.05): This donor's gene total vs the gene's cohort median. 0 = off
+- `--min-gene-fraction` (default: 0, off): `count` ÷ sum of accepted counts in donor+gene (not IgDiscover `allelic_ratio`)
+- `--min-gene-case-freq` (default: 0, off) / `-d, --deletion`: Gene-usage floor (possible deletions)
+- `--locus` (default: empty): Optional `db_name` prefix for frequency denominators (e.g. `IGHV`). Empty = all alleles
 
-**RSS Extraction:**
-- `--rss` (default: "heptamer"): Extract RSS elements (heptamer, spacer, nonamer)
-- `--extension`: Extension length in bp (replaces --rss)
-- `-a, --affix` (default: 13): Bases from non-RSS side
+All filters **annotate rather than drop**: every candidate is kept with `reject_reason` /
+`reject_stage`. The run prints a per-filter kept/removed line. The filtered TSV is rows with
+an empty reason.
 
-**Advanced:**
-- `-t, --top` (default: 1): Max flank variants per allele (1=collapsed mode)
-- `-r, --refgene`: Reference gene(s) for ratio computation (space-separated)
-- `--min-allelic-ratio` (default: 0.1): Primary filter on `donor_allelic_ratio` (allele fraction of gene reads per donor). Set 0 to disable.
-- `-e, --expect`: Optional TSV overriding `--min-allelic-ratio` per gene/allele (columns: name, ratio); listed entries also skip `--minratio` dominance check
-- `-d, --deletion`: TSV with gene_case_freq thresholds (columns: name, ratio)
-- `--locus` (default: "IG"): Locus prefix for frequency calculations
-- `--ref-fasta`: Reference FASTA to mark known vs novel (adds `isin_db` column)
-- `--raw`: Path to save unfiltered results
-- `-l, --limit` (default: 0): Limit input reads (0=unlimited, useful for testing)
-- `-n, --noplot`: Disable unicode gene count boxplot
+**RSS / core extraction:**
+- `--rss` (default: `heptamer`): Comma-separated `heptamer`, `spacer`, `nonamer`
+- `--extension`: Length on the RSS side instead of RSS elements
+- `-a, --affix` (default: 13): Bases from the non-RSS side
+- `--border` / `--adjust-per-gene-extension` / `--adjust-percent`: Reject or shrink extensions that hit the read end
+
+**Output:**
+- `--diagnostic`: Write intermediate statistics (cohort medians/folds, `chimera_score`,
+  `n_donors`, `gene_count`, …) on **both** TSVs. Default output is identifiers, counts,
+  allelic ratios, and sequence/flanks. Filters still use the hidden columns.
+- `--raw PATH`: Uncollapsed per-match TSV **before** count/ratio filters (a different, wider table)
+- `-t, --top` (default: 1): Max flank variants per allele (1 = collapsed)
+- `-r, --refgene`: Reference gene(s) for extra ratio columns
+- `--ref-fasta`: Mark known vs novel (`isin_db`)
+- `-l, --limit` (default: 0): Limit input reads (testing)
+- `-n, --noplot`: Disable the unicode gene plot
 
 ### Inputs/Outputs
 
 **Input:** Demultiplexed TSV with `well`, `case`, `name`, `genomic_sequence`
 
-**Output:** TSV with exact matches and flanks
-- **Core**: `well`, `case`, `gene`, `db_name`, `sequence`
-- **Counts**: `count`, `full_count`, `gene_count`, `case_count`, `n_reads_total`, `n_donors`, `flank_index`
-- **Flanks** (schema follows the gene and mode searched — a V search carries no D columns):
+**Default TSV columns** (filtered file; full table adds `reject_reason` / `reject_stage`):
+- **Core**: `well`, `case`, `gene`, `db_name`, `count`, `full_count`, `allelic_ratio`, `full_allelic_ratio`
+- **Flanks** (schema follows the gene and mode — a V search carries no D columns):
   - RSS V: `prefix`, `sequence`, + selected `--rss` of `heptamer`/`spacer`/`nonamer`
   - RSS J: `suffix`, `sequence`, + selected `--rss` of `heptamer`/`spacer`/`nonamer`
   - RSS D: `pre_nonamer`/`pre_spacer`/`pre_heptamer` + `post_heptamer`/`post_spacer`/`post_nonamer`
-  - Extension mode (any gene): `prefix`, `suffix`, `prefix_len`, `suffix_len`
-- **Per-donor ratios**: `donor_major_ratio`, `donor_full_major_ratio`, `donor_allelic_ratio`, `peak_full_major_ratio`
-- **Frequencies**: `gene_case_freq` (gene-usage / deletion), `*_cohort_fold`, `*_cohort_median`
-- **Totals**: `gene_count`, `case_count`
-- **Cohort fold-change**: `allele_cohort_median`, `gene_cohort_median`, `allele_cohort_fold`, `gene_cohort_fold` (count vs cohort-median across donors)
-- **Other**: `chimera_score`, `reject_reason` / `reject_stage` (full table only)
-- **Transparency**: `reject_reason`, `reject_stage` (full table only)
-- **Markers**: `isin_db` (if --ref-fasta)
-- **Ratios**: `count_{refgene}_ratio`, `gene_count_{refgene}_ratio` (if --refgene)
+  - Extension mode: `prefix`, `suffix` (`prefix_len` / `suffix_len` only with `--diagnostic`)
+- **Optional**: `isin_db` (`--ref-fasta`), `count_{refgene}_ratio` / `gene_count_{refgene}_ratio` (`--refgene`)
+- `flank_index` is omitted when `--top 1`; kept when several flank variants are present
+
+**`--diagnostic` extra columns:** `gene_count`, `case_count`, `n_reads_total`, `n_donors`,
+`peak_allelic_ratio`, `gene_fraction`, `gene_case_freq`, `allele_cohort_fold`,
+`gene_cohort_fold`, `allele_cohort_median`, `gene_cohort_median`, `chimera_score`,
+`flank_index`, `prefix_len`, `suffix_len`, `ref_gene_count`
 
 ### Examples
 
 ```bash
-# V gene search
+# Slim TSV (default)
 immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V
+
+# Same run, with cohort/chimera/denominator columns
+immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V --diagnostic
 
 # D gene with extended flanks
 immunediscover search exact demux.tsv.gz IGHD.fasta exact_D.tsv.gz -g D --extension 40
@@ -156,9 +170,11 @@ immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V \
 ### Notes
 
 - **RSS extraction**: V genes have 3' RSS; J genes have 5' RSS; D genes have both sides
-- **Filtering order**: Full records (sequence+flanks) filtered first, then collapsed records
-- **Cross-case filtering**: Removes alleles abnormally low vs other donors (likely errors)
-- **Expect/deletion files**: Override default thresholds for specific genes (e.g., pseudogenes)
+- **`--diagnostic` vs `--raw`**: `--diagnostic` adds statistics columns to the usual two
+  tables. `--raw` dumps every uncollapsed match before filtering
+- **Why a row dropped**: look at `reject_reason` on the `.full.tsv.gz` table — you do not
+  need `--diagnostic` for that
+- **Expect/deletion files**: Override default thresholds for specific genes (e.g. pseudogenes)
 
 ---
 

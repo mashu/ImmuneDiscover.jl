@@ -1,7 +1,7 @@
 function add_search_args!(s)
         @add_arg_table! s["search"] begin
             "exact"
-                help = "Exact match search of reads to database alleles with robust filters"
+                help = "Exact match to database alleles. Default TSV is slim (ids, counts, allelic ratios, flanks); pass --diagnostic for intermediate statistics."
                 action = :command
             "heptamer"
                 help = "Identify heptamer RSS positions and extend/trim V reads accordingly"
@@ -122,7 +122,7 @@ function add_search_args!(s)
             help = "FASTA file with query alleles"
             required = true
         "output"
-            help = "TSV file to save ouput"
+            help = "TSV file for filtered results (a .full.tsv.gz sibling lists every candidate + reject_reason)"
             required = true
         end
 
@@ -202,17 +202,17 @@ function add_search_args!(s)
             help = "Optional TSV (columns: name, ratio): per-gene/allele floor for --min-full-allelic-ratio."
             arg_type = String
         "--min-recurrence"
-            help = "Require candidate in at least this many donors (n_donors). 0 = off."
+            help = "Require candidate in at least this many donors (n_donors). 0 = off. n_donors is written only with --diagnostic."
             default = 0
             arg_type = Int
             range_tester = (x->x >= 0)
         "--min-peak-allelic-ratio"
-            help = "Filter peak_allelic_ratio = max(full_allelic_ratio) across donors. 0 = off."
+            help = "Filter peak_allelic_ratio = max(full_allelic_ratio) across donors. 0 = off. Column written only with --diagnostic."
             default = 0.0
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--min-reads-total"
-            help = "Filter n_reads_total: sum of full_count for this sequence across the run. 0 = off."
+            help = "Filter n_reads_total: sum of full_count for this sequence across the run. 0 = off. Column written only with --diagnostic."
             default = 0
             arg_type = Int
             range_tester = (x->x >= 0)
@@ -221,7 +221,7 @@ function add_search_args!(s)
         add_arg_group!(ex, "Gene-usage frequency filters (stage 2)", "exact_ref")
         @add_arg_table! ex begin
         "--min-gene-fraction"
-            help = "÷sum filter: gene_fraction = count÷sum(accepted count in donor+gene). Not IgDiscover allelic_ratio. 0 = off."
+            help = "÷sum filter: gene_fraction = count÷sum(accepted count in donor+gene). Not IgDiscover allelic_ratio. 0 = off. Column written only with --diagnostic."
             default = 0.0
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
@@ -229,17 +229,17 @@ function add_search_args!(s)
             help = "Optional TSV (columns: name, ratio): per-gene/allele floor for --min-gene-case-freq."
             arg_type = String
         "--min-gene-case-freq"
-            help = "gene_case_freq = gene_count÷case_count in donor. Flags possible gene deletions. 0 = off."
+            help = "gene_case_freq = gene_count÷case_count in donor. Flags possible gene deletions. 0 = off. Column written only with --diagnostic."
             default = 0.0
             arg_type = Float64
             range_tester = (x-> (x >= 0.0) & (x <= 1.0))
         "--min-allele-cohort-fold"
-            help = "allele_cohort_fold vs cohort-median allele count. 0 disables."
+            help = "Min allele_cohort_fold (this donor's count ÷ cohort-median of this allele). 0 = off. Column written only with --diagnostic."
             default = 0.05
             arg_type = Float64
             range_tester = (x-> (x >= 0.0))
         "--min-gene-cohort-fold"
-            help = "gene_cohort_fold vs cohort-median gene count. 0 disables."
+            help = "Min gene_cohort_fold (this donor's gene_count ÷ cohort-median). 0 = off. Column written only with --diagnostic."
             default = 0.05
             arg_type = Float64
             range_tester = (x-> (x >= 0.0))
@@ -252,25 +252,39 @@ function add_search_args!(s)
             arg_type = String
         end
 
-        add_arg_group!(ex, "Output and diagnostics", "exact_out")
+        add_arg_group!(ex, "Output", "exact_out")
         @add_arg_table! ex begin
         "-t", "--top"
-            help = "Saves at most N records of flank and sequence."
+            help = "At most N flank variants per allele (1 = collapsed)."
             arg_type = Int
             default = 1
             range_tester = (x->x >= 1)
         "-l", "--limit"
-            help = "Limit to this number of sequences, zero means no limit"
+            help = "Limit input reads; 0 = no limit (for testing)."
             arg_type = Int
             default = 0
             range_tester = (x->x >= 0)
         "--raw"
-            help = "Unfiltered exact search results for diagnostics"
+            help = "Write uncollapsed per-match TSV (before count/ratio filters). Separate from --diagnostic."
             arg_type = String
+        "--diagnostic"
+            help = "Write intermediate statistics columns (cohort medians/folds, chimera_score, n_donors, gene_count, …) on both the filtered TSV and the .full.tsv.gz table. Default output is identifiers, counts, allelic ratios, and sequence/flanks. Filters still use the hidden columns; see reject_reason on the full table."
+            action = :store_true
         "-n", "--noplot"
             help = "Disable unicode gene plot"
             action = :store_true
         end
+
+        ex.description = "Exact match of demultiplexed reads to database alleles. Writes a slim TSV by default plus <output>.full.tsv.gz with every candidate and reject_reason."
+        ex.epilog = """
+Default TSV columns: well, case, gene, db_name, count, full_count, allelic_ratio, full_allelic_ratio, sequence and flanks (plus isin_db / refgene ratios when those flags are set). The full table also has reject_reason / reject_stage.
+
+Filters (count, allelic ratio, cohort fold, …) always run; their intermediate columns are omitted unless you pass --diagnostic. --raw PATH dumps every uncollapsed match before filtering (a different, much wider table).
+
+Examples:
+  immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V
+  immunediscover search exact demux.tsv.gz IGHV.fasta exact_V.tsv.gz -g V --diagnostic
+"""
 
     return s
 end

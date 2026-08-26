@@ -62,6 +62,13 @@ const EXACT_LEFT_ORDER = ["well", "case", "gene", "db_name", "isin_db",
     "allele_cohort_median", "gene_cohort_median",
     "chimera_score", "flank_index", "reject_reason", "reject_stage"]
 
+# Intermediate statistics omitted from the TSV unless `--diagnostic`. Filters still use them;
+# `reject_reason` on the full table is the default way to see why a row dropped.
+const EXACT_DIAGNOSTIC_COLUMNS = ["gene_count", "case_count", "n_reads_total", "n_donors",
+    "peak_allelic_ratio", "gene_fraction", "gene_case_freq",
+    "allele_cohort_fold", "gene_cohort_fold", "allele_cohort_median", "gene_cohort_median",
+    "chimera_score", "flank_index", "prefix_len", "suffix_len", "ref_gene_count"]
+
 """
     order_exact_columns(df, gt, extension) -> df
 
@@ -76,6 +83,40 @@ function order_exact_columns(df::DataFrame, gt::GeneType, extension)
     middle = [c for c in present if !(c in placed)]
     return select(df, vcat(left, middle, dna))
 end
+
+"""
+    select_exact_output_columns(df, gt, extension; diagnostic=false) -> df
+
+`order_exact_columns` then, unless `diagnostic`, drop intermediate statistics
+(`EXACT_DIAGNOSTIC_COLUMNS`). `flank_index` stays when `--top` produced more than one
+flank variant. Filters still run on the dropped columns.
+"""
+function select_exact_output_columns(df::DataFrame, gt::GeneType, extension; diagnostic::Bool=false)
+    ordered = order_exact_columns(df, gt, extension)
+    return drop_exact_diagnostic_columns(ordered, Val(diagnostic))
+end
+
+drop_exact_diagnostic_columns(df::DataFrame, ::Val{true}) = df
+function drop_exact_diagnostic_columns(df::DataFrame, ::Val{false})
+    present = names(df)
+    drop = [c for c in EXACT_DIAGNOSTIC_COLUMNS if c in present]
+    if "flank_index" in drop && nrow(df) > 0 && maximum(df.flank_index) > 1
+        drop = [c for c in drop if c != "flank_index"]
+    end
+    isempty(drop) && return df
+    return select(df, Not(drop))
+end
+
+log_exact_column_mode(diagnostic::Bool) = log_exact_column_mode(Val(diagnostic))
+log_exact_column_mode(::Val{true}) =
+    @info "Writing diagnostic columns (cohort folds, chimera_score, denominators, …)"
+log_exact_column_mode(::Val{false}) =
+    @info "Slim TSV (identifiers, counts, allelic ratios, sequence/flanks). Pass --diagnostic for intermediate statistics."
+
+add_chimera_if_diagnostic!(df, db, diagnostic::Bool) = add_chimera_if_diagnostic!(df, db, Val(diagnostic))
+add_chimera_if_diagnostic!(df, db, ::Val{true}) =
+    add_chimera_scores!(df, refs_by_gene(db); seq_col=:sequence, gene_col=:gene)
+add_chimera_if_diagnostic!(df, db, ::Val{false}) = df
 
 # ========================== Findings report ==========================
 
