@@ -18,6 +18,13 @@ To choose a different output directory:
 ./scripts/build_binary.sh /path/to/output_dir
 ```
 
+From source (already precompiled via PrecompileTools; skip `~/.julia/config/startup.jl`):
+
+```bash
+./scripts/run.sh --help
+./scripts/run.sh --version
+```
+
 ## Requirements
 
 - Julia 1.9 or later
@@ -29,7 +36,8 @@ To choose a different output directory:
 
 ## How it works
 
-The script `scripts/build_binary.jl` calls `PackageCompiler.create_app()` on the immunediscover package. The optional file `scripts/precompile_workload.jl` is used as a precompile execution script: it runs `--help` and a few CLI paths so the compiled sysimage already has those code paths compiled, reducing startup time.
+1. **PrecompileTools `@compile_workload`** (in `src/immunediscover.jl`) traces top-level `--help` and `--version` during `Pkg.precompile` so those paths are native code in the package image. A larger fixture CLI is not used here: on Julia 1.12 it yields a cache that fails to load.
+2. **PackageCompiler `create_app`** with `scripts/precompile_workload.jl` runs the full fixture CLI (every subcommand `--help`, plus handlers that do not need blastn/BWA) into the standalone binary.
 
 You can also run the build step directly:
 
@@ -37,4 +45,6 @@ You can also run the build step directly:
 julia --project=build scripts/build_binary.jl [output_dir]
 ```
 
-**Note:** UnicodePlots is an optional dependency (for terminal bar plots in `demultiplex` and `search exact`). The standalone binary is built without it so that PackageCompiler can succeed; `--noplot` is unnecessary and plotting is simply skipped if UnicodePlots is not available.
+**Note:** UnicodePlots is used for terminal bar plots in `demultiplex` and `search exact`. The standalone binary is built without it so that PackageCompiler can succeed; plotting is skipped if UnicodePlots is not available. `--noplot` still disables plots when the package is present.
+
+**CLI snappiness:** `--help` / `--version` do not write `immunediscover.log`. Ordinary commands read the version from `Project.toml` and do not shell out to `git`; `--version` appends the git hash when git is available.

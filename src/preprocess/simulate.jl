@@ -84,11 +84,14 @@ module Simulate
         return string(seq[1:pos-1], join(substitution), seq[pos+mutation_length:end])
     end
 
-    const MUTATION_APPLY = Dict{String, Function}(
-        "insertion" => insert_mutation,
-        "deletion" => delete_mutation,
-        "substitution" => substitute_mutation,
-    )
+    apply_named_mutation(seq::String, pos::Int, mutation_length::Int, ::Val{:insertion}) =
+        insert_mutation(seq, pos, mutation_length)
+    apply_named_mutation(seq::String, pos::Int, mutation_length::Int, ::Val{:deletion}) =
+        delete_mutation(seq, pos, mutation_length)
+    apply_named_mutation(seq::String, pos::Int, mutation_length::Int, ::Val{:substitution}) =
+        substitute_mutation(seq, pos, mutation_length)
+    apply_named_mutation(::String, ::Int, ::Int, ::Val{kind}) where kind =
+        error("Unknown mutation type: $kind")
 
     function apply_random_mutation(seq::String, mutation_type::String, mutation_length::Int)
         safe_start = 50  # legacy generator keeps mutations away from both ends
@@ -98,9 +101,7 @@ module Simulate
             safe_end = min(length(seq) - mutation_length, 3 * div(length(seq), 4))
         end
         pos = rand(safe_start:safe_end)
-        f = get(MUTATION_APPLY, mutation_type, nothing)
-        f !== nothing && return f(seq, pos, mutation_length)
-        error("Unknown mutation type: $mutation_type")
+        return apply_named_mutation(seq, pos, mutation_length, Val(Symbol(mutation_type)))
     end
 
     function append_unique_novel!(

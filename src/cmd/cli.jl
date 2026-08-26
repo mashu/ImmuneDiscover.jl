@@ -65,23 +65,41 @@ module Cli
         return s
     end
 
-    const CLI_SETTINGS = Ref{Any}()
+    const CLI_SETTINGS = Ref{Any}(nothing)
 
-    function stamp_cli_identity!(s)
-        label = "$(software_version()) (git $(software_git_hash()))"
+    function argparse_settings!(; exit_after_help::Bool, git_label::Bool=false)
+        s = CLI_SETTINGS[]
+        if s === nothing
+            s = build_argparse_settings()
+            CLI_SETTINGS[] = s
+        end
+        s.exit_after_help = exit_after_help
+        return stamp_cli_identity!(s, Val(git_label))
+    end
+
+    "Drop the cached ArgParse schema so a precompile image does not serialize it."
+    function reset_cli_settings!()
+        CLI_SETTINGS[] = nothing
+        return nothing
+    end
+
+    cli_has_flag(args, flag::AbstractString) = any(==(flag), args)
+    cli_wants_version(args) = cli_has_flag(args, "--version") || cli_has_flag(args, "-V")
+    cli_is_help_or_version(args) =
+        cli_wants_version(args) || cli_has_flag(args, "--help") || cli_has_flag(args, "-h")
+
+    stamp_cli_identity!(s, ::Val{false}) = stamp_cli_identity_label!(s, software_version())
+    stamp_cli_identity!(s, ::Val{true}) =
+        stamp_cli_identity_label!(s, "$(software_version()) (git $(software_git_hash()))")
+    function stamp_cli_identity_label!(s, label::AbstractString)
         s.version = label
         s.epilog = "GKHLab, $label"
         return s
     end
 
-    function argparse_settings!(; exit_after_help::Bool)
-        if !isassigned(CLI_SETTINGS)
-            CLI_SETTINGS[] = build_argparse_settings()
-        end
-        s = CLI_SETTINGS[]
-        s.exit_after_help = exit_after_help
-        return stamp_cli_identity!(s)
-    end
+    log_cli_invocation(args::Vector{String}) = log_cli_invocation(Val(cli_is_help_or_version(args)), args)
+    log_cli_invocation(::Val{true}, _) = nothing
+    log_cli_invocation(::Val{false}, args) = log_invocation(args)
 
     "Register the top-level command groups on the settings object."
     function add_command_groups!(s)
@@ -117,8 +135,8 @@ module Cli
         parse_commandline(String[a for a in args]; kwargs...)
 
     function parse_commandline(args::Vector{String}; exit_after_help::Bool=!isinteractive())
-        s = argparse_settings!(; exit_after_help=exit_after_help)
-        log_invocation(args)
+        s = argparse_settings!(; exit_after_help=exit_after_help, git_label=cli_wants_version(args))
+        log_cli_invocation(args)
 
         # CLI-boundary catch: ArgParse throws ArgParseError by design for invalid user input.
         try

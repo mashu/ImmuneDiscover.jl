@@ -341,6 +341,25 @@ test_outcomes = Dict(
         @test o.sequence[1] == "ACGTACGT"
     end
 
+    @testset "cli version and precompile" begin
+        @test Cli.software_version() == Cli.read_project_version()
+        @test occursin(r"^\d+\.\d+\.\d+$", Cli.software_version())
+        @test Cli.cli_wants_version(["--version"])
+        @test !Cli.cli_wants_version(["search", "exact", "a.tsv", "b.fa", "c.tsv"])
+        @test Cli.cli_is_help_or_version(["--help"])
+        @test !Cli.cli_is_help_or_version(["search", "exact", "a.tsv", "b.fa", "c.tsv"])
+        help = mktemp() do path, io
+            redirect_stdout(io) do
+                Cli.parse_commandline(String["--help"]; exit_after_help=false)
+            end
+            flush(io)
+            read(path, String)
+        end
+        @test occursin("search", help)
+        @test occursin("exact", help)
+        immunediscover.precompile_cli_workload!()
+    end
+
     @testset "hsmm collapse + posterior annotation" begin
         # Collapse represents each sequence by its best detection; count = detections clearing
         # min_posterior; the posterior threshold is annotated (not a silent pre-collapse drop).

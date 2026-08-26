@@ -139,10 +139,17 @@ module immunediscover
         return 0
     end
 
+    # Top-level --help/--version only. Tracing every subcommand or running handlers
+    # here produces a Julia 1.12 package image that fails to load.
     @setup_workload begin
-        root = precompile_fixture_dir()
         @compile_workload begin
-            precompile_cli_workload!(root)
+            redirect_stderr(devnull) do
+                redirect_stdout(devnull) do
+                    parse_commandline(String["--help"]; exit_after_help=false)
+                    parse_commandline(String["--version"]; exit_after_help=false)
+                end
+            end
         end
+        Cli.reset_cli_settings!()
     end
 end
