@@ -15,10 +15,6 @@ module Cli
     include("cli_version.jl")
     include("cli_blast_presets.jl")
     include("cli_command.jl")
-
-    # Per-group argument tables live alongside this file in src/cmd/ (one builder per
-    # command group). To add a new command: register it in add_command_groups! and add
-    # its `@add_arg_table! s[<group>][<name>]` block to the matching group file.
     include("preprocess.jl")
     include("discover.jl")
     include("search.jl")
@@ -46,7 +42,7 @@ module Cli
         return nothing
     end
 
-    "Build the ArgParse schema once. Version strings are stamped at parse time (no git at const-init)."
+    "Build the ArgParse schema. Version strings are stamped at parse time."
     function build_argparse_settings()
         s = ArgParseSettings("Tool for processing immune NGS data",
                             prog = "immunediscover",
@@ -65,114 +61,6 @@ module Cli
         add_fasta_args!(s)
         return s
     end
-
-    const CLI_SETTINGS = Ref{Any}(nothing)
-
-    function foreach_command_settings!(f, s)
-        f(s)
-        seen = Set{String}()
-        for cmd in COMMANDS
-            group, sub = cli_path(cmd)
-            if !(group in seen)
-                f(s[group])
-                push!(seen, group)
-            end
-            f(s[group][sub])
-        end
-        return nothing
-    end
-
-    function argparse_settings!(; exit_after_help::Bool, git_label::Bool=false)
-        s = CLI_SETTINGS[]
-        if s === nothing
-            s = build_argparse_settings()
-            CLI_SETTINGS[] = s
-        end
-        foreach_command_settings!(node -> (node.exit_after_help = exit_after_help), s)
-        return stamp_cli_identity!(s, Val(git_label))
-    end
-
-    const CLI_HELP_DIR = joinpath(dirname(dirname(@__DIR__)), "build", "help")
-
-    "Help-page stem: `root`, `search`, or `search-exact`."
-    function help_page_key(args::Vector{String})
-        parts = String[]
-        for a in args
-            (a == "--help" || a == "-h" || a == "--version" || a == "-V") && continue
-            push!(parts, a)
-        end
-        return isempty(parts) ? "root" : join(parts, "-")
-    end
-
-    function help_page_args()
-        pages = Vector{Vector{String}}()
-        push!(pages, String["--help"])
-        seen = Set{String}()
-        for cmd in COMMANDS
-            group, sub = cli_path(cmd)
-            if !(group in seen)
-                push!(pages, String[group, "--help"])
-                push!(seen, group)
-            end
-            push!(pages, String[group, sub, "--help"])
-        end
-        return pages
-    end
-
-    function help_settings_for(args::Vector{String})
-        s = argparse_settings!(; exit_after_help=false, git_label=false)
-        node = s
-        for a in args
-            (a == "--help" || a == "-h" || a == "--version" || a == "-V") && continue
-            node = node[a]
-        end
-        return node
-    end
-
-    function capture_cli_help(args::Vector{String})
-        s = help_settings_for(args)
-        sprint() do io
-            ArgParse.show_help(io, s; exit_when_done=false)
-        end
-    end
-
-    """
-        write_cli_help_pages!(dir=CLI_HELP_DIR)
-
-    Write ArgParse `--help` text for every command. `scripts/run.sh` regenerates this
-    cache when `src/cmd/` is newer; the files are gitignored under `build/help/`.
-    """
-    function write_cli_help_pages!(dir::AbstractString=CLI_HELP_DIR)
-        mkpath(dir)
-        for args in help_page_args()
-            write(joinpath(dir, help_page_key(args) * ".txt"), capture_cli_help(args))
-        end
-        return dir
-    end
-
-    "Drop the cached ArgParse schema so a precompile image does not serialize it."
-    function reset_cli_settings!()
-        CLI_SETTINGS[] = nothing
-        return nothing
-    end
-
-    cli_has_flag(args, flag::AbstractString) = any(==(flag), args)
-    cli_wants_version(args) = cli_has_flag(args, "--version") || cli_has_flag(args, "-V")
-    cli_is_help_or_version(args) =
-        cli_wants_version(args) || cli_has_flag(args, "--help") || cli_has_flag(args, "-h")
-
-    stamp_cli_identity!(s, ::Val{false}) = stamp_cli_identity_label!(s, software_version())
-    stamp_cli_identity!(s, ::Val{true}) =
-        stamp_cli_identity_label!(s, "$(software_version()) (git $(software_git_hash()))")
-    function stamp_cli_identity_label!(s, label::AbstractString)
-        s.version = label
-        s.epilog = "GKHLab, $label"
-        return s
-    end
-
-    log_cli_invocation(args::Vector{String}) = log_cli_invocation(Val(cli_is_help_or_version(args)), args)
-    log_cli_invocation(::Val{true}, _) = nothing
-    log_cli_invocation(::Val{false}, args) = log_invocation(args)
 
     "Register the top-level command groups on the settings object."
     function add_command_groups!(s)
@@ -200,6 +88,81 @@ module Cli
     end
 
     """
+        cli_help_pages()
+
+    Root, each group, and each subcommand as `(name, argv)` in tree order.
+    Cache files are `name.txt`; `argv` is the ArgParse `--help` invocation.
+    """
+    function cli_help_pages()
+        pages = @NamedTuple{name::String, args::Vector{String}}[]
+        push!(pages, (name="root", args=String["--help"]))
+        seen = Set{String}()
+        for cmd in COMMANDS
+            group, sub = cli_path(cmd)
+            if !(group in seen)
+                push!(pages, (name=group, args=String[group, "--help"]))
+                push!(seen, group)
+            end
+            push!(pages, (name="$group-$sub", args=String[group, sub, "--help"]))
+        end
+        return pages
+    end
+
+    function argparse_node(settings::ArgParseSettings, args)
+        node = settings
+        for a in args
+            (a == "--help" || a == "-h") && continue
+            node = node[a]
+        end
+        return node
+    end
+
+    """
+        argparse_named_nodes(settings)
+
+    Root, each group, and each subcommand as `(cache_name => node)` in tree order.
+    Nested ArgParse tables copy `exit_after_help` at construction; callers that
+    change the flag must apply it to every node.
+    """
+    function argparse_named_nodes(settings::ArgParseSettings)
+        return [page.name => argparse_node(settings, page.args) for page in cli_help_pages()]
+    end
+
+    cli_has_flag(args, flag::AbstractString) = any(==(flag), args)
+    cli_wants_version(args) = cli_has_flag(args, "--version") || cli_has_flag(args, "-V")
+    cli_is_help_or_version(args) =
+        cli_wants_version(args) || cli_has_flag(args, "--help") || cli_has_flag(args, "-h")
+
+    stamp_cli_identity!(s, ::Val{false}) = stamp_cli_identity_label!(s, software_version())
+    stamp_cli_identity!(s, ::Val{true}) =
+        stamp_cli_identity_label!(s, software_version_label())
+    function stamp_cli_identity_label!(s, label::AbstractString)
+        s.version = label
+        s.epilog = "GKHLab, $label"
+        return s
+    end
+
+    function apply_parse_options!(settings::ArgParseSettings; exit_after_help::Bool, git_label::Bool=false)
+        for (_, node) in argparse_named_nodes(settings)
+            node.exit_after_help = exit_after_help
+        end
+        return stamp_cli_identity!(settings, Val(git_label))
+    end
+
+    const CLI_SETTINGS = Ref{ArgParseSettings}()
+
+    function argparse_settings!(; exit_after_help::Bool, git_label::Bool=false)
+        if !isassigned(CLI_SETTINGS)
+            CLI_SETTINGS[] = build_argparse_settings()
+        end
+        return apply_parse_options!(CLI_SETTINGS[]; exit_after_help, git_label)
+    end
+
+    log_cli_invocation(args::Vector{String}) = log_cli_invocation(Val(cli_is_help_or_version(args)), args)
+    log_cli_invocation(::Val{true}, _) = nothing
+    log_cli_invocation(::Val{false}, args) = log_invocation(args)
+
+    """
         parse_commandline(args)
 
     Handle command line. The ArgParse schema is built once per process and reused.
@@ -221,4 +184,6 @@ module Cli
 
     handle_parse_error(e::ArgParseError, s) = (println(e); ArgParse.show_help(s); nothing)
     handle_parse_error(e, _) = rethrow(e)
+
+    include("cli_help.jl")
 end

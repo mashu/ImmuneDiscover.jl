@@ -59,13 +59,11 @@ changing source or `Manifest.toml`. This is CPU-native and not for distributing 
 
 ## How it works
 
-1. **PrecompileTools `@compile_workload`** (in `src/immunediscover.jl`) traces top-level `--help` and `--version` during `Pkg.precompile` so those paths are native code in the package image. A larger fixture CLI is not used here: on Julia 1.12 it yields a cache that fails to load.
+1. **PrecompileTools `@compile_workload`** (in `src/immunediscover.jl`) traces top-level `--help` and `--version` on a throwaway ArgParse tree during `Pkg.precompile`. A larger fixture CLI is not used here: on Julia 1.12 it yields a cache that fails to load.
 2. **PackageCompiler `create_sysimage`** (`scripts/build_sysimage.sh`) bakes the package and every dependency into `build/immunediscover.so` for fast `scripts/run.sh` on this machine.
 3. **PackageCompiler `create_app`** with `scripts/precompile_workload.jl` bakes handlers into a relocatable sysimage. After the build, a shell wrapper around the trampoline serves `--help` / `--version` from ArgParse pages generated into `build/help/` so those paths do not load the sysimage.
 
-### Juliac.jl
-
-[Juliac](https://github.com/JuliaLang/Juliac.jl) is a CLI in front of PackageCompiler, plus optional `--trim` on Julia 1.12+ to drop unreachable code. **`--trim` does not work for this package.** Trim needs the compiler to see every call from `@main`. DataFrames, CSV, ArgParse, and UnicodePlots are deliberately type-unstable (dynamic column schemas, argparse tables). Juliac then fails with verifier errors such as unresolved `DataFrames` calls. Without `--trim`, Juliac produces the same class of large bundled executable as `create_app` — which we already build. The package defines `@main` so an untrimmed Juliac frontend can be tried later; do not expect a small static binary until those dependencies themselves trim.
+[Juliac](https://github.com/JuliaLang/Juliac.jl) `--trim` cannot compile this stack: DataFrames, CSV, ArgParse, and UnicodePlots are type-unstable. Without `--trim`, Juliac is a PackageCompiler frontend; `create_app` already produces that binary.
 
 You can also run the app build step directly:
 

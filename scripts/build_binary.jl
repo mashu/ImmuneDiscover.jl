@@ -92,11 +92,11 @@ set -eu
 ROOT="\$(CDPATH= cd -- "\$(dirname "\$0")/.." && pwd)"
 HELP_DIR="\$ROOT/share/immunediscover/help"
 VERSION_FILE="\$ROOT/share/immunediscover/VERSION"
-print_cli_version() { cat "\$VERSION_FILE"; }
 . "\$ROOT/share/immunediscover/cli_fastpath.sh"
-if try_fast_help_or_version "\$@"; then
-    exit 0
-fi
+case "\${1:-}" in
+    --version|-V) cat "\$VERSION_FILE"; exit 0 ;;
+esac
+print_cached_help "\$@" && exit 0
 exec "\$ROOT/bin/immunediscover.bin" "\$@"
 """)
     chmod(trampoline, 0o755)

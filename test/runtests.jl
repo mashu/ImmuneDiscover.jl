@@ -341,38 +341,7 @@ test_outcomes = Dict(
         @test o.sequence[1] == "ACGTACGT"
     end
 
-    @testset "cli version and precompile" begin
-        @test Cli.software_version() == Cli.read_project_version()
-        @test occursin(r"^\d+\.\d+\.\d+$", Cli.software_version())
-        @test Cli.cli_wants_version(["--version"])
-        @test !Cli.cli_wants_version(["search", "exact", "a.tsv", "b.fa", "c.tsv"])
-        @test Cli.cli_is_help_or_version(["--help"])
-        @test !Cli.cli_is_help_or_version(["search", "exact", "a.tsv", "b.fa", "c.tsv"])
-        help = mktemp() do path, io
-            redirect_stdout(io) do
-                Cli.parse_commandline(String["--help"]; exit_after_help=false)
-            end
-            flush(io)
-            read(path, String)
-        end
-        @test occursin("search", help)
-        @test occursin("exact", help)
-        mktempdir() do help_dir
-            Cli.write_cli_help_pages!(help_dir)
-            for args in Cli.help_page_args()
-                page = joinpath(help_dir, Cli.help_page_key(args) * ".txt")
-                @test isfile(page)
-                @test read(page, String) == Cli.capture_cli_help(args)
-            end
-        end
-        run_sh = joinpath(@__DIR__, "..", "scripts", "run.sh")
-        fast_help = read(`$run_sh --help`, String)
-        @test occursin("search", fast_help)
-        @test occursin("exact", fast_help)
-        fast_exact = read(`$run_sh search exact --help`, String)
-        @test occursin("min-fullcount", fast_exact)
-        immunediscover.precompile_cli_workload!()
-    end
+    include("cli.jl")
 
     @testset "hsmm collapse + posterior annotation" begin
         # Collapse represents each sequence by its best detection; count = detections clearing

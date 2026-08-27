@@ -71,16 +71,8 @@ end
 
 "Subcommand --help paths for every registered command (ArgParse, no handler)."
 function cli_help_args()
-    args = [String["--help"], String["--version"]]
-    seen = Set{String}()
-    for cmd in Cli.COMMANDS
-        group, sub = Cli.cli_path(cmd)
-        if !(group in seen)
-            push!(args, String[group, "--help"])
-            push!(seen, group)
-        end
-        push!(args, String[group, sub, "--help"])
-    end
+    args = Cli.help_invocation_args()
+    pushfirst!(args, String["--version"])
     return args
 end
 

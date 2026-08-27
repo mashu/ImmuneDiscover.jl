@@ -94,7 +94,8 @@ module Simulate
         error("Unknown mutation type: $kind")
 
     function apply_random_mutation(seq::String, mutation_type::String, mutation_length::Int)
-        safe_start = 50  # legacy generator keeps mutations away from both ends
+        # Keep mutations off RSS flanks unless the sequence is too short.
+        safe_start = 50
         safe_end = min(length(seq) - 50, length(seq) - mutation_length)
         if safe_start >= safe_end
             safe_start = max(1, div(length(seq), 4))

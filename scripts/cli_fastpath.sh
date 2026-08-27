@@ -1,55 +1,37 @@
-# Instant --help / --version without starting Julia.
-# Source after setting HELP_DIR. Caller must define print_cli_version.
-# Usage: try_fast_help_or_version "$@" && exit 0
+# Map argv to cached ArgParse help files. Names match Cli.argparse_named_nodes:
+# root, <group>, <group>-<sub>. Caller sets HELP_DIR.
 
-wants_static_help() {
-    n=$#
-    if [ "$n" -eq 0 ]; then
-        return 0
-    fi
-    case "$1" in --help|-h) return 0 ;; esac
-    if [ "$n" -ge 2 ]; then
-        case "$2" in --help|-h) return 0 ;; esac
-    fi
-    if [ "$n" -ge 3 ]; then
-        case "$3" in --help|-h) return 0 ;; esac
-    fi
+is_help_flag() {
+    [ "$1" = "--help" ] || [ "$1" = "-h" ]
+}
+
+is_help_request() {
+    [ $# -eq 0 ] && return 0
+    is_help_flag "$1" && return 0
+    [ $# -ge 2 ] && is_help_flag "$2" && return 0
+    [ $# -ge 3 ] && is_help_flag "$3" && return 0
     return 1
 }
 
-try_fast_help_or_version() {
-    helpfile=""
-    n=$#
-
-    if [ "$n" -eq 0 ]; then
-        helpfile="$HELP_DIR/root.txt"
-    elif [ "$n" -eq 1 ]; then
-        case "$1" in
-            --version|-V) print_cli_version; return 0 ;;
-            --help|-h) helpfile="$HELP_DIR/root.txt" ;;
-        esac
-    elif [ "$n" -eq 2 ]; then
-        case "$1" in
-            --version|-V) print_cli_version; return 0 ;;
-            --help|-h) helpfile="$HELP_DIR/root.txt" ;;
-        esac
-        case "$2" in
-            --version|-V) print_cli_version; return 0 ;;
-            --help|-h) helpfile="$HELP_DIR/$1.txt" ;;
-        esac
-    elif [ "$n" -eq 3 ]; then
-        case "$1" in
-            --version|-V) print_cli_version; return 0 ;;
-            --help|-h) helpfile="$HELP_DIR/root.txt" ;;
-        esac
-        case "$3" in
-            --help|-h) helpfile="$HELP_DIR/$1-$2.txt" ;;
-        esac
+help_page_path() {
+    if [ $# -eq 0 ] || { [ $# -eq 1 ] && is_help_flag "$1"; }; then
+        printf '%s\n' "$HELP_DIR/root.txt"
+        return
     fi
-
-    if [ -n "${helpfile:-}" ] && [ -f "$helpfile" ]; then
-        cat "$helpfile"
-        return 0
+    if [ $# -eq 2 ] && is_help_flag "$2"; then
+        printf '%s\n' "$HELP_DIR/$1.txt"
+        return
     fi
-    return 1
+    if [ $# -eq 3 ] && is_help_flag "$3"; then
+        printf '%s\n' "$HELP_DIR/$1-$2.txt"
+        return
+    fi
+}
+
+print_cached_help() {
+    is_help_request "$@" || return 1
+    page=$(help_page_path "$@")
+    [ -n "$page" ] && [ -f "$page" ] || return 1
+    cat "$page"
+    return 0
 }

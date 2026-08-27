@@ -139,24 +139,16 @@ module immunediscover
         return 0
     end
 
-    # Juliac / `julia --startup-file=no` script entry. Same body as julia_main.
-    function (@main)(args::Vector{String})::Cint
-        empty!(ARGS)
-        append!(ARGS, args)
-        return julia_main()
-    end
-
-    # Top-level --help/--version only. Tracing every subcommand or running handlers
-    # here produces a Julia 1.12 package image that fails to load.
+    # Throwaway ArgParse tree: do not assign CLI_SETTINGS (that would serialize it
+    # into the package image). Only top-level help/version; a larger trace yields
+    # a Julia 1.12 image that fails to load.
     @setup_workload begin
         @compile_workload begin
             redirect_stderr(devnull) do
                 redirect_stdout(devnull) do
-                    parse_commandline(String["--help"]; exit_after_help=false)
-                    parse_commandline(String["--version"]; exit_after_help=false)
+                    Cli.trace_cli_help_parse!()
                 end
             end
         end
-        Cli.reset_cli_settings!()
     end
 end

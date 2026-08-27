@@ -8,7 +8,11 @@ contains the algorithms and has *no* dependency on ArgParse.
 src/
 ├── immunediscover.jl     # top module: includes everything, routes subcommands to handlers
 ├── cmd/                  # ← you are here: the command/CLI layer
-│   ├── cli.jl            #    Cli module: ArgParseSettings skeleton, presets, parse_commandline
+│   ├── cli.jl            #    Cli module: argparse tree, parse_commandline, dispatch
+│   ├── cli_command.jl    #    Command singletons + command_for
+│   ├── cli_version.jl    #    version from Project.toml (+ git hash for --version)
+│   ├── cli_blast_presets.jl
+│   ├── cli_help.jl       #    ArgParse help text + gitignored cache under build/help/
 │   ├── preprocess.jl     #    arg tables for the `preprocess` group
 │   ├── discover.jl       #    arg tables for the `discover` group (blast, hsmm)
 │   ├── search.jl         #    arg tables for the `search` group (exact, heptamer, bwa)
@@ -35,7 +39,7 @@ A **command** has three small parts that follow the same skeleton everywhere:
    end
    ```
 
-2. **Command identity** — a singleton type in `cli.jl`, dispatched on rather than looked up:
+2. **Command identity** — a singleton type in `cli_command.jl`, dispatched on rather than looked up:
 
    ```julia
    struct SearchExact <: Command end
@@ -55,14 +59,18 @@ no boxed closures. The only run-time step is `Cli.command_for`, which maps the p
 `(group, subcommand)` strings to the matching singleton once per invocation; every call
 after that is statically dispatched and precompilable.
 
+Help text is ArgParse `show_help`, cached as `build/help/<name>.txt` (`root`, `<group>`,
+`<group>-<sub>`). `scripts/run.sh` prints those files for `--help` so Julia does not start.
+The cache is regenerated when `src/cmd/*.jl` or `Project.toml` is newer.
+
 ## Adding a new subcommand
 
 1. If it's a new group, declare the group in `cli.jl :: add_command_groups!`; add a
    `"<name>" … action = :command` entry to the group list in `add_<group>_args!(s)` and the
    subcommand's `@add_arg_table! s["<group>"]["<name>"] begin … end` block there.
-2. In `cli.jl`: add a `struct <Name> <: Command end`, a `cli_path(::<Name>)` method, and the
-   instance to `COMMANDS`.
+2. In `cli_command.jl`: add a `struct <Name> <: Command end`, a `cli_path(::<Name>)` method,
+   and the instance to `COMMANDS`.
 3. In `src/immunediscover.jl`: add `Cli.run_command(::Cli.<Name>, pa) = <Module>.handle_<name>(…)`,
    and write `handle_<name>` in the library module (glue only: parse args → call library →
    write output). `scripts/run.sh` regenerates ArgParse help pages under `build/help/` on the
-   next `--help` (gitignored).
+   next `--help`.

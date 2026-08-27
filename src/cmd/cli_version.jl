@@ -6,10 +6,11 @@ const project_toml = abspath(joinpath(@__DIR__, "..", "..", "Project.toml"))
 
 function run_git_or_unknown(args::Cmd)
     Sys.which("git") === nothing && return "unknown"
-    proc = run(pipeline(args, stderr=devnull), wait=false)
+    buf = IOBuffer()
+    proc = run(pipeline(args, stdout=buf, stderr=devnull); wait=false)
     wait(proc)
     success(proc) || return "unknown"
-    return strip(read(args, String))
+    return strip(String(take!(buf)))
 end
 
 "Read `version` from the package Project.toml; empty when unavailable."
@@ -36,7 +37,9 @@ end
 
 function software_git_hash()
     if isempty(hash_cache[])
-        hash_cache[] = run_git_or_unknown(`git -C $(@__DIR__) rev-parse HEAD`)
+        hash_cache[] = run_git_or_unknown(`git -C $(dirname(project_toml)) rev-parse HEAD`)
     end
     return hash_cache[]
 end
+
+software_version_label() = "$(software_version()) (git $(software_git_hash()))"
