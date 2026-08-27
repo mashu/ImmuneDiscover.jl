@@ -64,4 +64,5 @@ after that is statically dispatched and precompilable.
    instance to `COMMANDS`.
 3. In `src/immunediscover.jl`: add `Cli.run_command(::Cli.<Name>, pa) = <Module>.handle_<name>(…)`,
    and write `handle_<name>` in the library module (glue only: parse args → call library →
-   write output).
+   write output). `scripts/run.sh` regenerates ArgParse help pages under `build/help/` on the
+   next `--help` (gitignored).

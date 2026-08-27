@@ -19,3 +19,4 @@
 test/heptamers.json
 docs/Manifest.toml
 build/*
+/src/cmd/help/

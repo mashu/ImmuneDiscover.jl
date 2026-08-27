@@ -139,6 +139,13 @@ module immunediscover
         return 0
     end
 
+    # Juliac / `julia --startup-file=no` script entry. Same body as julia_main.
+    function (@main)(args::Vector{String})::Cint
+        empty!(ARGS)
+        append!(ARGS, args)
+        return julia_main()
+    end
+
     # Top-level --help/--version only. Tracing every subcommand or running handlers
     # here produces a Julia 1.12 package image that fails to load.
     @setup_workload begin

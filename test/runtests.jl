@@ -357,6 +357,20 @@ test_outcomes = Dict(
         end
         @test occursin("search", help)
         @test occursin("exact", help)
+        mktempdir() do help_dir
+            Cli.write_cli_help_pages!(help_dir)
+            for args in Cli.help_page_args()
+                page = joinpath(help_dir, Cli.help_page_key(args) * ".txt")
+                @test isfile(page)
+                @test read(page, String) == Cli.capture_cli_help(args)
+            end
+        end
+        run_sh = joinpath(@__DIR__, "..", "scripts", "run.sh")
+        fast_help = read(`$run_sh --help`, String)
+        @test occursin("search", fast_help)
+        @test occursin("exact", fast_help)
+        fast_exact = read(`$run_sh search exact --help`, String)
+        @test occursin("min-fullcount", fast_exact)
         immunediscover.precompile_cli_workload!()
     end
 

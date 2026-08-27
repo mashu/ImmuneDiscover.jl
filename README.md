@@ -48,8 +48,12 @@ documentation lives under [`docs/`](docs/src) and the
 ## From source
 
 ```bash
-# Run without building (uses the project environment)
+# Run without building (uses the project environment). `--help` / `--version` are instant.
+./scripts/run.sh --help
 ./scripts/run.sh preprocess demultiplex reads.fastq.gz indices.tsv demux.tsv.gz
+
+# Compile package + dependencies into a local sysimage (fast real commands)
+./scripts/build_sysimage.sh
 
 # Run the test suite
 julia --project -e 'using Pkg; Pkg.test()'

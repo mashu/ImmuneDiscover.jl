@@ -49,6 +49,7 @@ module Cli
     "Build the ArgParse schema once. Version strings are stamped at parse time (no git at const-init)."
     function build_argparse_settings()
         s = ArgParseSettings("Tool for processing immune NGS data",
+                            prog = "immunediscover",
                             commands_are_required = true,
                             version = "",
                             add_version = true,
@@ -67,14 +68,86 @@ module Cli
 
     const CLI_SETTINGS = Ref{Any}(nothing)
 
+    function foreach_command_settings!(f, s)
+        f(s)
+        seen = Set{String}()
+        for cmd in COMMANDS
+            group, sub = cli_path(cmd)
+            if !(group in seen)
+                f(s[group])
+                push!(seen, group)
+            end
+            f(s[group][sub])
+        end
+        return nothing
+    end
+
     function argparse_settings!(; exit_after_help::Bool, git_label::Bool=false)
         s = CLI_SETTINGS[]
         if s === nothing
             s = build_argparse_settings()
             CLI_SETTINGS[] = s
         end
-        s.exit_after_help = exit_after_help
+        foreach_command_settings!(node -> (node.exit_after_help = exit_after_help), s)
         return stamp_cli_identity!(s, Val(git_label))
+    end
+
+    const CLI_HELP_DIR = joinpath(dirname(dirname(@__DIR__)), "build", "help")
+
+    "Help-page stem: `root`, `search`, or `search-exact`."
+    function help_page_key(args::Vector{String})
+        parts = String[]
+        for a in args
+            (a == "--help" || a == "-h" || a == "--version" || a == "-V") && continue
+            push!(parts, a)
+        end
+        return isempty(parts) ? "root" : join(parts, "-")
+    end
+
+    function help_page_args()
+        pages = Vector{Vector{String}}()
+        push!(pages, String["--help"])
+        seen = Set{String}()
+        for cmd in COMMANDS
+            group, sub = cli_path(cmd)
+            if !(group in seen)
+                push!(pages, String[group, "--help"])
+                push!(seen, group)
+            end
+            push!(pages, String[group, sub, "--help"])
+        end
+        return pages
+    end
+
+    function help_settings_for(args::Vector{String})
+        s = argparse_settings!(; exit_after_help=false, git_label=false)
+        node = s
+        for a in args
+            (a == "--help" || a == "-h" || a == "--version" || a == "-V") && continue
+            node = node[a]
+        end
+        return node
+    end
+
+    function capture_cli_help(args::Vector{String})
+        s = help_settings_for(args)
+        sprint() do io
+            ArgParse.show_help(io, s; exit_when_done=false)
+        end
+    end
+
+    """
+        write_cli_help_pages!(dir=CLI_HELP_DIR)
+
+    Write ArgParse `--help` text for every command. `scripts/run.sh` regenerates this
+    cache when `src/cmd/` is newer; the files are gitignored under `build/help/`.
+    """
+    function write_cli_help_pages!(dir::AbstractString=CLI_HELP_DIR)
+        mkpath(dir)
+        for args in help_page_args()
+            write(joinpath(dir, help_page_key(args) * ".txt"), capture_cli_help(args))
+        end
+        return dir
     end
 
     "Drop the cached ArgParse schema so a precompile image does not serialize it."
